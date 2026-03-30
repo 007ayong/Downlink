@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Downlink</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #f5f4f0;
+      --bg2:       #ffffff;
+      --bg3:       #eeede9;
+      --bg4:       #e6e5e1;
+      --border:    #dddcda;
+      --text:      #1c1b19;
+      --text-2:    #5a5955;
+      --text-3:    #9b9a97;
+      --accent:    #e05c2a;
+      --accent-bg: #fdf0eb;
+      --accent-bd: #f5c8b4;
+      --green:     #2a9d5c;
+      --green-bg:  #edf7f2;
+      --green-bd:  #a8dfc0;
+      --blue:      #2563eb;
+      --blue-bg:   #eff4ff;
+      --blue-bd:   #bfcffd;
+      --red:       #dc2626;
+      --red-bg:    #fff1f1;
+      --yellow:    #d97706;
+      --yellow-bg: #fffbeb;
+      --radius:    9px;
+      --shadow:    0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    body {
+      width: 400px;
+      min-height: 80px;
+      max-height: 560px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Sora', sans-serif;
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ──────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 13px 14px 11px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .logo {
+      width: 26px; height: 26px;
+      background: var(--accent-bg);
+      border-radius: 7px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(28,27,25,0.08);
+      overflow: hidden;
+    }
+    .logo img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+      border-radius: 7px;
+    }
+    .header-info { flex: 1; }
+    .header-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+    .header-status {
+      font-size: 11px;
+      color: var(--text-3);
+      margin-top: 1px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--text-3);
+      flex-shrink: 0;
+    }
+    .status-dot.online { background: var(--green); box-shadow: 0 0 5px var(--green); }
+    .status-dot.offline { background: var(--red); }
+    .header-actions {
+      display: flex; gap: 5px; align-items: center;
+    }
+    .icon-btn {
+      width: 28px; height: 28px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      border-radius: 7px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px;
+      color: var(--text-2);
+      transition: all 0.15s;
+    }
+    .icon-btn:hover { background: var(--bg3); border-color: var(--text-3); }
+
+    /* ── Tabs ────────────────────────────────── */
+    .tabs {
+      display: flex;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      padding: 0 14px;
+      gap: 2px;
+    }
+    .tab {
+      font-size: 11.5px;
+      font-weight: 500;
+      padding: 8px 10px 7px;
+      cursor: pointer;
+      color: var(--text-3);
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+      display: flex; align-items: center; gap: 5px;
+      white-space: nowrap;
+    }
+    .tab:hover { color: var(--text-2); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-badge {
+      background: var(--accent);
+      color: white;
+      font-size: 9px;
+      font-weight: 600;
+      padding: 1px 5px;
+      border-radius: 10px;
+      min-width: 16px;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    /* ── Scroll Area ─────────────────────────── */
+    .panel {
+      overflow-y: auto;
+      flex: 1;
+      padding: 10px 12px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--bg4) transparent;
+      display: none;
+    }
+    .panel.active { display: block; }
+    .panel::-webkit-scrollbar { width: 4px; }
+    .panel::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 4px; }
+
+    /* ── Empty ───────────────────────────────── */
+    .empty {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 32px 20px; gap: 8px;
+      color: var(--text-3); text-align: center;
+    }
+    .empty-icon {
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.7;
+    }
+    .empty-icon img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+    }
+    .empty-icon.emoji {
+      font-size: 32px;
+    }
+    .empty-title { font-size: 12px; font-weight: 500; color: var(--text-3); }
+    .empty-sub { font-size: 11px; }
+
+    .toast {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(28, 27, 25, 0.94);
+      color: #fff;
+      font-size: 11.5px;
+      line-height: 1.45;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.18);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(6px);
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      z-index: 20;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── Pending Card (confirm dialog) ──────── */
+    .pending-card {
+      background: var(--bg2);
+      border: 1px solid var(--accent-bd);
+      border-radius: var(--radius);
+      padding: 12px;
+      margin-bottom: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .pending-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--accent);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .pending-label::before {
+      content: '';
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    .pending-url {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      color: var(--text-2);
+      word-break: break-all;
+      background: var(--bg3);
+      padding: 7px 9px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      margin-bottom: 8px;
+      line-height: 1.5;
+      max-height: 56px;
+      overflow: hidden;
+    }
+    .pending-filename-row {
+      display: flex; gap: 6px; align-items: center;
+      margin-bottom: 9px;
+    }
+    .pending-filename-row label {
+      font-size: 11px; color: var(--text-3); white-space: nowrap;
+    }
+    .pending-filename-row input {
+      flex: 1;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .pending-filename-row input:focus { border-color: var(--accent); }
+
+    .pending-actions {
+      display: flex; gap: 6px;
+    }
+    .btn {
+      flex: 1; padding: 7px 0;
+      font-size: 12px; font-weight: 500;
+      font-family: 'Sora', sans-serif;
+      border-radius: 7px; cursor: pointer;
+      border: 1px solid;
+      transition: all 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+    }
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+    .btn-primary:hover { background: #c94e23; border-color: #c94e23; }
+    .btn-ghost {
+      background: var(--bg);
+      border-color: var(--border);
+      color: var(--text-2);
+    }
+    .btn-ghost:hover { background: var(--bg3); border-color: var(--text-3); }
+    .btn-danger {
+      background: var(--red-bg);
+      border-color: #fca5a5;
+      color: var(--red);
+    }
+    .btn-danger:hover { background: #fee2e2; }
+
+    /* ── Task Card ───────────────────────────── */
+    .task-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 11px 12px;
+      margin-bottom: 7px;
+      box-shadow: var(--shadow);
+    }
+    .task-card.active  { border-left: 3px solid var(--blue); }
+    .task-card.complete { border-left: 3px solid var(--green); }
+    .task-card.error   { border-left: 3px solid var(--red); }
+    .task-card.paused  { border-left: 3px solid var(--yellow); }
+
+    .task-top {
+      display: flex; gap: 9px; align-items: flex-start;
+      margin-bottom: 8px;
+    }
+    .task-icon {
+      width: 30px; height: 30px;
+      border-radius: 7px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+      flex-shrink: 0;
+    }
+    .task-info { flex: 1; min-width: 0; }
+    .task-name {
+      font-size: 12px; font-weight: 500;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      color: var(--text);
+    }
+    .task-meta {
+      display: flex; gap: 8px;
+      font-size: 10.5px;
+      color: var(--text-3);
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 2px;
+      flex-wrap: wrap;
+    }
+    .state-pill {
+      font-size: 10px; font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 20px;
+      flex-shrink: 0;
+      border: 1px solid;
+    }
+    .state-active   { background: var(--blue-bg); color: var(--blue); border-color: var(--blue-bd); }
+    .state-complete { background: var(--green-bg); color: var(--green); border-color: var(--green-bd); }
+    .state-error    { background: var(--red-bg); color: var(--red); border-color: #fca5a5; }
+    .state-paused   { background: var(--yellow-bg); color: var(--yellow); border-color: #fcd34d; }
+    .state-waiting  { background: var(--bg3); color: var(--text-3); border-color: var(--border); }
+
+    /* Progress */
+    .task-progress { margin-bottom: 8px; }
+    .progress-track {
+      height: 3px;
+      background: var(--bg3);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 3px;
+    }
+    .progress-fill.active   { background: linear-gradient(90deg, var(--blue), #60a5fa); }
+    .progress-fill.complete { background: linear-gradient(90deg, var(--green), #34d399); }
+    .progress-fill.error    { background: var(--red); }
+    .progress-fill.paused   { background: var(--yellow); }
+
+    .progress-row {
+      display: flex; justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; color: var(--text-3);
+      margin-top: 4px;
+    }
+    .progress-pct { font-weight: 500; color: var(--text-2); }
+
+    /* Task actions */
+    .task-actions { display: flex; gap: 5px; }
+    .task-btn {
+      flex: 1; padding: 5px 0;
+      font-size: 11px;
+      font-family: 'Sora', sans-serif;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-2);
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 3px;
+      transition: all 0.15s;
+    }
+    .task-btn:hover { background: var(--bg3); border-color: var(--text-3); color: var(--text); }
+    .task-btn.danger:hover { border-color: var(--red); color: var(--red); background: var(--red-bg); }
+
+    /* ── Media Panel ─────────────────────────── */
+    .media-toolbar,
+    .media-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .media-toolbar {
+      padding: 11px 12px;
+      margin-bottom: 8px;
+    }
+    .media-toolbar-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .media-toolbar-title {
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .media-toolbar-sub {
+      font-size: 10.5px;
+      color: var(--text-3);
+      line-height: 1.5;
+    }
+    .media-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .media-card {
+      padding: 11px 12px;
+    }
+    .media-top {
+      display: flex;
+      gap: 9px;
+      align-items: flex-start;
+    }
+    .media-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 7px;
+      background: var(--accent-bg);
+      border: 1px solid var(--accent-bd);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      flex-shrink: 0;
+    }
+    .media-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .media-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .media-url {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-3);
+      margin-top: 3px;
+      word-break: break-all;
+      line-height: 1.45;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .media-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 7px;
+    }
+    .media-chip {
+      font-size: 10px;
+      line-height: 1.2;
+      padding: 3px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-2);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .media-chip.kind-video {
+      background: var(--blue-bg);
+      border-color: var(--blue-bd);
+      color: var(--blue);
+    }
+    .media-chip.kind-audio {
+      background: var(--green-bg);
+      border-color: var(--green-bd);
+      color: var(--green);
+    }
+    .media-actions {
+      display: flex;
+      gap: 5px;
+      margin-top: 10px;
+    }
+    .media-preview {
+      margin-top: 9px;
+      display: none;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #000;
+    }
+    .media-preview.active {
+      display: block;
+    }
+    .media-preview video,
+    .media-preview audio {
+      width: 100%;
+      display: block;
+      background: #000;
+    }
+    .media-preview video {
+      max-height: 180px;
+      object-fit: contain;
+    }
+    .media-preview audio {
+      height: 54px;
+      background: var(--bg2);
+    }
+
+    /* ── Settings Panel ──────────────────────── */
+    .settings-group {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .settings-group-title {
+      font-size: 10.5px; font-weight: 600;
+      color: var(--text-3);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 9px 12px 7px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg3);
+    }
+    .settings-row {
+      display: flex; align-items: center;
+      padding: 9px 12px;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .settings-row:last-child { border-bottom: none; }
+    .settings-row label {
+      flex: 1; font-size: 12px; color: var(--text);
+    }
+    .settings-row .settings-sub {
+      font-size: 10.5px; color: var(--text-3);
+      display: block; margin-top: 1px;
+    }
+    .settings-input {
+      width: 160px;
+      font-size: 11.5px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .settings-input:focus { border-color: var(--accent); }
+    .settings-input.wide { width: 100%; margin-top: 4px; }
+    .settings-row.col { flex-direction: column; align-items: stretch; }
+    .settings-hidden { display: none; }
+
+    /* Toggle */
+    .toggle {
+      position: relative;
+      width: 36px; height: 20px; flex-shrink: 0;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .toggle-track {
+      position: absolute; inset: 0;
+      background: var(--bg4);
+      border-radius: 20px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle input:checked + .toggle-track { background: var(--accent); }
+    .toggle-track::after {
+      content: '';
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: white;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      transition: transform 0.2s;
+    }
+    .toggle input:checked + .toggle-track::after { transform: translateX(16px); }
+
+    /* Test connection result */
+    .conn-result {
+      font-size: 11px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      margin-top: 6px;
+      display: none;
+    }
+    .conn-result.ok { background: var(--green-bg); color: var(--green); display: block; }
+    .conn-result.fail { background: var(--red-bg); color: var(--red); display: block; }
+
+    /* Save settings btn */
+    .save-settings-btn {
+      width: 100%;
+      padding: 9px 0;
+      background: var(--text);
+      border: none;
+      border-radius: 7px;
+      color: var(--bg2);
+      font-size: 13px;
+      font-weight: 500;
+      font-family: 'Sora', sans-serif;
+      cursor: pointer;
+      margin-top: 2px;
+      transition: background 0.15s;
+    }
+    .save-settings-btn:hover { background: #333; }
+
+    /* ── Footer ──────────────────────────────── */
+    .footer {
+      padding: 7px 14px;
+      border-top: 1px solid var(--border);
+      background: var(--bg2);
+      display: flex; justify-content: space-between; align-items: center;
+      flex-shrink: 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      color: var(--text-3);
+    }
+    .footer span { color: var(--text-2); }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="logo">
+    <img id="headerLogo" src="icons/icon48.png" alt="Downlink logo"/>
+  </div>
+  <div class="header-info">
+    <div class="header-title">Downlink</div>
+    <div class="header-status">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">检测中…</span>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="icon-btn" id="refreshBtn" title="刷新">↻</button>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab active" data-tab="tasks">
+    任务
+    <span class="tab-badge" id="pendingBadge" style="display:none">0</span>
+  </div>
+  <div class="tab" data-tab="media">
+    🎞 媒体
+    <span class="tab-badge" id="mediaBadge" style="display:none">0</span>
+  </div>
+  <div class="tab" data-tab="settings">⚙ 设置</div>
+</div>
+
+<!-- Panel: Tasks -->
+<div class="panel active" id="panel-tasks">
+  <div class="empty" id="tasksEmpty">
+    <div class="empty-icon">
+      <img src="assets/null.png" alt="暂无下载任务"/>
+    </div>
+    <div class="empty-title">暂无下载任务</div>
+    <div class="empty-sub">拦截到下载链接后将显示在此处</div>
+  </div>
+  <div id="pendingList"></div>
+  <div id="taskList"></div>
+</div>
+
+<!-- Panel: Media -->
+<div class="panel" id="panel-media">
+  <div class="media-toolbar">
+    <div class="media-toolbar-top">
+      <div class="media-toolbar-title">当前页面媒体资源</div>
+      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 12px" id="clearMediaBtn">清空</button>
+    </div>
+    <div class="media-toolbar-sub" id="mediaSummary">等待页面发起音视频请求…</div>
+  </div>
+  <div class="empty" id="mediaEmpty">
+    <div class="empty-icon emoji">🎧</div>
+    <div class="empty-title">暂无直链媒体</div>
+    <div class="empty-sub">打开页面中的音频或视频后会显示在这里</div>
+  </div>
+  <div class="media-list" id="mediaList"></div>
+</div>
+
+<!-- Panel: Settings -->
+<div class="panel" id="panel-settings">
+  <div class="settings-group">
+    <div class="settings-group-title">下载器</div>
+    <div class="settings-row col">
+      <label>目标下载器 <span class="settings-sub">按设置切换到不同下载器适配器</span></label>
+      <select class="settings-input wide" id="cfgDownloaderType">
+        <option value="aria2">Aria2 RPC</option>
+        <option value="abdownload">AB Download</option>
+        <option value="neatdm">NeatDM</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="settings-group">
+    <div class="settings-group-title">配置信息</div>
+    <div class="settings-row col aria2-only">
+      <label>RPC 地址 <span class="settings-sub">默认 http://localhost:6800/jsonrpc</span></label>
+      <input class="settings-input wide" id="cfgRpc" type="text" placeholder="http://localhost:6800/jsonrpc"/>
+    </div>
+    <div class="settings-row col aria2-only">
+      <label>RPC 密钥 <span class="settings-sub">aria2c --rpc-secret 设置的密钥</span></label>
+      <input class="settings-input wide" id="cfgSecret" type="password" placeholder="留空则不使用"/>
+    </div>
+    <div class="settings-row aria2-only">
+      <label style="flex:1">
+        <div style="margin-bottom:4px">测试连接</div>
+        <div class="conn-result" id="connResult"></div>
+      </label>
+      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="testConnBtn">测试</button>
+    </div>
+    <div class="settings-row col aria2-only">
+      <label>默认保存目录 <span class="settings-sub">留空则由 aria2 决定</span></label>
+      <input class="settings-input wide" id="cfgSaveDir" type="text" placeholder="/Downloads"/>
+    </div>
+    <div class="settings-row col launcher-only settings-hidden">
+      <label>下载器名称 <span class="settings-sub">用于界面显示，例如 AB Download</span></label>
+      <input class="settings-input wide" id="cfgLauncherName" type="text" placeholder="AB Download"/>
+    </div>
+    <div class="settings-row col launcher-only settings-hidden">
+      <label>服务地址 <span class="settings-sub">AB Download 默认 localhost</span></label>
+      <input class="settings-input wide" id="cfgLauncherHost" type="text" placeholder="localhost"/>
+    </div>
+    <div class="settings-row col launcher-only settings-hidden">
+      <label>端口号 <span class="settings-sub">默认 15151</span></label>
+      <input class="settings-input wide" id="cfgLauncherPort" type="text" placeholder="15151"/>
+    </div>
+    <div class="settings-row col launcher-only settings-hidden">
+      <label>接口路径 <span class="settings-sub">推荐 /start-headless-download，可传文件名和目录；/add 仅传链接和请求头</span></label>
+      <input class="settings-input wide" id="cfgLauncherPath" type="text" placeholder="/start-headless-download"/>
+    </div>
+    <div class="settings-row launcher-only settings-hidden">
+      <label style="flex:1">
+        <div style="margin-bottom:4px">测试连接</div>
+        <div class="conn-result" id="connResultLauncher"></div>
+      </label>
+      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="testLauncherBtn">测试</button>
+    </div>
+    <div class="settings-row neatdm-only settings-hidden">
+      <label style="flex:1">
+        <div style="margin-bottom:4px">测试连接</div>
+        <div class="settings-sub">默认连接 `ws://127.0.0.1:10007/download`</div>
+        <div class="conn-result" id="connResultNeatdm"></div>
+      </label>
+      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="testNeatdmBtn">测试</button>
+    </div>
+  </div>
+
+  <div class="settings-group">
+    <div class="settings-group-title">拦截规则</div>
+    <div class="settings-row">
+      <label>自动拦截下载 <span class="settings-sub">接管浏览器下载并转交给当前下载器</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgAutoCapture"><div class="toggle-track"></div></label>
+    </div>
+    <div class="settings-row">
+      <label>下载前确认 <span class="settings-sub">拦截后弹窗询问是否发送</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgShowConfirm"><div class="toggle-track"></div></label>
+    </div>
+    <div class="settings-row col">
+      <label>拦截文件类型 <span class="settings-sub">逗号分隔，留空拦截所有</span></label>
+      <input class="settings-input wide" id="cfgExts" type="text" placeholder="zip,rar,mp4,exe..."/>
+    </div>
+  </div>
+
+  <div class="settings-group">
+    <div class="settings-group-title">通知</div>
+    <div class="settings-row">
+      <label>发送成功时通知</label>
+      <label class="toggle"><input type="checkbox" id="cfgNotification"><div class="toggle-track"></div></label>
+    </div>
+  </div>
+
+  <button class="save-settings-btn" id="saveSettingsBtn">保存设置</button>
+</div>
+
+<!-- Footer -->
+<div class="footer" id="footerBar" style="display:none">
+  <div>活跃 <span id="fActive">0</span> · 完成 <span id="fDone">0</span></div>
+  <div>↓ <span id="fSpeed">—</span></div>
+</div>
+
+  <script src="popup.js"></script>
+  <div id="toast" class="toast"></div>
+</body>
+</html>

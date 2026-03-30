@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Downlink",
+  "version": "1.0.0",
+  "description": "接管浏览器下载，并发送到你选择的下载器",
+  "permissions": [
+    "declarativeNetRequest",
+    "downloads",
+    "storage",
+    "notifications",
+    "tabs",
+    "webRequest",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

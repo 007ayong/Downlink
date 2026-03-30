@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>媒体预览</title>
+  <style>
+    :root {
+      --bg: #121315;
+      --panel: #1a1c20;
+      --panel-2: #20242a;
+      --border: rgba(255,255,255,0.1);
+      --text: #f4f5f7;
+      --muted: #a8adb7;
+      --accent: #e05c2a;
+      --accent-2: #ff8a5b;
+      --success: #30b06d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(224,92,42,0.18), transparent 28%),
+        linear-gradient(180deg, #16181c 0%, #101114 100%);
+      color: var(--text);
+    }
+    .page {
+      width: min(980px, calc(100vw - 32px));
+      margin: 24px auto 40px;
+    }
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .title {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+      word-break: break-all;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .btn {
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .btn.primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border: none;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      gap: 18px;
+    }
+    .card {
+      background: rgba(26, 28, 32, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 16px 50px rgba(0,0,0,0.25);
+    }
+    .player-wrap {
+      padding: 16px;
+    }
+    video, audio {
+      width: 100%;
+      display: block;
+      background: #000;
+      border-radius: 14px;
+    }
+    video {
+      max-height: 70vh;
+    }
+    .meta {
+      padding: 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .chip {
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .chip.kind {
+      color: #fff;
+      background: rgba(224,92,42,0.16);
+      border-color: rgba(224,92,42,0.35);
+    }
+    .sidebar {
+      padding: 16px;
+    }
+    .section-title {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 10px;
+    }
+    .kv {
+      margin-bottom: 14px;
+    }
+    .kv-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+    .kv-value {
+      font-size: 13px;
+      line-height: 1.6;
+      word-break: break-all;
+    }
+    .header-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 320px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+    .header-item {
+      border-radius: 10px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      padding: 10px;
+    }
+    .header-key {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+    .header-value {
+      font-size: 12px;
+      line-height: 1.5;
+      word-break: break-all;
+    }
+    .status {
+      margin-top: 12px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .status.ok { color: var(--success); }
+    .status.fail { color: #ff7b7b; }
+    @media (max-width: 860px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .hero {
+        flex-direction: column;
+      }
+      .actions {
+        justify-content: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="hero">
+      <div>
+        <div class="title" id="title">媒体预览</div>
+        <div class="subtitle" id="subtitle">正在加载媒体信息…</div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="copyBtn">复制链接</button>
+        <button class="btn primary" id="sendBtn">发送到下载器</button>
+      </div>
+    </div>
+
+    <div class="layout">
+      <div class="card">
+        <div class="player-wrap" id="playerWrap"></div>
+        <div class="meta" id="metaChips"></div>
+      </div>
+
+      <div class="card sidebar">
+        <div class="section-title">媒体信息</div>
+        <div class="kv">
+          <div class="kv-label">文件名</div>
+          <div class="kv-value" id="infoFilename">-</div>
+        </div>
+        <div class="kv">
+          <div class="kv-label">资源地址</div>
+          <div class="kv-value" id="infoUrl">-</div>
+        </div>
+        <div class="kv">
+          <div class="kv-label">来源页面</div>
+          <div class="kv-value" id="infoPageUrl">-</div>
+        </div>
+        <div class="section-title">已捕获请求头</div>
+        <div class="header-list" id="headerList"></div>
+        <div class="section-title" style="margin-top:14px">预览增强</div>
+        <div class="kv">
+          <div class="kv-label">已应用补头</div>
+          <div class="kv-value" id="appliedHeaders">-</div>
+        </div>
+        <div class="status" id="status"></div>
+      </div>
+    </div>
+  </div>
+  <script src="preview.js"></script>
+</body>
+</html>
