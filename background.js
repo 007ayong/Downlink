@@ -50,6 +50,7 @@ const requestHeadersCache = new Map();
 const MEDIA_CACHE_LIMIT = 60;
 const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi', 'm4v', 'ogv']);
 const AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'oga', 'opus']);
+const BLOCKED_MEDIA_SNIFF_EXTENSIONS = new Set(['ts']);
 const FilenameLogic = globalThis.FilenameLogic || null;
 
 // ── Config ───────────────────────────────────────────────
@@ -590,7 +591,13 @@ function mediaKindOf(url = '', mime = '') {
   if (AUDIO_EXTENSIONS.has(ext)) return 'audio';
   return '';
 }
-function isDirectMediaResource(url = '', mime = '') {
+function isBlockedMediaSniffResource(url = '', mime = '', filename = '') {
+  const normalizedMime = String(mime).split(';')[0].trim().toLowerCase();
+  if (normalizedMime === 'video/mp2t') return true;
+  return BLOCKED_MEDIA_SNIFF_EXTENSIONS.has(extOf(url)) || BLOCKED_MEDIA_SNIFF_EXTENSIONS.has(extOf(filename));
+}
+function isDirectMediaResource(url = '', mime = '', filename = '') {
+  if (isBlockedMediaSniffResource(url, mime, filename)) return false;
   return Boolean(mediaKindOf(url, mime));
 }
 function upsertMediaResource(item) {
@@ -817,12 +824,12 @@ chrome.webRequest.onHeadersReceived.addListener(
     }
 
     const mime = ct.split(';')[0].trim().toLowerCase();
-    if (!isDirectMediaResource(details.url, mime)) return;
+    const filename = sanitizeFilenamePart(filenameFromCD(cd) || filenameFromUrl(details.url) || '');
+    if (!isDirectMediaResource(details.url, mime, filename)) return;
     if (details.statusCode === 206 && hasMediaResource(details.tabId, details.url)) return;
 
     const tabSnapshot = await getTabSnapshot(details.tabId);
     const reqHeaders = requestHeadersCache.get(details.url)?.headers || {};
-    const filename = sanitizeFilenamePart(filenameFromCD(cd) || filenameFromUrl(details.url) || '');
     const mediaResult = upsertMediaResource({
       id: `media_${details.tabId}_${hashString(details.url)}`,
       tabId: details.tabId,
