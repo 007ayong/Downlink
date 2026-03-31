@@ -1,0 +1,7 @@
+{
+  "name": "aria2-extension",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}

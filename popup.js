@@ -141,6 +141,8 @@ function escHtml(str) {
 }
 
 function decodeDisplayFilename(value = '') {
+  if (globalThis.FilenameLogic?.decodeHttpFilename) return globalThis.FilenameLogic.decodeHttpFilename(value);
+
   const text = String(value || '').trim();
   const decoded = text.replace(/=\?([^?]+)\?([bBqQ])\?([^?]*)\?=/g, (match, charset, encoding, payload) => {
     try {
@@ -185,6 +187,15 @@ function mediaResolutionLabel(item) {
 function switchTab(tabName) {
   const target = document.querySelector(`.tab[data-tab="${tabName}"]`);
   if (target) target.click();
+}
+
+function shouldAutoSwitchToMediaPanel(state) {
+  return (
+    state.mediaCount > state.previousMediaCount &&
+    state.pendingCount === 0 &&
+    state.currentTab !== 'media' &&
+    state.mediaCount !== state.lastAutoSwitchedMediaCount
+  );
 }
 
 function buildMediaRenderKey(media = []) {
@@ -409,9 +420,14 @@ function renderMedia(mediaByTab) {
   }
 
   const pendingCount = Object.values(currentState.pending || {}).length;
-  const hasTasks = Object.values(currentState.tasks || {}).length > 0;
   const currentTab = document.querySelector('.tab.active')?.dataset.tab;
-  if (mediaCount > previousMediaCount && pendingCount === 0 && !hasTasks && currentTab !== 'media' && mediaCount !== lastAutoSwitchedMediaCount) {
+  if (shouldAutoSwitchToMediaPanel({
+    mediaCount,
+    previousMediaCount,
+    pendingCount,
+    currentTab,
+    lastAutoSwitchedMediaCount,
+  })) {
     lastAutoSwitchedMediaCount = mediaCount;
     switchTab('media');
   }

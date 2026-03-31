@@ -1,6 +1,8 @@
 // background.js — Downlink Service Worker
 // 双层拦截：webRequest 响应头层 + downloads API 层
 
+try { importScripts('filename-logic.js'); } catch {}
+
 const DEFAULT_CONFIG = {
   downloaderType: 'aria2',
   aria2Rpc: 'http://localhost:6800/jsonrpc',
@@ -48,6 +50,7 @@ const requestHeadersCache = new Map();
 const MEDIA_CACHE_LIMIT = 60;
 const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi', 'm4v', 'ogv']);
 const AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'oga', 'opus']);
+const FilenameLogic = globalThis.FilenameLogic || null;
 
 // ── Config ───────────────────────────────────────────────
 const configReady = new Promise(resolve => {
@@ -381,10 +384,12 @@ function captureExts() {
   return config.captureExtensions.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 }
 function extOf(str) {
+  if (FilenameLogic?.extOf) return FilenameLogic.extOf(str);
   const m = (str || '').match(/\.([a-zA-Z0-9]+)(?:[?#]|$)/);
   return m ? m[1].toLowerCase() : '';
 }
 function filenameFromUrl(url = '') {
+  if (FilenameLogic?.filenameFromUrl) return FilenameLogic.filenameFromUrl(url);
   try {
     return decodeHttpFilename(new URL(url).pathname.split('/').pop() || '');
   } catch {
@@ -396,6 +401,7 @@ function filenameFromUrl(url = '') {
   }
 }
 function extensionFromMime(mime = '') {
+  if (FilenameLogic?.extensionFromMime) return FilenameLogic.extensionFromMime(mime);
   const normalized = String(mime).split(';')[0].trim().toLowerCase();
   const map = {
     'video/mp4': 'mp4',
@@ -415,9 +421,11 @@ function extensionFromMime(mime = '') {
   return map[normalized] || '';
 }
 function guessMediaExtension(url = '', mime = '') {
+  if (FilenameLogic?.guessMediaExtension) return FilenameLogic.guessMediaExtension(url, mime);
   return extOf(url) || extensionFromMime(mime);
 }
 function sanitizeFilenamePart(value = '') {
+  if (FilenameLogic?.sanitizeFilenamePart) return FilenameLogic.sanitizeFilenamePart(value);
   return String(value)
     .replace(/[\\/:*?"<>|]+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -425,6 +433,7 @@ function sanitizeFilenamePart(value = '') {
     .slice(0, 80);
 }
 function decodeTextWithCharset(bytes, charset = 'utf-8') {
+  if (FilenameLogic?.decodeTextWithCharset) return FilenameLogic.decodeTextWithCharset(bytes, charset);
   const normalized = String(charset || 'utf-8').trim().toLowerCase().replace(/_/g, '-');
   try {
     return new TextDecoder(normalized || 'utf-8').decode(new Uint8Array(bytes));
@@ -437,6 +446,7 @@ function decodeTextWithCharset(bytes, charset = 'utf-8') {
   }
 }
 function decodeRfc2047Words(value = '') {
+  if (FilenameLogic?.decodeRfc2047Words) return FilenameLogic.decodeRfc2047Words(value);
   const text = String(value || '');
   if (!text.includes('=?')) return text;
   return text.replace(/=\?([^?]+)\?([bBqQ])\?([^?]*)\?=/g, (match, charset, encoding, payload) => {
@@ -465,6 +475,7 @@ function decodeRfc2047Words(value = '') {
   });
 }
 function decodePercentEncodedText(value = '', charset = 'utf-8') {
+  if (FilenameLogic?.decodePercentEncodedText) return FilenameLogic.decodePercentEncodedText(value, charset);
   const input = String(value || '').replace(/\+/g, '%20');
   if (!/%[0-9a-fA-F]{2}/.test(input)) return input;
   if (/^utf-?8$/i.test(String(charset || 'utf-8'))) {
@@ -487,6 +498,7 @@ function decodePercentEncodedText(value = '', charset = 'utf-8') {
   return decodeTextWithCharset(bytes, charset);
 }
 function ensureFilenameExtension(filename = '', url = '', mime = '') {
+  if (FilenameLogic?.ensureFilenameExtension) return FilenameLogic.ensureFilenameExtension(filename, url, mime);
   const cleanName = sanitizeFilenamePart(decodeHttpFilename(filename));
   const ext = guessMediaExtension(url, mime);
   if (!cleanName) {
@@ -496,6 +508,7 @@ function ensureFilenameExtension(filename = '', url = '', mime = '') {
   return ext ? `${cleanName}.${ext}` : cleanName;
 }
 function isLowQualityFilename(filename = '') {
+  if (FilenameLogic?.isLowQualityFilename) return FilenameLogic.isLowQualityFilename(filename);
   const cleanName = sanitizeFilenamePart(filename).toLowerCase();
   if (!cleanName) return true;
   const basename = cleanName.replace(/\.[a-z0-9]{2,5}$/i, '');
@@ -506,6 +519,7 @@ function isLowQualityFilename(filename = '') {
   return false;
 }
 function pickDisplayFilename(item = {}) {
+  if (FilenameLogic?.pickDisplayFilename) return FilenameLogic.pickDisplayFilename(item);
   const preferred = sanitizeFilenamePart(item.filename || '');
   if (preferred && !isLowQualityFilename(preferred)) return preferred;
   const urlName = sanitizeFilenamePart(filenameFromUrl(item.resourceUrl || ''));
@@ -519,6 +533,7 @@ function pickDisplayFilename(item = {}) {
   return `${host || 'media'}-${item.kind === 'audio' ? 'audio' : 'video'}`;
 }
 function fallbackMediaFilename(item = {}) {
+  if (FilenameLogic?.fallbackMediaFilename) return FilenameLogic.fallbackMediaFilename(item);
   return ensureFilenameExtension(pickDisplayFilename(item), item.resourceUrl, item.mime);
 }
 function shouldCaptureByExt(url, filename) {
@@ -532,6 +547,7 @@ function shouldCaptureByMime(mime) {
   return CAPTURE_MIME_PREFIXES.some(p => m.startsWith(p));
 }
 function decodeHttpFilename(value = '') {
+  if (FilenameLogic?.decodeHttpFilename) return FilenameLogic.decodeHttpFilename(value);
   const text = decodeRfc2047Words(String(value || '').trim().replace(/^["']|["']$/g, ''));
   if (!text) return '';
 
@@ -546,6 +562,7 @@ function decodeHttpFilename(value = '') {
   }
 }
 function filenameFromCD(cd) {
+  if (FilenameLogic?.filenameFromCD) return FilenameLogic.filenameFromCD(cd);
   if (!cd) return '';
   let m = cd.match(/filename\*\s*=\s*([^;]+)/i);
   if (m) {
@@ -564,6 +581,7 @@ function cleanExpired(map) {
   for (const [k, v] of map) if (now > v.expiresAt) map.delete(k);
 }
 function mediaKindOf(url = '', mime = '') {
+  if (FilenameLogic?.mediaKindOf) return FilenameLogic.mediaKindOf(url, mime);
   const normalizedMime = String(mime).split(';')[0].trim().toLowerCase();
   if (normalizedMime.startsWith('video/')) return 'video';
   if (normalizedMime.startsWith('audio/')) return 'audio';
