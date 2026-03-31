@@ -228,3 +228,40 @@ test('media render key changes when filename changes', () => {
   const after = popup.buildMediaRenderKey([{ id: '1', resourceUrl: 'u', filename: '中文.mp4', size: 1, kind: 'video', mime: 'video/mp4', width: 0, height: 0 }]);
   assert.notEqual(before, after);
 });
+
+test('task icon category prefers media kind and mime', () => {
+  const popup = loadPopupRuntime();
+  assert.equal(popup.getFileCategory({ name: 'unknown.bin', kind: 'audio', mime: '' }), 'audio');
+  assert.equal(popup.getFileCategory({ name: 'unknown.bin', kind: '', mime: 'image/webp' }), 'image');
+  assert.equal(popup.getFileCategory({ name: 'installer', kind: '', mime: 'application/x-msdownload' }), 'executable');
+});
+
+test('task icon category falls back to file extension', () => {
+  const popup = loadPopupRuntime();
+  assert.equal(popup.getFileCategory({ name: 'report.xlsx', mime: '' }), 'spreadsheet');
+  assert.equal(popup.getFileCategory({ name: 'package.zip', mime: '' }), 'archive');
+  assert.equal(popup.getFileCategory({ name: 'plain.unknown', mime: '' }), 'default');
+});
+
+test('task icon path resolves to packaged svg asset', () => {
+  const popup = loadPopupRuntime();
+  assert.equal(
+    popup.getFileIcon({ name: 'movie.mp4', mime: 'video/mp4', kind: '' }),
+    'assets/file-icons/video.svg'
+  );
+});
+
+test('task icon error handler falls back to default icon once', () => {
+  const popup = loadPopupRuntime();
+  const img = {
+    src: 'assets/file-icons/missing.svg',
+    dataset: {},
+  };
+  popup.handleTaskIconError({ currentTarget: img });
+  assert.equal(img.src, 'assets/file-icons/default.svg');
+  assert.equal(img.dataset.fallbackApplied, 'true');
+
+  img.src = 'assets/file-icons/still-missing.svg';
+  popup.handleTaskIconError({ currentTarget: img });
+  assert.equal(img.src, 'assets/file-icons/still-missing.svg');
+});

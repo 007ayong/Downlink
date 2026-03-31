@@ -116,19 +116,93 @@ function fmtSpeed(b) {
   return fmt(b) + '/s';
 }
 
-function getFileIcon(name) {
-  if (!name) return '📄';
-  const ext = name.split('.').pop().toLowerCase();
+const FILE_ICON_BASE = 'assets/file-icons';
+const FILE_ICON_MAP = {
+  default: `${FILE_ICON_BASE}/default.svg`,
+  video: `${FILE_ICON_BASE}/video.svg`,
+  audio: `${FILE_ICON_BASE}/audio.svg`,
+  image: `${FILE_ICON_BASE}/image.svg`,
+  archive: `${FILE_ICON_BASE}/archive.svg`,
+  document: `${FILE_ICON_BASE}/document.svg`,
+  pdf: `${FILE_ICON_BASE}/pdf.svg`,
+  spreadsheet: `${FILE_ICON_BASE}/spreadsheet.svg`,
+  executable: `${FILE_ICON_BASE}/executable.svg`,
+  torrent: `${FILE_ICON_BASE}/torrent.svg`,
+};
+
+const EXECUTABLE_MIME_KEYWORDS = [
+  'application/x-msdownload',
+  'application/vnd.android.package-archive',
+  'application/x-apple-diskimage',
+  'application/x-deb',
+  'application/vnd.debian.binary-package',
+  'application/x-msi',
+  'application/x-pkg',
+  'application/x-executable',
+];
+
+function extFromName(name = '') {
+  const normalized = String(name || '').trim().toLowerCase();
+  if (!normalized.includes('.')) return '';
+  return normalized.split('.').pop();
+}
+
+function getFileCategory({ name = '', mime = '', kind = '' } = {}) {
+  if (kind === 'video' || String(mime).startsWith('video/')) return 'video';
+  if (kind === 'audio' || String(mime).startsWith('audio/')) return 'audio';
+
+  const normalizedMime = String(mime).split(';')[0].trim().toLowerCase();
+  if (normalizedMime.startsWith('image/')) return 'image';
+  if (normalizedMime === 'application/pdf') return 'pdf';
+  if (EXECUTABLE_MIME_KEYWORDS.includes(normalizedMime)) return 'executable';
+  if (
+    normalizedMime.includes('spreadsheet') ||
+    normalizedMime === 'text/csv' ||
+    normalizedMime === 'application/csv'
+  ) return 'spreadsheet';
+  if (
+    normalizedMime.includes('wordprocessingml') ||
+    normalizedMime.includes('msword') ||
+    normalizedMime.startsWith('text/')
+  ) return 'document';
+  if (
+    normalizedMime.includes('zip') ||
+    normalizedMime.includes('compressed') ||
+    normalizedMime.includes('archive') ||
+    normalizedMime.includes('7z')
+  ) return 'archive';
+  if (
+    normalizedMime.includes('bittorrent') ||
+    normalizedMime === 'application/x-bittorrent'
+  ) return 'torrent';
+
+  const ext = extFromName(name);
   const map = {
-    zip: '🗜', rar: '🗜', '7z': '🗜', tar: '🗜', gz: '🗜', bz2: '🗜', xz: '🗜',
-    mp4: '🎬', mkv: '🎬', avi: '🎬', mov: '🎬', webm: '🎬', m4v: '🎬',
-    mp3: '🎵', flac: '🎵', wav: '🎵', aac: '🎵', m4a: '🎵', ogg: '🎵', opus: '🎵',
-    jpg: '🖼', jpeg: '🖼', png: '🖼', gif: '🖼', webp: '🖼',
-    exe: '⚙️', msi: '⚙️', dmg: '⚙️', deb: '⚙️', apk: '📱',
-    pdf: '📕', torrent: '🔗', iso: '💿',
-    doc: '📝', docx: '📝', xls: '📊', xlsx: '📊',
+    mp4: 'video', mkv: 'video', avi: 'video', mov: 'video', webm: 'video', m4v: 'video',
+    mp3: 'audio', flac: 'audio', wav: 'audio', aac: 'audio', m4a: 'audio', ogg: 'audio', opus: 'audio',
+    jpg: 'image', jpeg: 'image', png: 'image', gif: 'image', webp: 'image', svg: 'image', bmp: 'image', avif: 'image',
+    zip: 'archive', rar: 'archive', '7z': 'archive', tar: 'archive', gz: 'archive', bz2: 'archive', xz: 'archive',
+    pdf: 'pdf',
+    doc: 'document', docx: 'document', txt: 'document', md: 'document', rtf: 'document',
+    xls: 'spreadsheet', xlsx: 'spreadsheet', csv: 'spreadsheet',
+    exe: 'executable', msi: 'executable', dmg: 'executable', deb: 'executable', pkg: 'executable', apk: 'executable',
+    torrent: 'torrent', magnet: 'torrent',
   };
-  return map[ext] || '📄';
+  return map[ext] || 'default';
+}
+
+function getFileIcon(task = {}) {
+  const category = getFileCategory(task);
+  return FILE_ICON_MAP[category] || FILE_ICON_MAP.default;
+}
+
+function handleTaskIconError(event) {
+  const img = event?.currentTarget;
+  if (!img) return;
+  const fallback = FILE_ICON_MAP.default;
+  if (img.dataset.fallbackApplied === 'true' || img.src.endsWith(FILE_ICON_MAP.default)) return;
+  img.dataset.fallbackApplied = 'true';
+  img.src = fallback;
 }
 
 function getStateLabel(s) {
@@ -351,7 +425,7 @@ function renderTasks(tasks, pending) {
 
     card.innerHTML = `
       <div class="task-top">
-        <div class="task-icon">${getFileIcon(name)}</div>
+        <div class="task-icon"><img src="${escHtml(getFileIcon({ name, mime: task.mime, kind: task.kind }))}" alt="" loading="lazy"></div>
         <div class="task-info">
           <div class="task-name" title="${escHtml(name)}">${escHtml(name)}</div>
           <div class="task-meta">
@@ -384,6 +458,8 @@ function renderTasks(tasks, pending) {
       </div>
     `;
     tList.appendChild(card);
+    const icon = card.querySelector('.task-icon img');
+    if (icon) icon.addEventListener('error', handleTaskIconError);
     card.querySelectorAll('[data-action]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const action = btn.dataset.action;
