@@ -331,6 +331,12 @@ test('motrix button only shows for aria2 mode with motrix flag enabled', () => {
   assert.equal(canViewInMotrix({ downloaderType: 'neatdm', useMotrixNext: true }), false);
 });
 
+test('AB DM display name is fixed', () => {
+  const popup = loadPopupRuntime();
+  assert.equal(popup.getDownloaderName({ downloaderType: 'abdownload', externalLauncherName: 'Custom Name' }), 'AB DM');
+  assert.equal(popup.getSendLabel({ downloaderType: 'abdownload', externalLauncherName: 'Custom Name' }), '发送到 AB DM');
+});
+
 test('cfgUseMotrixNext only binds one change listener for autosave', () => {
   const { context, listenersById } = loadPopupSettingsRuntime();
   let scheduleCalls = 0;

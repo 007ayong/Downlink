@@ -15,7 +15,7 @@ const DEFAULT_CONFIG = {
   aria2Rpc: 'http://localhost:6800/jsonrpc',
   aria2Secret: '',
   useMotrixNext: false,
-  externalLauncherName: 'AB Download',
+  externalLauncherName: 'AB DM',
   externalLauncherHost: 'localhost',
   externalLauncherPort: '15151',
   externalLauncherPath: '/start-headless-download',
@@ -58,6 +58,7 @@ function shouldConfirmBeforeSend() {
 const configReady = new Promise((resolve) => {
   chrome.storage.sync.get(DEFAULT_CONFIG, (stored) => {
     const normalized = { ...DEFAULT_CONFIG, ...stored };
+    normalized.externalLauncherName = 'AB DM';
     if (normalized.downloaderType === 'motrixnext') {
       normalized.downloaderType = 'aria2';
       normalized.useMotrixNext = true;
@@ -69,6 +70,7 @@ const configReady = new Promise((resolve) => {
 
 chrome.storage.onChanged.addListener((changes) => {
   for (const key in changes) config[key] = changes[key].newValue;
+  config.externalLauncherName = 'AB DM';
   if (config.downloaderType === 'motrixnext') {
     config.downloaderType = 'aria2';
     config.useMotrixNext = true;

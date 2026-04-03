@@ -174,3 +174,15 @@ test('legacy motrixnext config normalizes to aria2 plus motrix flag', () => {
   assert.equal(cfg.downloaderType, 'aria2');
   assert.equal(cfg.useMotrixNext, true);
 });
+
+test('AB DM downloader label is fixed', () => {
+  const background = loadBackgroundRuntime();
+  const clients = background.BackgroundDownloaders.createClients({
+    getConfig: () => ({ downloaderType: 'abdownload' }),
+    notify() {},
+    onBeforeAria2Send() {},
+    onAria2TaskQueued() {},
+  });
+
+  assert.equal(clients.getDownloaderLabel('abdownload', { downloaderType: 'abdownload' }), 'AB DM');
+});
