@@ -131,9 +131,67 @@ function loadPopupRuntime() {
   context.self = context;
   context.window = context;
 
+  const popupUiScript = fs.readFileSync(path.join(__dirname, '..', 'lib', 'popup-ui.js'), 'utf8');
+  vm.runInNewContext(popupUiScript, context, { filename: 'lib/popup-ui.js' });
   const script = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
   vm.runInNewContext(script, context, { filename: 'popup.js' });
   return context;
+}
+
+function loadPopupSettingsRuntime() {
+  const listenersById = new Map();
+  const elements = new Map();
+  const getElement = (id) => {
+    if (!elements.has(id)) {
+      const listeners = {};
+      listenersById.set(id, listeners);
+      elements.set(id, {
+        value: '',
+        checked: false,
+        style: {},
+        textContent: '',
+        classList: {
+          add() {},
+          remove() {},
+          toggle() {},
+        },
+        addEventListener(type, handler) {
+          listeners[type] = listeners[type] || [];
+          listeners[type].push(handler);
+        },
+      });
+    }
+    return elements.get(id);
+  };
+
+  const context = {
+    console,
+    setTimeout,
+    clearTimeout,
+    document: {
+      getElementById(id) {
+        return getElement(id);
+      },
+    },
+    chrome: {
+      runtime: {
+        sendMessage(_message, callback) {
+          callback?.({ ok: true });
+        },
+      },
+    },
+    globalThis: null,
+    self: null,
+    window: null,
+  };
+
+  context.globalThis = context;
+  context.self = context;
+  context.window = context;
+
+  const script = fs.readFileSync(path.join(__dirname, '..', 'lib', 'popup-settings.js'), 'utf8');
+  vm.runInNewContext(script, context, { filename: 'lib/popup-settings.js' });
+  return { context, listenersById };
 }
 
 test('auto-switches when new media is found and there are no pending confirmations', () => {
@@ -264,4 +322,41 @@ test('task icon error handler falls back to default icon once', () => {
   img.src = 'assets/file-icons/still-missing.svg';
   popup.handleTaskIconError({ currentTarget: img });
   assert.equal(img.src, 'assets/file-icons/still-missing.svg');
+});
+
+test('motrix button only shows for aria2 mode with motrix flag enabled', () => {
+  const canViewInMotrix = (cfg) => cfg.downloaderType === 'aria2' && !!cfg.useMotrixNext;
+  assert.equal(canViewInMotrix({ downloaderType: 'aria2', useMotrixNext: true }), true);
+  assert.equal(canViewInMotrix({ downloaderType: 'abdownload', useMotrixNext: true }), false);
+  assert.equal(canViewInMotrix({ downloaderType: 'neatdm', useMotrixNext: true }), false);
+});
+
+test('cfgUseMotrixNext only binds one change listener for autosave', () => {
+  const { context, listenersById } = loadPopupSettingsRuntime();
+  let scheduleCalls = 0;
+  const controller = context.PopupSettings.createSettingsController({
+    getCurrentConfig: () => ({}),
+    setCurrentConfig() {},
+    getCurrentState: () => ({ tasks: {}, pending: {} }),
+    getLoading: () => false,
+    setLoading() {},
+    getAutoSaveTimer: () => null,
+    setAutoSaveTimer() {},
+    getSaveFeedbackTimer: () => null,
+    setSaveFeedbackTimer() {},
+    syncGlobals() {},
+    updateSettingsVisibility() {},
+    updateDynamicLabels() {},
+    updateHeaderStatusDisplay() {},
+    renderTasks() {},
+    checkStatus() {},
+  });
+
+  controller.scheduleAutoSave = () => {
+    scheduleCalls += 1;
+  };
+  controller.bindSettingsEvents();
+
+  const changeListeners = listenersById.get('cfgUseMotrixNext')?.change || [];
+  assert.equal(changeListeners.length, 1);
 });

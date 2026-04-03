@@ -8,7 +8,6 @@ Downlink 是一个浏览器扩展，用来接管浏览器下载，并把任务�
 
 - [Aria2](https://github.com/aria2/aria2)
 - [Motrix](https://github.com/agalwood/motrix)
-- [MotrixNext](https://github.com/AnInsomniacy/motrix-next)
 - [AB Download Manager](https://github.com/amir1376/ab-download-manager)
 - [Neat Download Manager](https://www.neatdownloadmanager.com/index.php/en/)
 
@@ -47,7 +46,8 @@ Downlink 是一个浏览器扩展，用来接管浏览器下载，并把任务�
 - RPC 密钥，可留空
 - 默认保存目录，可留空
 
-适合本地或远程运行 `aria2c` 或 Motrix、MotrixNext，并开启 RPC 的场景。
+适合本地或远程运行 `aria2c` 或 Motrix，并开启 RPC 的场景。
+如果你同时安装了 MotrixNext，可勾选“使用 MotrixNext 管理”，在任务面板中快速打开查看。
 
 ### AB Download
 

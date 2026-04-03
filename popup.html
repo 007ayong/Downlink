@@ -753,6 +753,10 @@
       <label>默认保存目录 <span class="settings-sub">留空则由 aria2 决定</span></label>
       <input class="settings-input wide" id="cfgSaveDir" type="text" placeholder="/Downloads"/>
     </div>
+    <div class="settings-row aria2-only">
+      <label>使用 MotrixNext 管理 <span class="settings-sub">在任务面板显示“Motrix中查看”，默认关闭</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgUseMotrixNext"><div class="toggle-track"></div></label>
+    </div>
     <div class="settings-row col launcher-only settings-hidden">
       <label>下载器名称 <span class="settings-sub">用于界面显示，例如 AB Download</span></label>
       <input class="settings-input wide" id="cfgLauncherName" type="text" placeholder="AB Download"/>
@@ -820,7 +824,10 @@
 </div>
 
   <script src="filename-logic.js"></script>
+  <script src="lib/popup-ui.js"></script>
+  <script src="lib/popup-settings.js"></script>
   <script src="popup.js"></script>
+  <script src="popup-app.js"></script>
   <div id="toast" class="toast"></div>
 </body>
 </html>

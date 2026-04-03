@@ -4,12 +4,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function createChromeStub() {
+function createChromeStub(storedConfig = {}) {
   return {
     storage: {
       sync: {
         get(defaults, callback) {
-          callback?.(defaults);
+          callback?.({ ...defaults, ...storedConfig });
         },
         set: async () => {},
       },
@@ -83,7 +83,7 @@ function createChromeStub() {
   };
 }
 
-function loadBackgroundRuntime() {
+function loadBackgroundRuntime(storedConfig = {}) {
   const context = {
     console,
     Buffer,
@@ -102,8 +102,13 @@ function loadBackgroundRuntime() {
     atob(value) {
       return Buffer.from(value, 'base64').toString('binary');
     },
-    chrome: createChromeStub(),
-    importScripts() {},
+    chrome: createChromeStub(storedConfig),
+    importScripts(...files) {
+      for (const file of files) {
+        const script = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+        vm.runInNewContext(script, context, { filename: file });
+      }
+    },
     globalThis: null,
     self: null,
     window: null,
@@ -149,4 +154,23 @@ test('media sniffing still keeps normal direct media resources', () => {
     background.isDirectMediaResource('https://cdn.example.com/video.mp4', 'video/mp4', 'video.mp4'),
     true
   );
+});
+
+test('motrixnext view action opens the app without a url', async () => {
+  const background = loadBackgroundRuntime();
+  let openedUrl = '';
+  background.chrome.tabs.create = async ({ url }) => {
+    openedUrl = url;
+  };
+
+  const result = await background.openMotrixNextView();
+  assert.equal(result.ok, true);
+  assert.equal(openedUrl, 'motrixnext://');
+});
+
+test('legacy motrixnext config normalizes to aria2 plus motrix flag', () => {
+  const background = loadBackgroundRuntime({ downloaderType: 'motrixnext' });
+  const cfg = background.getBackgroundConfig();
+  assert.equal(cfg.downloaderType, 'aria2');
+  assert.equal(cfg.useMotrixNext, true);
 });
