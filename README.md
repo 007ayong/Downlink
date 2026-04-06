@@ -16,6 +16,7 @@ Downlink 是一个浏览器扩展，用来接管浏览器下载，并把任务�
 
 - [Aria2](https://github.com/aria2/aria2)
 - [Motrix](https://github.com/agalwood/motrix)
+- [MotrixNext](https://github.com/AnInsomniacy/motrix-next)
 - [AB DM](https://github.com/amir1376/ab-download-manager)
 - [Neat Download Manager](https://www.neatdownloadmanager.com/index.php/en/)
 
