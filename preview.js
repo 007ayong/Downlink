@@ -19,6 +19,17 @@ function setStatus(message, type = '') {
   el.className = `status${type ? ` ${type}` : ''}`;
 }
 
+function setTopAlert(message, { shake = false } = {}) {
+  const el = document.getElementById('topAlert');
+  if (!el) return;
+  el.textContent = message || '';
+  el.classList.toggle('show', !!message);
+  el.classList.remove('shake');
+  if (!message || !shake) return;
+  void el.offsetWidth;
+  el.classList.add('shake');
+}
+
 function copyText(text) {
   return navigator.clipboard.writeText(text);
 }
@@ -129,6 +140,7 @@ function renderMedia(media) {
   document.getElementById('copyBtn').onclick = async () => {
     try {
       await copyText(media.resourceUrl || '');
+      setTopAlert('');
       setStatus('已复制媒体链接。', 'ok');
     } catch {
       setStatus('复制链接失败。', 'fail');
@@ -136,13 +148,17 @@ function renderMedia(media) {
   };
 
   document.getElementById('sendBtn').onclick = async () => {
+    setTopAlert('');
     setStatus('正在发送到下载器…');
     const result = await sendToDownloader(media.id);
     if (result.ok) {
+      setTopAlert('');
       setStatus('已发送到下载器。', 'ok');
       return;
     }
-    setStatus(result.error || '发送到下载器失败。', 'fail');
+    const message = result.error || '发送到下载器失败。';
+    setTopAlert(message, { shake: true });
+    setStatus('', '');
   };
 }
 

@@ -55,6 +55,24 @@
       flex-wrap: wrap;
       justify-content: flex-end;
     }
+    .top-alert {
+      display: none;
+      margin: 0 0 18px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,123,123,0.35);
+      background: rgba(120, 25, 25, 0.42);
+      color: #ffb4b4;
+      font-size: 13px;
+      line-height: 1.5;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+    }
+    .top-alert.show {
+      display: block;
+    }
+    .top-alert.shake {
+      animation: alert-shake 0.42s ease-in-out;
+    }
     .btn {
       border: 1px solid var(--border);
       background: var(--panel-2);
@@ -168,6 +186,13 @@
     }
     .status.ok { color: var(--success); }
     .status.fail { color: #ff7b7b; }
+    @keyframes alert-shake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-8px); }
+      40% { transform: translateX(7px); }
+      60% { transform: translateX(-5px); }
+      80% { transform: translateX(4px); }
+    }
     @media (max-width: 860px) {
       .layout {
         grid-template-columns: 1fr;
@@ -193,6 +218,7 @@
         <button class="btn primary" id="sendBtn">发送到下载器</button>
       </div>
     </div>
+    <div class="top-alert" id="topAlert"></div>
 
     <div class="layout">
       <div class="card">

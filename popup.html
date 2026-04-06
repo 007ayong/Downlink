@@ -198,6 +198,16 @@
       line-height: 1.5;
     }
     .task-alert.show { display: block; }
+    .task-alert.shake {
+      animation: alert-shake 0.42s ease-in-out;
+    }
+    @keyframes alert-shake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-8px); }
+      40% { transform: translateX(7px); }
+      60% { transform: translateX(-5px); }
+      80% { transform: translateX(4px); }
+    }
 
     .toast {
       position: fixed;
@@ -724,6 +734,7 @@
     </div>
     <div class="media-toolbar-sub" id="mediaSummary">等待页面发起音视频请求…</div>
   </div>
+  <div class="task-alert" id="mediaAlert"></div>
   <div class="empty" id="mediaEmpty">
     <div class="empty-icon emoji">🎧</div>
     <div class="empty-title">暂无直链媒体</div>

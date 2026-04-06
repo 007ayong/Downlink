@@ -369,7 +369,7 @@ test('AB DM display name is fixed', () => {
   assert.equal(popup.getSendLabel({ downloaderType: 'abdownload', externalLauncherName: 'Custom Name' }), '发送到 AB DM');
 });
 
-test('task alert renders connection failure in tasks panel', async () => {
+test('connection failure alert renders in both tasks and media panels', async () => {
   const popup = loadPopupRuntime({
     state: {
       tasks: {},
@@ -399,6 +399,10 @@ test('task alert renders connection failure in tasks panel', async () => {
   const alertEl = popup.document.getElementById('taskAlert');
   assert.equal(alertEl.textContent, '连接失败，检查下载器是否在运行');
   assert.equal(alertEl.classList.contains('show'), true);
+
+  const mediaAlertEl = popup.document.getElementById('mediaAlert');
+  assert.equal(mediaAlertEl.textContent, '连接失败，检查下载器是否在运行');
+  assert.equal(mediaAlertEl.classList.contains('show'), true);
 });
 
 test('cfgUseMotrixNext only binds one change listener for autosave', () => {

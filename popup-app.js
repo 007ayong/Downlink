@@ -112,13 +112,19 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
   document.querySelectorAll('.neatdm-only').forEach((el) => el.classList.toggle('settings-hidden', !isNeatdm));
 }
 
+function renderInlineAlert(elementId, message = currentState.uiAlert?.message || '', { shake = false } = {}) {
+  const alertEl = document.getElementById(elementId);
+  if (!alertEl) return;
+  alertEl.textContent = message;
+  alertEl.classList.toggle('show', !!message);
+  alertEl.classList.remove('shake');
+  if (!message || !shake) return;
+  void alertEl.offsetWidth;
+  alertEl.classList.add('shake');
+}
+
 function renderTasks(tasks, pending) {
-  const alertEl = document.getElementById('taskAlert');
-  const alertMessage = currentState.uiAlert?.message || '';
-  if (alertEl) {
-    alertEl.textContent = alertMessage;
-    alertEl.classList.toggle('show', !!alertMessage);
-  }
+  renderInlineAlert('taskAlert');
 
   const taskVals = Object.values(tasks || {}).filter((task) => !hiddenTaskGids.has(task?.gid));
   const pendingVals = Object.values(pending || {});
@@ -299,6 +305,7 @@ function renderMedia(mediaByTab) {
   const emptyEl = document.getElementById('mediaEmpty');
   const summaryEl = document.getElementById('mediaSummary');
   const mediaBadge = document.getElementById('mediaBadge');
+  renderInlineAlert('mediaAlert');
   const media = currentTabId == null ? [] : (mediaByTab?.[currentTabId] || []);
   const mediaKey = buildMediaRenderKey(media);
   const mediaCount = media.length;
@@ -383,7 +390,10 @@ function renderMedia(mediaByTab) {
         } else {
           btn.disabled = false;
           btn.textContent = `⚡ ${getSendLabel(currentConfig)}`;
-          showToast(`发送失败：${res?.error || '与下载器连接失败，检查下载器是否正在运行'}`);
+          const message = res?.error || '与下载器连接失败，检查下载器是否正在运行';
+          currentState.uiAlert = { type: 'connection-failure', message };
+          renderInlineAlert('mediaAlert', message, { shake: true });
+          syncPopupGlobals();
         }
       });
     });

@@ -259,7 +259,45 @@ test('user-triggered send failure opens popup and exposes task alert', async () 
   assert.equal(background.chrome._actionCalls.openPopup, 1);
 
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
-  assert.equal(state.uiAlert?.message, '连接失败，检查下载器是否在运行');
+  assert.equal(state.uiAlert?.message, '与 AB DM 连接失败，检查 AB DM 是否正在运行');
+});
+
+test('media send failure keeps current page and only exposes alert state', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+      externalLauncherPath: '/start-headless-download',
+    },
+    {
+      fetch: async () => {
+        throw new Error('offline');
+      },
+    }
+  );
+
+  background.__backgroundTestHooks.mediaManager.clearMediaResources();
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_1',
+    tabId: 1,
+    resourceUrl: 'https://example.com/video.mp4',
+    filename: 'video.mp4',
+    headers: {},
+    mime: 'video/mp4',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_MEDIA_TASK',
+    id: 'media_1',
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+  assert.equal(background.chrome._tabsCalls.create.length, 0);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.uiAlert?.message, '与 AB DM 连接失败，检查 AB DM 是否正在运行');
 });
 
 test('successful connection test clears the task alert', async () => {

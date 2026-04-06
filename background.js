@@ -184,10 +184,10 @@ async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false }
     return result;
   }
 
-  const message = '连接失败，检查下载器是否在运行';
+  const message = result?.error || buildConnectionFailureText(getDownloaderLabel(config.downloaderType));
   setUiAlert({ type: 'connection-failure', message });
   if (openPopupOnFailure) await openTaskSurface();
-  return { ...result, error: result?.error || buildConnectionFailureText(getDownloaderLabel(config.downloaderType)) };
+  return { ...result, error: message };
 }
 
 function updateActionBadgeForTab(tabId, count) {
@@ -394,7 +394,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           referrer: media.referrer || '',
           origin: media.origin || '',
           addedAt: Date.now(),
-        }, msg.opts || {}, { openPopupOnFailure: true }));
+        }, msg.opts || {}, { openPopupOnFailure: false }));
         break;
       }
       case 'GET_MEDIA_ITEM': {
@@ -582,4 +582,5 @@ globalThis.__backgroundTestHooks = {
   setUiAlert,
   clearUiAlert,
   openTaskSurface,
+  mediaManager,
 };
