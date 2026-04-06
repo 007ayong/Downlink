@@ -5,7 +5,22 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 function createChromeStub(storedConfig = {}) {
+  const listeners = {
+    runtimeOnMessage: null,
+    downloadsOnCreated: null,
+    contextMenusOnClicked: null,
+  };
+  const actionCalls = {
+    openPopup: 0,
+  };
+  const tabsCalls = {
+    create: [],
+  };
+
   return {
+    _listeners: listeners,
+    _actionCalls: actionCalls,
+    _tabsCalls: tabsCalls,
     storage: {
       sync: {
         get(defaults, callback) {
@@ -21,6 +36,10 @@ function createChromeStub(storedConfig = {}) {
       setBadgeBackgroundColor() {},
       setBadgeTextColor() {},
       setBadgeText() {},
+      openPopup() {
+        actionCalls.openPopup += 1;
+        return Promise.resolve();
+      },
     },
     webRequest: {
       onSendHeaders: {
@@ -32,7 +51,9 @@ function createChromeStub(storedConfig = {}) {
     },
     downloads: {
       onCreated: {
-        addListener() {},
+        addListener(callback) {
+          listeners.downloadsOnCreated = callback;
+        },
       },
       cancel(_id, callback) {
         callback?.();
@@ -41,7 +62,9 @@ function createChromeStub(storedConfig = {}) {
     },
     runtime: {
       onMessage: {
-        addListener() {},
+        addListener(callback) {
+          listeners.runtimeOnMessage = callback;
+        },
       },
       onInstalled: {
         addListener() {},
@@ -50,6 +73,12 @@ function createChromeStub(storedConfig = {}) {
         addListener() {},
       },
       lastError: null,
+      sendMessage() {
+        return Promise.resolve();
+      },
+      getURL(pathname) {
+        return `chrome-extension://test/${pathname}`;
+      },
     },
     contextMenus: {
       removeAll(callback) {
@@ -57,10 +86,16 @@ function createChromeStub(storedConfig = {}) {
       },
       create() {},
       onClicked: {
-        addListener() {},
+        addListener(callback) {
+          listeners.contextMenusOnClicked = callback;
+        },
       },
     },
     tabs: {
+      create: async (opts) => {
+        tabsCalls.create.push(opts);
+        return { id: 1 };
+      },
       get(_tabId, callback) {
         callback?.({ title: '', url: '' });
       },
@@ -83,7 +118,8 @@ function createChromeStub(storedConfig = {}) {
   };
 }
 
-function loadBackgroundRuntime(storedConfig = {}) {
+function loadBackgroundRuntime(storedConfig = {}, options = {}) {
+  const chrome = createChromeStub(storedConfig);
   const context = {
     console,
     Buffer,
@@ -96,13 +132,13 @@ function loadBackgroundRuntime(storedConfig = {}) {
       return 1;
     },
     clearInterval() {},
-    fetch: async () => {
+    fetch: options.fetch || (async () => {
       throw new Error('unexpected fetch in background test');
-    },
+    }),
     atob(value) {
       return Buffer.from(value, 'base64').toString('binary');
     },
-    chrome: createChromeStub(storedConfig),
+    chrome,
     importScripts(...files) {
       for (const file of files) {
         const script = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
@@ -122,6 +158,17 @@ function loadBackgroundRuntime(storedConfig = {}) {
   const script = fs.readFileSync(path.join(__dirname, '..', 'background.js'), 'utf8');
   vm.runInNewContext(script, context, { filename: 'background.js' });
   return context;
+}
+
+async function invokeBackgroundMessage(background, message) {
+  const listener = background.chrome._listeners.runtimeOnMessage;
+  assert.equal(typeof listener, 'function');
+
+  return new Promise((resolve) => {
+    listener(message, {}, (response) => {
+      resolve(response);
+    });
+  });
 }
 
 test('media sniffing ignores ts segment URLs', () => {
@@ -185,4 +232,56 @@ test('AB DM downloader label is fixed', () => {
   });
 
   assert.equal(clients.getDownloaderLabel('abdownload', { downloaderType: 'abdownload' }), 'AB DM');
+});
+
+test('user-triggered send failure opens popup and exposes task alert', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+      externalLauncherPath: '/start-headless-download',
+    },
+    {
+      fetch: async () => {
+        throw new Error('offline');
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_URL',
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(background.chrome._actionCalls.openPopup, 1);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.uiAlert?.message, '连接失败，检查下载器是否在运行');
+});
+
+test('successful connection test clears the task alert', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+      externalLauncherPath: '/add',
+    }
+  );
+
+  background.__backgroundTestHooks.setUiAlert({
+    type: 'connection-failure',
+    message: '连接失败，检查下载器是否在运行',
+  });
+
+  const failedState = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(failedState.uiAlert?.message, '连接失败，检查下载器是否在运行');
+
+  background.__backgroundTestHooks.clearUiAlert();
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.uiAlert, null);
 });

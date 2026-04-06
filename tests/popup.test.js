@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 function createElementStub() {
+  const classes = new Set();
   return {
     style: {},
     dataset: {},
@@ -18,9 +19,31 @@ function createElementStub() {
     alt: '',
     children: [],
     classList: {
-      add() {},
-      remove() {},
-      toggle() {},
+      add(...tokens) {
+        tokens.forEach((token) => classes.add(token));
+      },
+      remove(...tokens) {
+        tokens.forEach((token) => classes.delete(token));
+      },
+      toggle(token, force) {
+        if (force === true) {
+          classes.add(token);
+          return true;
+        }
+        if (force === false) {
+          classes.delete(token);
+          return false;
+        }
+        if (classes.has(token)) {
+          classes.delete(token);
+          return false;
+        }
+        classes.add(token);
+        return true;
+      },
+      contains(token) {
+        return classes.has(token);
+      },
     },
     addEventListener() {},
     appendChild(child) {
@@ -37,10 +60,11 @@ function createElementStub() {
     querySelectorAll() {
       return [];
     },
+    _classes: classes,
   };
 }
 
-function loadPopupRuntime() {
+function loadPopupRuntime(options = {}) {
   const elements = new Map();
   const getElement = (id) => {
     if (!elements.has(id)) elements.set(id, createElementStub());
@@ -67,21 +91,23 @@ function loadPopupRuntime() {
   };
 
   const chrome = {
+    _listeners: {},
     runtime: {
       lastError: null,
       sendMessage(message, callback) {
         if (message?.type === 'GET_STATE') {
           callback?.({
-            tasks: {},
-            pending: {},
-            media: {},
-            config: {},
-            hiddenTaskGids: [],
+            tasks: options.state?.tasks || {},
+            pending: options.state?.pending || {},
+            media: options.state?.media || {},
+            config: options.state?.config || {},
+            hiddenTaskGids: options.state?.hiddenTaskGids || [],
+            uiAlert: options.state?.uiAlert || null,
           });
           return;
         }
         if (message?.type === 'TEST_CONNECTION') {
-          callback?.({ ok: false, error: 'stubbed' });
+          callback?.(options.testConnectionResult || { ok: false, error: 'stubbed' });
           return;
         }
         callback?.({ ok: true });
@@ -90,7 +116,9 @@ function loadPopupRuntime() {
         return value;
       },
       onMessage: {
-        addListener() {},
+        addListener(callback) {
+          chrome._listeners.runtimeOnMessage = callback;
+        },
       },
     },
     tabs: {
@@ -135,6 +163,10 @@ function loadPopupRuntime() {
   vm.runInNewContext(popupUiScript, context, { filename: 'lib/popup-ui.js' });
   const script = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
   vm.runInNewContext(script, context, { filename: 'popup.js' });
+  const popupSettingsScript = fs.readFileSync(path.join(__dirname, '..', 'lib', 'popup-settings.js'), 'utf8');
+  vm.runInNewContext(popupSettingsScript, context, { filename: 'lib/popup-settings.js' });
+  const popupAppScript = fs.readFileSync(path.join(__dirname, '..', 'popup-app.js'), 'utf8');
+  vm.runInNewContext(popupAppScript, context, { filename: 'popup-app.js' });
   return context;
 }
 
@@ -335,6 +367,38 @@ test('AB DM display name is fixed', () => {
   const popup = loadPopupRuntime();
   assert.equal(popup.getDownloaderName({ downloaderType: 'abdownload', externalLauncherName: 'Custom Name' }), 'AB DM');
   assert.equal(popup.getSendLabel({ downloaderType: 'abdownload', externalLauncherName: 'Custom Name' }), '发送到 AB DM');
+});
+
+test('task alert renders connection failure in tasks panel', async () => {
+  const popup = loadPopupRuntime({
+    state: {
+      tasks: {},
+      pending: {},
+      media: {},
+      config: {},
+      hiddenTaskGids: [],
+      uiAlert: null,
+    },
+  });
+
+  const listener = popup.chrome._listeners.runtimeOnMessage;
+  assert.equal(typeof listener, 'function');
+
+  listener({
+    type: 'TASKS_UPDATE',
+    tasks: {},
+    pending: {},
+    media: {},
+    hiddenTaskGids: [],
+    uiAlert: {
+      type: 'connection-failure',
+      message: '连接失败，检查下载器是否在运行',
+    },
+  });
+
+  const alertEl = popup.document.getElementById('taskAlert');
+  assert.equal(alertEl.textContent, '连接失败，检查下载器是否在运行');
+  assert.equal(alertEl.classList.contains('show'), true);
 });
 
 test('cfgUseMotrixNext only binds one change listener for autosave', () => {

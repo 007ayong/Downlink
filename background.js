@@ -24,7 +24,6 @@ const DEFAULT_CONFIG = {
   captureMime: true,
   showConfirm: true,
   saveDir: '',
-  notification: true,
 };
 
 const shared = globalThis.BackgroundShared;
@@ -48,11 +47,42 @@ let config = { ...DEFAULT_CONFIG };
 let tasks = {};
 let pendingDownloads = {};
 let hiddenTaskGids = {};
+let uiAlert = null;
 
 const markedUrls = new Map();
 const requestHeadersCache = new Map();
+const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
 function shouldConfirmBeforeSend() {
   return config.downloaderType === 'aria2' && config.showConfirm;
+}
+
+function buildConnectionFailureText(label) {
+  return `与 ${label} 连接失败，检查 ${label} 是否正在运行`;
+}
+
+function setUiAlert(alert) {
+  uiAlert = alert;
+  broadcastUpdate();
+}
+
+function clearUiAlert() {
+  if (!uiAlert) return;
+  uiAlert = null;
+  broadcastUpdate();
+}
+
+async function openTaskSurface() {
+  try {
+    await chrome.action.openPopup();
+    return true;
+  } catch {
+    try {
+      await chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 const configReady = new Promise((resolve) => {
@@ -78,7 +108,6 @@ chrome.storage.onChanged.addListener((changes) => {
 });
 
 function notify(title, message) {
-  if (!config.notification) return;
   chrome.notifications.create({
     type: 'basic',
     iconUrl: 'icons/icon48.png',
@@ -110,6 +139,7 @@ function broadcastUpdate() {
     pending: pendingDownloads,
     media: mediaState.media,
     hiddenTaskGids: Object.keys(hiddenTaskGids),
+    uiAlert,
   }).catch(() => {});
 }
 
@@ -123,6 +153,7 @@ const downloaderClients = downloaders.createClients({
     broadcastUpdate();
   },
   onAria2TaskQueued: (gid, taskInfo) => {
+    clearUiAlert();
     tasks[gid] = {
       gid,
       url: taskInfo.url,
@@ -142,9 +173,22 @@ const {
   getAria2GlobalStat,
   getAria2Status,
   getDownloaderLabel,
-  sendTask,
+  sendTask: sendTaskToDownloader,
   testNeatdmConnection,
 } = downloaderClients;
+
+async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false } = {}) {
+  const result = await sendTaskToDownloader(taskInfo, extraOpts);
+  if (result?.ok) {
+    clearUiAlert();
+    return result;
+  }
+
+  const message = '连接失败，检查下载器是否在运行';
+  setUiAlert({ type: 'connection-failure', message });
+  if (openPopupOnFailure) await openTaskSurface();
+  return { ...result, error: result?.error || buildConnectionFailureText(getDownloaderLabel(config.downloaderType)) };
+}
 
 function updateActionBadgeForTab(tabId, count) {
   if (typeof tabId !== 'number' || tabId < 0) return;
@@ -302,7 +346,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
     return;
   }
 
-  sendTask(taskInfo);
+  await sendTask(taskInfo, {}, { openPopupOnFailure: true });
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -311,12 +355,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     switch (msg.type) {
       case 'GET_STATE':
-        sendResponse({ tasks, pending: pendingDownloads, media: mediaManager.getState().media, config, hiddenTaskGids: Object.keys(hiddenTaskGids) });
+        sendResponse({ tasks, pending: pendingDownloads, media: mediaManager.getState().media, config, hiddenTaskGids: Object.keys(hiddenTaskGids), uiAlert });
         break;
       case 'CONFIRM_DOWNLOAD': {
         const info = pendingDownloads[msg.key];
         if (!info) break;
-        const result = await sendTask({ ...info, filename: msg.filename || info.filename }, msg.opts || {});
+        const result = await sendTask({ ...info, filename: msg.filename || info.filename }, msg.opts || {}, { openPopupOnFailure: true });
         if (result?.ok) delete pendingDownloads[msg.key];
         sendResponse(result);
         broadcastUpdate();
@@ -333,7 +377,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           filename: msg.filename || '',
           headers: {},
           addedAt: Date.now(),
-        }, msg.opts || {}));
+        }, msg.opts || {}, { openPopupOnFailure: true }));
         break;
       case 'ADD_MEDIA_TASK': {
         const media = mediaManager.findMediaResourceById(msg.id);
@@ -350,7 +394,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           referrer: media.referrer || '',
           origin: media.origin || '',
           addedAt: Date.now(),
-        }, msg.opts || {}));
+        }, msg.opts || {}, { openPopupOnFailure: true }));
         break;
       }
       case 'GET_MEDIA_ITEM': {
@@ -426,26 +470,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (config.downloaderType === 'abdownload') {
           try {
             const endpoint = buildExternalEndpoint().replace(/\/start-headless-download$|\/add$/, '/queues');
-            const res = await fetch(endpoint);
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), EXTERNAL_LAUNCHER_TIMEOUT_MS);
+            let res;
+            try {
+              res = await fetch(endpoint, { signal: controller.signal });
+            } finally {
+              clearTimeout(timer);
+            }
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            clearUiAlert();
             sendResponse({ ok: true, mode: 'abdownload', message: `已连接 ${endpoint}` });
           } catch (error) {
-            sendResponse({ ok: false, mode: 'abdownload', error: error.message });
+            sendResponse({ ok: false, mode: 'abdownload', error: buildConnectionFailureText('AB DM') });
           }
           break;
         }
         if (config.downloaderType === 'neatdm') {
-          try {
-            sendResponse(await testNeatdmConnection());
-          } catch (error) {
-            sendResponse({ ok: false, mode: 'neatdm', error: error.message });
-          }
+          const result = await testNeatdmConnection();
+          if (result?.ok) clearUiAlert();
+          sendResponse(result);
           break;
         }
         try {
-          sendResponse({ ok: true, stat: await getAria2GlobalStat(), mode: 'aria2' });
+          const stat = await getAria2GlobalStat();
+          clearUiAlert();
+          sendResponse({ ok: true, stat, mode: 'aria2' });
         } catch (error) {
-          sendResponse({ ok: false, error: error.message, mode: 'aria2' });
+          sendResponse({ ok: false, error: buildConnectionFailureText('Aria2'), mode: 'aria2' });
         }
         break;
       case 'SAVE_CONFIG':
@@ -484,7 +536,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     filename: url.split('?')[0].split('/').pop() || '',
     headers: reqHeaders,
     addedAt: Date.now(),
-  });
+  }, {}, { openPopupOnFailure: true });
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -526,3 +578,8 @@ chrome.runtime.onStartup.addListener(async () => {
 globalThis.isDirectMediaResource = isDirectMediaResource;
 globalThis.openMotrixNextView = openMotrixNextView;
 globalThis.getBackgroundConfig = () => config;
+globalThis.__backgroundTestHooks = {
+  setUiAlert,
+  clearUiAlert,
+  openTaskSurface,
+};

@@ -14,6 +14,9 @@ function syncPopupGlobals() {
   globalThis.previousMediaCount = previousMediaCount;
   globalThis.lastAutoSwitchedMediaCount = lastAutoSwitchedMediaCount;
   globalThis.hiddenTaskGids = hiddenTaskGids;
+  globalThis.autoConnectionCheckTimer = autoConnectionCheckTimer;
+  globalThis.autoConnectionCheckInFlight = autoConnectionCheckInFlight;
+  globalThis.autoConnectionCheckSettled = autoConnectionCheckSettled;
 }
 
 function updateHeaderLogo(cfg = currentConfig) {
@@ -54,6 +57,52 @@ function updateHeaderStatusDisplay({ cfg = currentConfig, state = 'checking', st
     : `${getDownloaderName(cfg)} 连接中…`;
 }
 
+function getConnectionCheckSignature(cfg = currentConfig) {
+  if (!cfg?.downloaderType) return '';
+  if (cfg.downloaderType === 'aria2') {
+    return ['aria2', cfg.aria2Rpc || '', cfg.aria2Secret || ''].join('|');
+  }
+  if (cfg.downloaderType === 'abdownload') {
+    return [
+      'abdownload',
+      cfg.externalLauncherHost || 'localhost',
+      cfg.externalLauncherPort || '15151',
+      cfg.externalLauncherPath || '/start-headless-download',
+    ].join('|');
+  }
+  if (cfg.downloaderType === 'neatdm') return 'neatdm';
+  return '';
+}
+
+function requestAutoConnectionCheck(cfg = currentConfig) {
+  const signature = getConnectionCheckSignature(cfg);
+  if (!signature) return;
+  if (signature === autoConnectionCheckSettled || signature === autoConnectionCheckInFlight) return;
+
+  clearTimeout(autoConnectionCheckTimer);
+  autoConnectionCheckTimer = setTimeout(() => {
+    autoConnectionCheckTimer = null;
+    if (getConnectionCheckSignature(cfg) !== signature) return;
+    autoConnectionCheckInFlight = signature;
+    syncPopupGlobals();
+    updateHeaderStatusDisplay({ cfg, state: 'checking' });
+    chrome.runtime.sendMessage({ type: 'TEST_CONNECTION' }, (res) => {
+      if (autoConnectionCheckInFlight !== signature) return;
+      autoConnectionCheckInFlight = null;
+      syncPopupGlobals();
+      if (getConnectionCheckSignature(currentConfig) !== signature) return;
+      if (res?.ok) {
+        updateHeaderStatusDisplay({ cfg: currentConfig, state: 'online', stat: res.stat, message: res.message });
+      } else {
+        updateHeaderStatusDisplay({ cfg: currentConfig, state: 'offline' });
+      }
+      autoConnectionCheckSettled = signature;
+      syncPopupGlobals();
+    });
+  }, 0);
+  syncPopupGlobals();
+}
+
 function updateSettingsVisibility(type = currentConfig.downloaderType) {
   const isAria2 = type === 'aria2';
   const isAbDownload = type === 'abdownload';
@@ -64,6 +113,13 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
 }
 
 function renderTasks(tasks, pending) {
+  const alertEl = document.getElementById('taskAlert');
+  const alertMessage = currentState.uiAlert?.message || '';
+  if (alertEl) {
+    alertEl.textContent = alertMessage;
+    alertEl.classList.toggle('show', !!alertMessage);
+  }
+
   const taskVals = Object.values(tasks || {}).filter((task) => !hiddenTaskGids.has(task?.gid));
   const pendingVals = Object.values(pending || {});
 
@@ -100,8 +156,8 @@ function renderTasks(tasks, pending) {
     pendingList.appendChild(card);
     card.querySelector('.confirm-btn').addEventListener('click', () => {
       const fname = card.querySelector('.pending-fname').value.trim();
-      chrome.runtime.sendMessage({ type: 'CONFIRM_DOWNLOAD', key: item.key, filename: fname }, (res) => {
-        if (!res?.ok) showToast(`发送失败：${res?.error || '无法建立链接'}`);
+    chrome.runtime.sendMessage({ type: 'CONFIRM_DOWNLOAD', key: item.key, filename: fname }, (res) => {
+        if (!res?.ok) showToast(`发送失败：${res?.error || '与下载器连接失败，检查下载器是否正在运行'}`);
       });
     });
     card.querySelector('.reject-btn').addEventListener('click', () => {
@@ -327,7 +383,7 @@ function renderMedia(mediaByTab) {
         } else {
           btn.disabled = false;
           btn.textContent = `⚡ ${getSendLabel(currentConfig)}`;
-          showToast(`发送失败：${res?.error || '无法建立链接'}`);
+          showToast(`发送失败：${res?.error || '与下载器连接失败，检查下载器是否正在运行'}`);
         }
       });
     });
@@ -352,21 +408,11 @@ function renderState(state) {
     tasks: state.tasks || {},
     pending: state.pending || {},
     media: state.media || {},
+    uiAlert: state.uiAlert || null,
   };
   syncPopupGlobals();
   renderTasks(currentState.tasks, currentState.pending);
   renderMedia(currentState.media);
-}
-
-function checkStatus(cfg = currentConfig) {
-  updateHeaderStatusDisplay({ cfg, state: 'checking' });
-  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION' }, (res) => {
-    if (res?.ok) {
-      updateHeaderStatusDisplay({ cfg, state: 'online', stat: res.stat, message: res.message });
-    } else {
-      updateHeaderStatusDisplay({ cfg, state: 'offline' });
-    }
-  });
 }
 
 async function refreshAll() {
@@ -379,7 +425,6 @@ async function refreshAll() {
     if (!res) return;
     loadSettings(res.config);
     renderState(res);
-    checkStatus(res.config);
   });
 }
 
@@ -396,9 +441,8 @@ const settingsController = popupSettings.createSettingsController({
   syncGlobals: syncPopupGlobals,
   updateSettingsVisibility,
   updateDynamicLabels,
-  updateHeaderStatusDisplay,
   renderTasks,
-  checkStatus,
+  requestAutoConnectionCheck,
 });
 
 const {
@@ -440,7 +484,7 @@ document.getElementById('testConnBtn').addEventListener('click', () => {
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `✗ 连接失败 — ${res?.error || '无法连接'}`;
+    resultEl.textContent = `✗ ${res?.error || '与 Aria2 连接失败，检查 Aria2 是否正在运行'}`;
   });
 });
 
@@ -456,7 +500,7 @@ document.getElementById('testLauncherBtn').addEventListener('click', () => {
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `✗ ${res?.error || res?.message || '接口未配置'}`;
+    resultEl.textContent = `✗ ${res?.error || '与 AB DM 连接失败，检查 AB DM 是否正在运行'}`;
   });
 });
 
@@ -472,7 +516,7 @@ document.getElementById('testNeatdmBtn').addEventListener('click', () => {
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `✗ ${res?.error || '无法连接到 NeatDM'}`;
+    resultEl.textContent = `✗ ${res?.error || '与 NeatDM 连接失败，检查 NeatDM 是否正在运行'}`;
   });
 });
 

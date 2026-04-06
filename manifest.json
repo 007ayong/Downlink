@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Downlink",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "接管浏览器下载，并发送到你选择的下载器",
   "permissions": [
     "declarativeNetRequest",

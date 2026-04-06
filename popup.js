@@ -13,6 +13,9 @@ let lastRenderedMediaKey = '';
 let previousMediaCount = 0;
 let lastAutoSwitchedMediaCount = 0;
 let hiddenTaskGids = new Set();
+let autoConnectionCheckTimer = null;
+let autoConnectionCheckInFlight = null;
+let autoConnectionCheckSettled = null;
 
 const {
   DEFAULT_HEADER_LOGO,
@@ -110,6 +113,9 @@ globalThis.lastRenderedMediaKey = lastRenderedMediaKey;
 globalThis.previousMediaCount = previousMediaCount;
 globalThis.lastAutoSwitchedMediaCount = lastAutoSwitchedMediaCount;
 globalThis.hiddenTaskGids = hiddenTaskGids;
+globalThis.autoConnectionCheckTimer = autoConnectionCheckTimer;
+globalThis.autoConnectionCheckInFlight = autoConnectionCheckInFlight;
+globalThis.autoConnectionCheckSettled = autoConnectionCheckSettled;
 globalThis.buildMediaRenderKey = buildMediaRenderKey;
 globalThis.copyText = copyText;
 globalThis.decodeDisplayFilename = decodeDisplayFilename;

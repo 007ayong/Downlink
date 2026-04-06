@@ -1,8 +1,16 @@
 # Downlink
 
+GitHub 仓库：[Downlink](https://github.com/007ayong/Downlink)
+
 Downlink 是一个浏览器扩展，用来接管浏览器下载，并把任务发送到你选择的外部下载器。
 
 该扩展支持接入多种下载器，拥有高度的灵活性，可根据你使用的下载器，在设置中自行切换保存。只需一个浏览器插件，即可完成下载接管、网页媒体捕获和基础状态查看。
+
+## 截图
+
+![Downlink 截图 1](https://cdn.winapps.cc/images/downlink-screenshot1.jpg)
+
+![Downlink 截图 2](https://cdn.winapps.cc/images/downlink-screenshot2.jpg)
 
 ## 当前支持
 
@@ -19,14 +27,16 @@ Downlink 是一个浏览器扩展，用来接管浏览器下载，并把任务�
 - 支持在弹窗中查看任务列表和待确认任务
 - 支持预览已捕获的媒体资源，并发送到下载器
 - 支持透传关键请求头，改善需要 Cookie、Referer 或鉴权头的下载场景
-- 支持通知提醒和基础连接测试
+- 支持错误提醒和基础连接测试
 
 ## 安装方式
 
-1. 打开 Chromium 内核浏览器的扩展管理页面
-2. 开启开发者模式
-3. 选择“加载已解压的扩展程序”
-4. 选择当前项目目录
+打开 Chromium 内核浏览器的扩展管理页面，开启“开发者模式”，然后选择“加载已解压的扩展程序”，指定当前项目目录即可。
+
+## 商店地址
+
+- Chrome Web Store: [Downlink](https://chromewebstore.google.com/detail/eepjgbffnmmhpinlmlncdfnhjccpigcg)
+- Microsoft Edge: [Downlink](https://microsoftedge.microsoft.com/addons/detail/klkhmcdcnnhggpiipgedlafhpobojpgl)
 
 ## 基本使用
 
@@ -94,6 +104,6 @@ Downlink 会监听页面中的音频和视频请求，并在媒体面板中展�
 - `preview.html` / `preview.js`：媒体预览页面
 - `icons/`：扩展图标
 
-## 说明
+## 许可证
 
-这个项目目前更偏向本地使用和功能验证，文档会随着下载器适配能力和配置方式继续调整。
+本项目采用 [GNU General Public License v3.0 only](./LICENSE)。

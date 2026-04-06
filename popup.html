@@ -186,6 +186,19 @@
     .empty-title { font-size: 12px; font-weight: 500; color: var(--text-3); }
     .empty-sub { font-size: 11px; }
 
+    .task-alert {
+      display: none;
+      margin-bottom: 8px;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      background: var(--red-bg);
+      border: 1px solid #f3b7b7;
+      color: var(--red);
+      font-size: 11.5px;
+      line-height: 1.5;
+    }
+    .task-alert.show { display: block; }
+
     .toast {
       position: fixed;
       left: 12px;
@@ -690,6 +703,7 @@
 
 <!-- Panel: Tasks -->
 <div class="panel active" id="panel-tasks">
+  <div class="task-alert" id="taskAlert"></div>
   <div class="empty" id="tasksEmpty">
     <div class="empty-icon">
       <img src="assets/null.png" alt="暂无下载任务"/>
@@ -799,14 +813,6 @@
     <div class="settings-row col">
       <label>拦截文件类型 <span class="settings-sub">逗号分隔，留空拦截所有</span></label>
       <input class="settings-input wide" id="cfgExts" type="text" placeholder="zip,rar,mp4,exe..."/>
-    </div>
-  </div>
-
-  <div class="settings-group">
-    <div class="settings-group-title">通知</div>
-    <div class="settings-row">
-      <label>发送成功时通知</label>
-      <label class="toggle"><input type="checkbox" id="cfgNotification"><div class="toggle-track"></div></label>
     </div>
   </div>
 
