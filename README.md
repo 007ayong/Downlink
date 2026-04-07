@@ -39,6 +39,25 @@ Downlink 是一个浏览器扩展，用来接管浏览器下载，并把任务�
 - Chrome Web Store: [Downlink](https://chromewebstore.google.com/detail/eepjgbffnmmhpinlmlncdfnhjccpigcg)
 - Microsoft Edge: [Downlink](https://microsoftedge.microsoft.com/addons/detail/klkhmcdcnnhggpiipgedlafhpobojpgl)
 
+## 自动发布
+
+仓库现在拆成了 3 个独立工作流：
+
+- `GitHub Release`：推送 `v*` 格式的 tag 时自动生成压缩包并上传 Release
+- `Publish to Edge Add-ons`：推送 `v*` 格式的 tag 时自动提交到 Edge
+- `Publish to Chrome Web Store`：手动触发，使用你指定的 tag 或 commit
+
+发布前需要在 GitHub Secrets 中配置：
+
+- `CHROME_PUBLISHER_ID`
+- `CHROME_EXTENSION_ID`
+- `CHROME_SERVICE_ACCOUNT_JSON`
+- `EDGE_PRODUCT_ID`
+- `EDGE_CLIENT_ID`
+- `EDGE_API_KEY`
+
+tag 版本需要和 `manifest.json` 里的 `version` 保持一致，例如 `v1.0.3` 对应 `manifest.json` 中的 `1.0.3`。
+
 ## 基本使用
 
 1. 点击扩展图标打开 Downlink

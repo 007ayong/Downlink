@@ -1,0 +1,36 @@
+name: GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build release zip
+        id: package
+        run: echo "zip_path=$(node scripts/package-extension.mjs)" >> "$GITHUB_OUTPUT"
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.zip_path }}
+          generate_release_notes: true

@@ -1,9 +1,10 @@
 {
   "name": "downlink",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "license": "GPL-3.0-only",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "package:release": "node scripts/package-extension.mjs"
   }
 }

@@ -1,0 +1,36 @@
+name: Publish to Edge Add-ons
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build release zip
+        id: package
+        run: echo "zip_path=$(node scripts/package-extension.mjs)" >> "$GITHUB_OUTPUT"
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - name: Publish to Microsoft Edge Add-ons
+        run: node scripts/publish-edge.mjs "${ZIP_PATH}"
+        env:
+          ZIP_PATH: ${{ steps.package.outputs.zip_path }}
+          EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}

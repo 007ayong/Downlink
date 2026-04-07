@@ -1,0 +1,41 @@
+name: Publish to Chrome Web Store
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag or commit to publish, for example v1.0.3'
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build release zip
+        id: package
+        run: echo "zip_path=$(node scripts/package-extension.mjs)" >> "$GITHUB_OUTPUT"
+        env:
+          RELEASE_TAG: ${{ inputs.ref }}
+
+      - name: Publish to Chrome Web Store
+        run: node scripts/publish-chrome.mjs "${ZIP_PATH}"
+        env:
+          ZIP_PATH: ${{ steps.package.outputs.zip_path }}
+          CHROME_PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_SERVICE_ACCOUNT_JSON: ${{ secrets.CHROME_SERVICE_ACCOUNT_JSON }}
