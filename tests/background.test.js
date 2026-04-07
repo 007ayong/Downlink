@@ -123,6 +123,7 @@ function loadBackgroundRuntime(storedConfig = {}, options = {}) {
   const context = {
     console,
     Buffer,
+    AbortController,
     TextDecoder,
     URL,
     URLSearchParams,
@@ -322,4 +323,89 @@ test('successful connection test clears the task alert', async () => {
 
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(state.uiAlert, null);
+});
+
+test('connection test uses the incoming config override instead of the last saved secret', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://localhost:6800/jsonrpc',
+      aria2Secret: 'good-secret',
+    },
+    {
+      fetch: async (_url, options) => {
+        const payload = JSON.parse(options.body);
+        const token = payload.params?.[0];
+        if (token !== 'token:good-secret') {
+          return {
+            ok: true,
+            async json() {
+              return {
+                error: {
+                  message: 'Unauthorized',
+                },
+              };
+            },
+          };
+        }
+        return {
+          ok: true,
+          async json() {
+            return {
+              result: { numActive: '1', numWaiting: '0', numStopped: '0' },
+            };
+          },
+        };
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'TEST_CONNECTION',
+    config: {
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://localhost:6800/jsonrpc',
+      aria2Secret: 'bad-secret',
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.mode, 'aria2');
+  assert.equal(result.error, '与 Aria2 连接失败，检查 Aria2 是否正在运行');
+});
+
+test('AB DM connection test uses the incoming config override instead of the last saved endpoint', async () => {
+  let requestedUrl = '';
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      externalLauncherHost: 'saved-host',
+      externalLauncherPort: '15151',
+      externalLauncherPath: '/start-headless-download',
+    },
+    {
+      fetch: async (url) => {
+        requestedUrl = url;
+        return {
+          ok: false,
+          status: 503,
+        };
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'TEST_CONNECTION',
+    config: {
+      downloaderType: 'abdownload',
+      externalLauncherHost: 'live-host',
+      externalLauncherPort: '17000',
+      externalLauncherPath: '/add',
+    },
+  });
+
+  assert.equal(requestedUrl, 'http://live-host:17000/queues');
+  assert.equal(result.ok, false);
+  assert.equal(result.mode, 'abdownload');
+  assert.equal(result.error, '与 AB DM 连接失败，检查 AB DM 是否正在运行');
 });

@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 function createElementStub() {
   const classes = new Set();
+  const listeners = {};
   return {
     style: {},
     dataset: {},
@@ -45,7 +46,10 @@ function createElementStub() {
         return classes.has(token);
       },
     },
-    addEventListener() {},
+    addEventListener(type, handler) {
+      listeners[type] = listeners[type] || [];
+      listeners[type].push(handler);
+    },
     appendChild(child) {
       this.children.push(child);
       return child;
@@ -53,7 +57,9 @@ function createElementStub() {
     remove() {},
     focus() {},
     select() {},
-    click() {},
+    click() {
+      (listeners.click || []).forEach((handler) => handler({ currentTarget: this, target: this }));
+    },
     querySelector() {
       return createElementStub();
     },
@@ -61,6 +67,7 @@ function createElementStub() {
       return [];
     },
     _classes: classes,
+    _listeners: listeners,
   };
 }
 
@@ -92,9 +99,11 @@ function loadPopupRuntime(options = {}) {
 
   const chrome = {
     _listeners: {},
+    _sentMessages: [],
     runtime: {
       lastError: null,
       sendMessage(message, callback) {
+        chrome._sentMessages.push(message);
         if (message?.type === 'GET_STATE') {
           callback?.({
             tasks: options.state?.tasks || {},
@@ -173,6 +182,7 @@ function loadPopupRuntime(options = {}) {
 function loadPopupSettingsRuntime() {
   const listenersById = new Map();
   const elements = new Map();
+  const sentMessages = [];
   const getElement = (id) => {
     if (!elements.has(id)) {
       const listeners = {};
@@ -207,7 +217,8 @@ function loadPopupSettingsRuntime() {
     },
     chrome: {
       runtime: {
-        sendMessage(_message, callback) {
+        sendMessage(message, callback) {
+          sentMessages.push(message);
           callback?.({ ok: true });
         },
       },
@@ -223,7 +234,7 @@ function loadPopupSettingsRuntime() {
 
   const script = fs.readFileSync(path.join(__dirname, '..', 'lib', 'popup-settings.js'), 'utf8');
   vm.runInNewContext(script, context, { filename: 'lib/popup-settings.js' });
-  return { context, listenersById };
+  return { context, listenersById, sentMessages };
 }
 
 test('auto-switches when new media is found and there are no pending confirmations', () => {
@@ -369,6 +380,60 @@ test('AB DM display name is fixed', () => {
   assert.equal(popup.getSendLabel({ downloaderType: 'abdownload', externalLauncherName: 'Custom Name' }), '发送到 AB DM');
 });
 
+test('aria2 test connection sends the current form config', () => {
+  const popup = loadPopupRuntime();
+
+  popup.document.getElementById('cfgDownloaderType').value = 'aria2';
+  popup.document.getElementById('cfgRpc').value = 'http://127.0.0.1:6800/jsonrpc';
+  popup.document.getElementById('cfgSecret').value = 'bad-secret';
+  popup.document.getElementById('cfgSaveDir').value = '/downloads';
+
+  popup.document.getElementById('testConnBtn').click();
+
+  const testMessage = popup.chrome._sentMessages.findLast((message) => message?.type === 'TEST_CONNECTION');
+  assert.deepEqual(JSON.parse(JSON.stringify(testMessage?.config)), {
+    downloaderType: 'aria2',
+    aria2Rpc: 'http://127.0.0.1:6800/jsonrpc',
+    aria2Secret: 'bad-secret',
+    saveDir: '/downloads',
+    useMotrixNext: false,
+    externalLauncherName: 'AB DM',
+    externalLauncherHost: 'localhost',
+    externalLauncherPort: '15151',
+    externalLauncherPath: '/start-headless-download',
+    autoCapture: false,
+    showConfirm: false,
+    captureExtensions: '',
+  });
+});
+
+test('AB DM test connection sends the current form config', () => {
+  const popup = loadPopupRuntime();
+
+  popup.document.getElementById('cfgDownloaderType').value = 'abdownload';
+  popup.document.getElementById('cfgLauncherHost').value = '10.0.0.8';
+  popup.document.getElementById('cfgLauncherPort').value = '17000';
+  popup.document.getElementById('cfgLauncherPath').value = '/add';
+
+  popup.document.getElementById('testLauncherBtn').click();
+
+  const testMessage = popup.chrome._sentMessages.findLast((message) => message?.type === 'TEST_CONNECTION');
+  assert.deepEqual(JSON.parse(JSON.stringify(testMessage?.config)), {
+    downloaderType: 'abdownload',
+    aria2Rpc: 'http://localhost:6800/jsonrpc',
+    aria2Secret: '',
+    saveDir: '',
+    useMotrixNext: false,
+    externalLauncherName: 'AB DM',
+    externalLauncherHost: '10.0.0.8',
+    externalLauncherPort: '17000',
+    externalLauncherPath: '/add',
+    autoCapture: false,
+    showConfirm: false,
+    captureExtensions: '',
+  });
+});
+
 test('connection failure alert renders in both tasks and media panels', async () => {
   const popup = loadPopupRuntime({
     state: {
@@ -433,4 +498,96 @@ test('cfgUseMotrixNext only binds one change listener for autosave', () => {
 
   const changeListeners = listenersById.get('cfgUseMotrixNext')?.change || [];
   assert.equal(changeListeners.length, 1);
+});
+
+test('settings controller collects every visible config field from the form', () => {
+  const { context } = loadPopupSettingsRuntime();
+  const controller = context.PopupSettings.createSettingsController({
+    getCurrentConfig: () => ({}),
+    setCurrentConfig() {},
+    getCurrentState: () => ({ tasks: {}, pending: {} }),
+    getLoading: () => false,
+    setLoading() {},
+    getAutoSaveTimer: () => null,
+    setAutoSaveTimer() {},
+    getSaveFeedbackTimer: () => null,
+    setSaveFeedbackTimer() {},
+    syncGlobals() {},
+    updateSettingsVisibility() {},
+    updateDynamicLabels() {},
+    renderTasks() {},
+    requestAutoConnectionCheck() {},
+  });
+
+  context.document.getElementById('cfgDownloaderType').value = 'abdownload';
+  context.document.getElementById('cfgRpc').value = 'http://127.0.0.1:6800/jsonrpc';
+  context.document.getElementById('cfgSecret').value = 'secret';
+  context.document.getElementById('cfgSaveDir').value = '/tmp/downloads';
+  context.document.getElementById('cfgUseMotrixNext').checked = true;
+  context.document.getElementById('cfgLauncherHost').value = '10.0.0.8';
+  context.document.getElementById('cfgLauncherPort').value = '17000';
+  context.document.getElementById('cfgLauncherPath').value = '/add';
+  context.document.getElementById('cfgAutoCapture').checked = true;
+  context.document.getElementById('cfgShowConfirm').checked = true;
+  context.document.getElementById('cfgExts').value = 'zip,mp4';
+
+  assert.deepEqual(JSON.parse(JSON.stringify(controller.collectSettingsFromForm())), {
+    downloaderType: 'abdownload',
+    aria2Rpc: 'http://127.0.0.1:6800/jsonrpc',
+    aria2Secret: 'secret',
+    saveDir: '/tmp/downloads',
+    useMotrixNext: true,
+    externalLauncherName: 'AB DM',
+    externalLauncherHost: '10.0.0.8',
+    externalLauncherPort: '17000',
+    externalLauncherPath: '/add',
+    autoCapture: true,
+    showConfirm: true,
+    captureExtensions: 'zip,mp4',
+  });
+});
+
+test('all editable settings fields trigger autosave on change', async () => {
+  const { context, listenersById, sentMessages } = loadPopupSettingsRuntime();
+  const controller = context.PopupSettings.createSettingsController({
+    getCurrentConfig: () => ({}),
+    setCurrentConfig() {},
+    getCurrentState: () => ({ tasks: {}, pending: {} }),
+    getLoading: () => false,
+    setLoading() {},
+    getAutoSaveTimer: () => null,
+    setAutoSaveTimer() {},
+    getSaveFeedbackTimer: () => null,
+    setSaveFeedbackTimer() {},
+    syncGlobals() {},
+    updateSettingsVisibility() {},
+    updateDynamicLabels() {},
+    renderTasks() {},
+    requestAutoConnectionCheck() {},
+  });
+
+  controller.bindSettingsEvents();
+
+  const applyChange = async (id, value, type = 'value') => {
+    const el = context.document.getElementById(id);
+    if (type === 'checked') el.checked = value;
+    else el.value = value;
+    for (const handler of listenersById.get(id)?.change || []) {
+      handler({ target: el, currentTarget: el });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return sentMessages.at(-1);
+  };
+
+  assert.equal((await applyChange('cfgDownloaderType', 'neatdm')).type, 'SAVE_CONFIG');
+  assert.equal((await applyChange('cfgRpc', 'http://127.0.0.1:6800/jsonrpc')).config.aria2Rpc, 'http://127.0.0.1:6800/jsonrpc');
+  assert.equal((await applyChange('cfgSecret', 'new-secret')).config.aria2Secret, 'new-secret');
+  assert.equal((await applyChange('cfgSaveDir', '/downloads')).config.saveDir, '/downloads');
+  assert.equal((await applyChange('cfgLauncherHost', '10.0.0.8')).config.externalLauncherHost, '10.0.0.8');
+  assert.equal((await applyChange('cfgLauncherPort', '17000')).config.externalLauncherPort, '17000');
+  assert.equal((await applyChange('cfgLauncherPath', '/add')).config.externalLauncherPath, '/add');
+  assert.equal((await applyChange('cfgExts', 'zip,mp4')).config.captureExtensions, 'zip,mp4');
+  assert.equal((await applyChange('cfgAutoCapture', true, 'checked')).config.autoCapture, true);
+  assert.equal((await applyChange('cfgShowConfirm', true, 'checked')).config.showConfirm, true);
+  assert.equal((await applyChange('cfgUseMotrixNext', true, 'checked')).config.useMotrixNext, true);
 });

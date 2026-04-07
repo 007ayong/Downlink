@@ -86,7 +86,7 @@ function requestAutoConnectionCheck(cfg = currentConfig) {
     autoConnectionCheckInFlight = signature;
     syncPopupGlobals();
     updateHeaderStatusDisplay({ cfg, state: 'checking' });
-    chrome.runtime.sendMessage({ type: 'TEST_CONNECTION' }, (res) => {
+    chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: cfg }, (res) => {
       if (autoConnectionCheckInFlight !== signature) return;
       autoConnectionCheckInFlight = null;
       syncPopupGlobals();
@@ -481,12 +481,16 @@ document.querySelectorAll('.tab').forEach((tab) => {
 
 settingsController.bindSettingsEvents();
 
+function getTestConnectionConfig() {
+  return collectSettingsFromForm();
+}
+
 document.getElementById('testConnBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResult');
   resultEl.className = 'conn-result';
   resultEl.textContent = '连接中…';
   resultEl.style.display = 'block';
-  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION' }, (res) => {
+  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
     if (res?.ok) {
       const stat = res.stat;
       resultEl.className = 'conn-result ok';
@@ -503,7 +507,7 @@ document.getElementById('testLauncherBtn').addEventListener('click', () => {
   resultEl.className = 'conn-result';
   resultEl.textContent = '读取中…';
   resultEl.style.display = 'block';
-  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION' }, (res) => {
+  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
       resultEl.textContent = `✓ ${res.message || '接口已配置'}`;
@@ -519,7 +523,7 @@ document.getElementById('testNeatdmBtn').addEventListener('click', () => {
   resultEl.className = 'conn-result';
   resultEl.textContent = '连接中…';
   resultEl.style.display = 'block';
-  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION' }, (res) => {
+  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
       resultEl.textContent = `✓ ${res.message || 'NeatDM 已就绪'}`;

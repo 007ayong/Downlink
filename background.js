@@ -60,6 +60,16 @@ function buildConnectionFailureText(label) {
   return `与 ${label} 连接失败，检查 ${label} 是否正在运行`;
 }
 
+function getEffectiveConfig(override = {}) {
+  const normalized = { ...config, ...(override || {}) };
+  normalized.externalLauncherName = 'AB DM';
+  if (normalized.downloaderType === 'motrixnext') {
+    normalized.downloaderType = 'aria2';
+    normalized.useMotrixNext = true;
+  }
+  return normalized;
+}
+
 function setUiAlert(alert) {
   uiAlert = alert;
   broadcastUpdate();
@@ -467,9 +477,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true });
         break;
       case 'TEST_CONNECTION':
-        if (config.downloaderType === 'abdownload') {
+        const testConfig = getEffectiveConfig(msg.config);
+        if (testConfig.downloaderType === 'abdownload') {
           try {
-            const endpoint = buildExternalEndpoint().replace(/\/start-headless-download$|\/add$/, '/queues');
+            const endpoint = buildExternalEndpoint(testConfig).replace(/\/start-headless-download$|\/add$/, '/queues');
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), EXTERNAL_LAUNCHER_TIMEOUT_MS);
             let res;
@@ -486,14 +497,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           break;
         }
-        if (config.downloaderType === 'neatdm') {
+        if (testConfig.downloaderType === 'neatdm') {
           const result = await testNeatdmConnection();
           if (result?.ok) clearUiAlert();
           sendResponse(result);
           break;
         }
         try {
-          const stat = await getAria2GlobalStat();
+          const stat = await getAria2GlobalStat(testConfig);
           clearUiAlert();
           sendResponse({ ok: true, stat, mode: 'aria2' });
         } catch (error) {
