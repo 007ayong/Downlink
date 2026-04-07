@@ -1,6 +1,15 @@
 // popup-app.js — Downlink popup wiring and rendering
 
 const popupSettings = globalThis.PopupSettings;
+const popupAppI18n = globalThis.Localization || {};
+const HEADER_STATUS_MIN_CHECKING_MS = 500;
+const popupAppT = popupAppI18n.t || ((key, substitutions, fallback = key) => {
+  if (fallback && substitutions !== undefined) {
+    const values = Array.isArray(substitutions) ? substitutions : [substitutions];
+    return String(fallback).replace(/\$(\d+)/g, (_, index) => String(values[Number(index) - 1] ?? ''));
+  }
+  return fallback || key;
+});
 
 function syncPopupGlobals() {
   globalThis.currentConfig = currentConfig;
@@ -17,6 +26,15 @@ function syncPopupGlobals() {
   globalThis.autoConnectionCheckTimer = autoConnectionCheckTimer;
   globalThis.autoConnectionCheckInFlight = autoConnectionCheckInFlight;
   globalThis.autoConnectionCheckSettled = autoConnectionCheckSettled;
+  globalThis.headerStatusState = headerStatusState;
+  globalThis.headerStatusMinUntil = headerStatusMinUntil;
+  globalThis.headerStatusTransitionTimer = headerStatusTransitionTimer;
+}
+
+function applyLocaleFromConfig(cfg = currentConfig) {
+  popupAppI18n.setLocalePreference?.(cfg?.language || 'auto');
+  popupAppI18n.applyTranslations?.(document);
+  renderHeaderStatus({ ...headerStatusState, cfg });
 }
 
 function updateHeaderLogo(cfg = currentConfig) {
@@ -31,14 +49,14 @@ function updateHeaderLogo(cfg = currentConfig) {
 
 function updateDynamicLabels(cfg = currentConfig) {
   const title = document.querySelector('.header-title');
-  if (title) title.textContent = 'Downlink';
+  if (title) title.textContent = popupAppT('appTitle', undefined, 'Downlink');
   updateHeaderLogo(cfg);
   document.querySelectorAll('.confirm-btn, .media-send-btn').forEach((btn) => {
     if (!btn.disabled) btn.textContent = `⚡ ${getSendLabel(cfg)}`;
   });
 }
 
-function updateHeaderStatusDisplay({ cfg = currentConfig, state = 'checking', stat = null, message = '' } = {}) {
+function renderHeaderStatus({ cfg = currentConfig, state = 'checking', stat = null, message = '' } = {}) {
   const dot = document.getElementById('statusDot');
   const txt = document.getElementById('statusText');
   if (!dot || !txt) return;
@@ -46,15 +64,51 @@ function updateHeaderStatusDisplay({ cfg = currentConfig, state = 'checking', st
   dot.className = `status-dot${state === 'online' ? ' online' : state === 'offline' ? ' offline' : ''}`;
 
   if (state === 'online') {
-    txt.textContent = cfg?.downloaderType === 'aria2'
-      ? `已连接 · ↓${fmtSpeed(parseInt(stat?.downloadSpeed, 10) || 0)}`
-      : `${getDownloaderName(cfg)} 已就绪`;
+    const downloadSpeed = parseInt(stat?.downloadSpeed, 10) || 0;
+    txt.textContent = cfg?.downloaderType === 'aria2' && downloadSpeed > 0
+      ? popupAppT('connectedWithSpeed', [fmtSpeed(downloadSpeed)], `已连接 · ↓${fmtSpeed(downloadSpeed)}`)
+      : popupAppT('downloaderReady', [getDownloaderName(cfg)], `${getDownloaderName(cfg)} 已就绪`);
+    return;
+  }
+
+  if (state === 'checking') {
+    txt.textContent = popupAppT('statusCheckingConnection', undefined, '检测连接状态中…');
     return;
   }
 
   txt.textContent = state === 'offline'
-    ? `${getDownloaderName(cfg)} 未连接`
-    : `${getDownloaderName(cfg)} 连接中…`;
+    ? popupAppT('downloaderOffline', [getDownloaderName(cfg)], `${getDownloaderName(cfg)} 未连接`)
+    : popupAppT('downloaderConnecting', [getDownloaderName(cfg)], `${getDownloaderName(cfg)} 连接中…`);
+}
+
+function updateHeaderStatusDisplay({ cfg = currentConfig, state = 'checking', stat = null, message = '' } = {}) {
+  headerStatusState = { cfg, state, stat, message };
+
+  if (state === 'checking') {
+    headerStatusMinUntil = Date.now() + HEADER_STATUS_MIN_CHECKING_MS;
+    clearTimeout(headerStatusTransitionTimer);
+    headerStatusTransitionTimer = null;
+    syncPopupGlobals();
+    renderHeaderStatus(headerStatusState);
+    return;
+  }
+
+  const delay = Math.max(0, headerStatusMinUntil - Date.now());
+  if (delay > 0) {
+    clearTimeout(headerStatusTransitionTimer);
+    headerStatusTransitionTimer = setTimeout(() => {
+      headerStatusTransitionTimer = null;
+      headerStatusMinUntil = 0;
+      syncPopupGlobals();
+      renderHeaderStatus(headerStatusState);
+    }, delay);
+    syncPopupGlobals();
+    return;
+  }
+
+  headerStatusMinUntil = 0;
+  syncPopupGlobals();
+  renderHeaderStatus(headerStatusState);
 }
 
 function getConnectionCheckSignature(cfg = currentConfig) {
@@ -148,22 +202,28 @@ function renderTasks(tasks, pending) {
     const card = document.createElement('div');
     card.className = 'pending-card';
     card.innerHTML = `
-      <div class="pending-label">待确认下载</div>
+      <div class="pending-label">${popupAppT('pendingDownload', undefined, '待确认下载')}</div>
       <div class="pending-url">${escHtml(item.url)}</div>
       <div class="pending-filename-row">
-        <label>文件名</label>
-        <input type="text" class="pending-fname" value="${escHtml(filename)}" placeholder="自动识别"/>
+        <label>${popupAppT('fileName', undefined, '文件名')}</label>
+        <input type="text" class="pending-fname" value="${escHtml(filename)}" placeholder="${escHtml(popupAppT('autoDetect', undefined, '自动识别'))}"/>
       </div>
       <div class="pending-actions">
         <button class="btn btn-primary confirm-btn" data-key="${item.key}">⚡ ${getSendLabel(currentConfig)}</button>
-        <button class="btn btn-ghost reject-btn" data-key="${item.key}">✕ 忽略</button>
+        <button class="btn btn-ghost reject-btn" data-key="${item.key}">${popupAppT('ignore', undefined, '✕ 忽略')}</button>
       </div>
     `;
     pendingList.appendChild(card);
     card.querySelector('.confirm-btn').addEventListener('click', () => {
       const fname = card.querySelector('.pending-fname').value.trim();
     chrome.runtime.sendMessage({ type: 'CONFIRM_DOWNLOAD', key: item.key, filename: fname }, (res) => {
-        if (!res?.ok) showToast(`发送失败：${res?.error || '与下载器连接失败，检查下载器是否正在运行'}`);
+        if (!res?.ok) {
+          showToast(popupAppT(
+            'sendFailed',
+            [res?.error || popupAppT('downloaderConnectionFailed', undefined, '与下载器连接失败，检查下载器是否正在运行')],
+            `发送失败：${res?.error || '与下载器连接失败，检查下载器是否正在运行'}`
+          ));
+        }
       });
     });
     card.querySelector('.reject-btn').addEventListener('click', () => {
@@ -180,7 +240,7 @@ function renderTasks(tasks, pending) {
   taskVals
     .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0))
     .forEach((task) => {
-      const name = task.filename || task.url?.split('?')[0].split('/').pop() || '未知文件';
+      const name = task.filename || task.url?.split('?')[0].split('/').pop() || popupAppT('unknownFile', undefined, '未知文件');
       const pct = task.totalLength > 0
         ? Math.min(100, Math.round((task.completedLength / task.totalLength) * 100))
         : (task.status === 'complete' ? 100 : 0);
@@ -216,7 +276,7 @@ function renderTasks(tasks, pending) {
               ${task.targetName ? `<span>⇢ ${escHtml(task.targetName)}</span>` : ''}
               ${stateKey === 'active' && task.downloadSpeed ? `<span>↓ ${fmtSpeed(task.downloadSpeed)}</span>` : ''}
               ${stateKey === 'active' && eta ? `<span>⏱ ${eta}</span>` : ''}
-              ${task.connections ? `<span>🔗 ${task.connections}线</span>` : ''}
+              ${task.connections ? `<span>${popupAppT('connectionsCount', [task.connections], `🔗 ${task.connections}线`)}</span>` : ''}
             </div>
           </div>
           <span class="state-pill state-${stateKey}">${getStateLabel(stateKey)}</span>
@@ -232,13 +292,13 @@ function renderTasks(tasks, pending) {
           </div>
         </div>` : ''}
         <div class="task-actions">
-          ${canViewInMotrix ? `<button class="task-btn" data-action="motrix-view">MotrixNext中查看</button>` : ''}
-          ${stateKey === 'active' ? `<button class="task-btn" data-action="pause" data-gid="${task.gid}">⏸ 暂停</button>` : ''}
-          ${stateKey === 'paused' ? `<button class="task-btn" data-action="resume" data-gid="${task.gid}">▶ 继续</button>` : ''}
-          ${stateKey === 'complete' ? `<button class="task-btn" data-action="remove" data-gid="${task.gid}">✕ 清除</button>` : ''}
-          ${['active', 'paused', 'waiting'].includes(stateKey) ? `<button class="task-btn danger" data-action="remove" data-gid="${task.gid}">✕ 取消</button>` : ''}
-          ${stateKey === 'sent' ? `<button class="task-btn" data-action="remove" data-gid="${task.gid}">✕ 清除</button>` : ''}
-          ${stateKey === 'error' ? `<button class="task-btn danger" data-action="remove" data-gid="${task.gid}">✕ 清除</button>` : ''}
+          ${canViewInMotrix ? `<button class="task-btn" data-action="motrix-view">${popupAppT('motrixView', undefined, 'MotrixNext中查看')}</button>` : ''}
+          ${stateKey === 'active' ? `<button class="task-btn" data-action="pause" data-gid="${task.gid}">${popupAppT('pauseTask', undefined, '⏸ 暂停')}</button>` : ''}
+          ${stateKey === 'paused' ? `<button class="task-btn" data-action="resume" data-gid="${task.gid}">${popupAppT('resumeTask', undefined, '▶ 继续')}</button>` : ''}
+          ${stateKey === 'complete' ? `<button class="task-btn" data-action="remove" data-gid="${task.gid}">${popupAppT('clearTask', undefined, '✕ 清除')}</button>` : ''}
+          ${['active', 'paused', 'waiting'].includes(stateKey) ? `<button class="task-btn danger" data-action="remove" data-gid="${task.gid}">${popupAppT('cancelTask', undefined, '✕ 取消')}</button>` : ''}
+          ${stateKey === 'sent' ? `<button class="task-btn" data-action="remove" data-gid="${task.gid}">${popupAppT('clearTask', undefined, '✕ 清除')}</button>` : ''}
+          ${stateKey === 'error' ? `<button class="task-btn danger" data-action="remove" data-gid="${task.gid}">${popupAppT('clearTask', undefined, '✕ 清除')}</button>` : ''}
         </div>
       `;
       taskList.appendChild(card);
@@ -249,9 +309,15 @@ function renderTasks(tasks, pending) {
           if (btn.dataset.action === 'motrix-view') {
             btn.disabled = true;
             const originalText = btn.textContent;
-            btn.textContent = '打开中…';
+            btn.textContent = popupAppT('opening', undefined, '打开中…');
             chrome.runtime.sendMessage({ type: 'OPEN_MOTRIXNEXT_VIEW' }, (res) => {
-              if (!res?.ok) showToast(`打开失败：${res?.error || '无法唤起 MotrixNext'}`);
+              if (!res?.ok) {
+                showToast(popupAppT(
+                  'openFailed',
+                  [res?.error || popupAppT('cannotLaunchMotrix', undefined, '无法唤起 MotrixNext')],
+                  `打开失败：${res?.error || '无法唤起 MotrixNext'}`
+                ));
+              }
               setTimeout(() => {
                 btn.disabled = false;
                 btn.textContent = originalText;
@@ -265,9 +331,9 @@ function renderTasks(tasks, pending) {
       });
     });
 
-  document.getElementById('fActive').textContent = activeCount;
-  document.getElementById('fDone').textContent = doneCount;
   document.getElementById('fSpeed').textContent = fmtSpeed(totalSpeed);
+  const footerStats = document.getElementById('footerStatsLabel');
+  if (footerStats) footerStats.textContent = popupAppT('footerStats', [activeCount, doneCount], `活跃 ${activeCount} · 完成 ${doneCount}`);
 }
 
 function loadMediaMetadata(item, card) {
@@ -312,8 +378,8 @@ function renderMedia(mediaByTab) {
 
   emptyEl.style.display = media.length ? 'none' : 'flex';
   summaryEl.textContent = media.length
-    ? `当前标签页已发现 ${media.length} 个直链媒体资源`
-    : '等待页面发起音视频请求…';
+    ? popupAppT('currentTabMediaFound', [media.length], `当前标签页已发现 ${media.length} 个直链媒体资源`)
+    : popupAppT('waitingMediaRequests', undefined, '等待页面发起音视频请求…');
   if (mediaCount > 0) {
     mediaBadge.textContent = String(mediaCount);
     mediaBadge.style.display = 'inline-block';
@@ -349,19 +415,19 @@ function renderMedia(mediaByTab) {
       <div class="media-top">
         <div class="media-icon">${item.kind === 'audio' ? '🎵' : '🎬'}</div>
         <div class="media-info">
-          <div class="media-name" title="${escHtml(item.filename || '未命名媒体')}">${escHtml(item.filename || '未命名媒体')}</div>
+          <div class="media-name" title="${escHtml(item.filename || popupAppT('untitledMedia', undefined, '未命名媒体'))}">${escHtml(item.filename || popupAppT('untitledMedia', undefined, '未命名媒体'))}</div>
           <div class="media-url">${escHtml(item.resourceUrl)}</div>
           <div class="media-meta">
             <span class="media-chip kind-${escHtml(item.kind || 'video')}">${mediaKindLabel(item.kind)}</span>
-            <span class="media-chip">${item.size ? fmt(item.size) : '大小未知'}</span>
+            <span class="media-chip">${item.size ? fmt(item.size) : popupAppT('unknownSize', undefined, '大小未知')}</span>
             ${item.kind === 'video' ? `<span class="media-chip media-resolution">${escHtml(mediaResolutionLabel(item))}</span>` : ''}
             ${item.mime ? `<span class="media-chip">${escHtml(item.mime)}</span>` : ''}
           </div>
         </div>
       </div>
       <div class="media-actions">
-        <button class="task-btn media-preview-toggle" data-id="${item.id}">▶ 预览</button>
-        <button class="task-btn" data-copy-url="${escHtml(item.resourceUrl)}">⧉ 复制链接</button>
+        <button class="task-btn media-preview-toggle" data-id="${item.id}">${popupAppT('previewMedia', undefined, '▶ 预览')}</button>
+        <button class="task-btn" data-copy-url="${escHtml(item.resourceUrl)}">${popupAppT('copyLink', undefined, '⧉ 复制链接')}</button>
         <button class="task-btn media-send-btn" data-send-id="${item.id}">⚡ ${getSendLabel(currentConfig)}</button>
       </div>
     `;
@@ -371,17 +437,17 @@ function renderMedia(mediaByTab) {
 
     card.querySelector('[data-copy-url]').addEventListener('click', async (event) => {
       const copied = await copyText(event.currentTarget.dataset.copyUrl);
-      showToast(copied ? '已复制媒体链接' : '复制失败');
+      showToast(copied ? popupAppT('copySuccess', undefined, '已复制媒体链接') : popupAppT('copyFailed', undefined, '复制失败'));
     });
 
     card.querySelector('[data-send-id]').addEventListener('click', (event) => {
       const btn = event.currentTarget;
       btn.disabled = true;
-      btn.textContent = '发送中…';
+      btn.textContent = popupAppT('sending', undefined, '发送中…');
       chrome.runtime.sendMessage({ type: 'ADD_MEDIA_TASK', id: btn.dataset.sendId }, (res) => {
         if (res?.ok) {
-          btn.textContent = '✓ 已发送';
-          showToast('媒体已发送到下载器');
+          btn.textContent = popupAppT('sent', undefined, '✓ 已发送');
+          showToast(popupAppT('mediaSentToDownloader', undefined, '媒体已发送到下载器'));
           setTimeout(() => {
             btn.disabled = false;
             btn.textContent = `⚡ ${getSendLabel(currentConfig)}`;
@@ -390,7 +456,7 @@ function renderMedia(mediaByTab) {
         } else {
           btn.disabled = false;
           btn.textContent = `⚡ ${getSendLabel(currentConfig)}`;
-          const message = res?.error || '与下载器连接失败，检查下载器是否正在运行';
+          const message = res?.error || popupAppT('downloaderConnectionFailed', undefined, '与下载器连接失败，检查下载器是否正在运行');
           currentState.uiAlert = { type: 'connection-failure', message };
           renderInlineAlert('mediaAlert', message, { shake: true });
           syncPopupGlobals();
@@ -402,7 +468,7 @@ function renderMedia(mediaByTab) {
       const btn = event.currentTarget;
       btn.disabled = true;
       const originalText = btn.textContent;
-      btn.textContent = '打开中…';
+      btn.textContent = popupAppT('opening', undefined, '打开中…');
       openPreviewTab(item);
       setTimeout(() => {
         btn.disabled = false;
@@ -433,6 +499,7 @@ async function refreshAll() {
   syncPopupGlobals();
   chrome.runtime.sendMessage({ type: 'GET_STATE' }, (res) => {
     if (!res) return;
+    applyLocaleFromConfig(res.config || {});
     loadSettings(res.config);
     renderState(res);
   });
@@ -441,6 +508,8 @@ async function refreshAll() {
 const settingsController = popupSettings.createSettingsController({
   getCurrentConfig: () => currentConfig,
   setCurrentConfig: (next) => { currentConfig = next; },
+  getSavedConfig: () => savedConfig,
+  setSavedConfig: (next) => { savedConfig = next; },
   getCurrentState: () => currentState,
   getLoading: () => isLoadingSettings,
   setLoading: (next) => { isLoadingSettings = next; },
@@ -481,6 +550,22 @@ document.querySelectorAll('.tab').forEach((tab) => {
 
 settingsController.bindSettingsEvents();
 
+document.getElementById('cfgLanguage').addEventListener('change', () => {
+  const nextCfg = collectSettingsFromForm();
+  currentConfig = { ...currentConfig, ...nextCfg };
+  applyLocaleFromConfig(currentConfig);
+  updateDynamicLabels(currentConfig);
+  renderTasks(currentState.tasks, currentState.pending);
+  renderMedia(currentState.media);
+  syncPopupGlobals();
+});
+
+document.getElementById('cfgDownloaderType').addEventListener('change', (event) => {
+  const nextType = event.target.value;
+  const nextCfg = { ...currentConfig, ...collectSettingsFromForm(), downloaderType: nextType };
+  updateHeaderStatusDisplay({ cfg: nextCfg, state: 'checking', stat: null, message: '' });
+});
+
 function getTestConnectionConfig() {
   return collectSettingsFromForm();
 }
@@ -488,49 +573,49 @@ function getTestConnectionConfig() {
 document.getElementById('testConnBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResult');
   resultEl.className = 'conn-result';
-  resultEl.textContent = '连接中…';
+  resultEl.textContent = popupAppT('downloaderConnecting', ['Aria2'], 'Aria2 连接中…');
   resultEl.style.display = 'block';
   chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
     if (res?.ok) {
       const stat = res.stat;
       resultEl.className = 'conn-result ok';
-      resultEl.textContent = `✓ 连接成功 — 活跃 ${stat?.numActive || 0} · 等待 ${stat?.numWaiting || 0} · 完成 ${stat?.numStopped || 0}`;
+      resultEl.textContent = popupAppT('connectionSuccessStats', [stat?.numActive || 0, stat?.numWaiting || 0, stat?.numStopped || 0], `✓ 连接成功 — 活跃 ${stat?.numActive || 0} · 等待 ${stat?.numWaiting || 0} · 完成 ${stat?.numStopped || 0}`);
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `✗ ${res?.error || '与 Aria2 连接失败，检查 Aria2 是否正在运行'}`;
+    resultEl.textContent = `✗ ${res?.error || popupAppT('connectionFailedWithLabel', ['Aria2'], '与 Aria2 连接失败，检查 Aria2 是否正在运行')}`;
   });
 });
 
 document.getElementById('testLauncherBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResultLauncher');
   resultEl.className = 'conn-result';
-  resultEl.textContent = '读取中…';
+  resultEl.textContent = popupAppT('readInProgress', undefined, '读取中…');
   resultEl.style.display = 'block';
   chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
-      resultEl.textContent = `✓ ${res.message || '接口已配置'}`;
+      resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('interfaceConfigured', undefined, '接口已配置')], `✓ ${res.message || '接口已配置'}`);
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `✗ ${res?.error || '与 AB DM 连接失败，检查 AB DM 是否正在运行'}`;
+    resultEl.textContent = `✗ ${res?.error || popupAppT('connectionFailedWithLabel', ['AB DM'], '与 AB DM 连接失败，检查 AB DM 是否正在运行')}`;
   });
 });
 
 document.getElementById('testNeatdmBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResultNeatdm');
   resultEl.className = 'conn-result';
-  resultEl.textContent = '连接中…';
+  resultEl.textContent = popupAppT('downloaderConnecting', ['NeatDM'], 'NeatDM 连接中…');
   resultEl.style.display = 'block';
   chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
-      resultEl.textContent = `✓ ${res.message || 'NeatDM 已就绪'}`;
+      resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('neatdmReady', undefined, 'NeatDM 已就绪')], `✓ ${res.message || 'NeatDM 已就绪'}`);
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `✗ ${res?.error || '与 NeatDM 连接失败，检查 NeatDM 是否正在运行'}`;
+    resultEl.textContent = `✗ ${res?.error || popupAppT('connectionFailedWithLabel', ['NeatDM'], '与 NeatDM 连接失败，检查 NeatDM 是否正在运行')}`;
   });
 });
 
@@ -543,7 +628,7 @@ document.getElementById('clearMediaBtn').addEventListener('click', () => {
     previousMediaCount = 0;
     lastAutoSwitchedMediaCount = 0;
     syncPopupGlobals();
-    showToast('已清空当前页面媒体列表');
+    showToast(popupAppT('clearedCurrentPageMedia', undefined, '已清空当前页面媒体列表'));
   });
 });
 
@@ -551,5 +636,6 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'TASKS_UPDATE') renderState(msg);
 });
 
+applyLocaleFromConfig(currentConfig);
 syncPopupGlobals();
 refreshAll();

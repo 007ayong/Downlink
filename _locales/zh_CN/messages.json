@@ -1,0 +1,8 @@
+{
+  "extensionName": {
+    "message": "Downlink"
+  },
+  "extensionDescription": {
+    "message": "接管浏览器下载，并发送到你选择的下载器"
+  }
+}

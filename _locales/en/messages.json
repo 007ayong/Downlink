@@ -1,0 +1,8 @@
+{
+  "extensionName": {
+    "message": "Downlink"
+  },
+  "extensionDescription": {
+    "message": "Intercept browser downloads and send them to your selected downloader"
+  }
+}

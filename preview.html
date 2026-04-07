@@ -214,8 +214,8 @@
         <div class="subtitle" id="subtitle">正在加载媒体信息…</div>
       </div>
       <div class="actions">
-        <button class="btn" id="copyBtn">复制链接</button>
-        <button class="btn primary" id="sendBtn">发送到下载器</button>
+        <button class="btn" id="copyBtn" data-i18n="copyLink">复制链接</button>
+        <button class="btn primary" id="sendBtn" data-i18n="sendToDownloaderGeneric">发送到下载器</button>
       </div>
     </div>
     <div class="top-alert" id="topAlert"></div>
@@ -227,30 +227,31 @@
       </div>
 
       <div class="card sidebar">
-        <div class="section-title">媒体信息</div>
+        <div class="section-title" data-i18n="mediaInfo">媒体信息</div>
         <div class="kv">
-          <div class="kv-label">文件名</div>
+          <div class="kv-label" data-i18n="fileName">文件名</div>
           <div class="kv-value" id="infoFilename">-</div>
         </div>
         <div class="kv">
-          <div class="kv-label">资源地址</div>
+          <div class="kv-label" data-i18n="resourceUrl">资源地址</div>
           <div class="kv-value" id="infoUrl">-</div>
         </div>
         <div class="kv">
-          <div class="kv-label">来源页面</div>
+          <div class="kv-label" data-i18n="sourcePage">来源页面</div>
           <div class="kv-value" id="infoPageUrl">-</div>
         </div>
-        <div class="section-title">已捕获请求头</div>
+        <div class="section-title" data-i18n="capturedHeaders">已捕获请求头</div>
         <div class="header-list" id="headerList"></div>
-        <div class="section-title" style="margin-top:14px">预览增强</div>
+        <div class="section-title" style="margin-top:14px" data-i18n="previewEnhancement">预览增强</div>
         <div class="kv">
-          <div class="kv-label">已应用补头</div>
+          <div class="kv-label" data-i18n="appliedPatchedHeaders">已应用补头</div>
           <div class="kv-value" id="appliedHeaders">-</div>
         </div>
         <div class="status" id="status"></div>
       </div>
     </div>
   </div>
+  <script src="lib/i18n.js"></script>
   <script src="preview.js"></script>
 </body>
 </html>

@@ -4,6 +4,7 @@
 try {
   importScripts(
     'filename-logic.js',
+    'lib/i18n.js',
     'lib/background-shared.js',
     'lib/background-downloaders.js',
     'lib/background-media.js'
@@ -11,6 +12,7 @@ try {
 } catch {}
 
 const DEFAULT_CONFIG = {
+  language: 'auto',
   downloaderType: 'aria2',
   aria2Rpc: 'http://localhost:6800/jsonrpc',
   aria2Secret: '',
@@ -25,6 +27,14 @@ const DEFAULT_CONFIG = {
   showConfirm: true,
   saveDir: '',
 };
+const i18n = globalThis.Localization || {};
+const t = i18n.t || ((key, substitutions, fallback = key) => {
+  if (fallback && substitutions !== undefined) {
+    const values = Array.isArray(substitutions) ? substitutions : [substitutions];
+    return String(fallback).replace(/\$(\d+)/g, (_, index) => String(values[Number(index) - 1] ?? ''));
+  }
+  return fallback || key;
+});
 
 const shared = globalThis.BackgroundShared;
 const downloaders = globalThis.BackgroundDownloaders;
@@ -52,12 +62,24 @@ let uiAlert = null;
 const markedUrls = new Map();
 const requestHeadersCache = new Map();
 const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
+
+function applyLocaleFromConfig(nextConfig = config) {
+  i18n.setLocalePreference?.(nextConfig.language || 'auto');
+}
+
+function refreshContextMenus() {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({ id: 'send-to-aria2', title: t('menuDownloadLink', undefined, '用当前下载器下载链接'), contexts: ['link'] });
+    chrome.contextMenus.create({ id: 'send-page-to-aria2', title: t('menuDownloadPage', undefined, '用当前下载器下载当前页面'), contexts: ['page'] });
+  });
+}
+
 function shouldConfirmBeforeSend() {
   return config.downloaderType === 'aria2' && config.showConfirm;
 }
 
 function buildConnectionFailureText(label) {
-  return `与 ${label} 连接失败，检查 ${label} 是否正在运行`;
+  return t('connectionFailedWithLabel', [label], `与 ${label} 连接失败，检查 ${label} 是否正在运行`);
 }
 
 function getEffectiveConfig(override = {}) {
@@ -112,6 +134,8 @@ const configReady = new Promise((resolve) => {
       normalized.useMotrixNext = true;
     }
     config = normalized;
+    applyLocaleFromConfig(config);
+    refreshContextMenus();
     resolve(config);
   });
 });
@@ -123,6 +147,8 @@ chrome.storage.onChanged.addListener((changes) => {
     config.downloaderType = 'aria2';
     config.useMotrixNext = true;
   }
+  applyLocaleFromConfig(config);
+  if (changes.language) refreshContextMenus();
 });
 
 function notify(title, message) {
@@ -144,7 +170,7 @@ async function openMotrixNextView() {
     await chrome.tabs.create({ url: deepLink });
     return { ok: true, url: deepLink };
   } catch (error) {
-    notify('MotrixNext 打开失败', error.message);
+    notify(t('motrixOpenFailed', undefined, 'MotrixNext 打开失败'), error.message);
     return { ok: false, error: error.message };
   }
 }
@@ -398,7 +424,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'ADD_MEDIA_TASK': {
         const media = mediaManager.findMediaResourceById(msg.id);
         if (!media) {
-          sendResponse({ ok: false, error: '媒体资源不存在或已过期' });
+          sendResponse({ ok: false, error: t('mediaExpired', undefined, '媒体资源不存在或已过期。') });
           break;
         }
         sendResponse(await sendTask({
@@ -416,7 +442,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'GET_MEDIA_ITEM': {
         const media = mediaManager.findMediaResourceById(msg.id);
         if (!media) {
-          sendResponse({ ok: false, error: '媒体资源不存在或已过期' });
+          sendResponse({ ok: false, error: t('mediaExpired', undefined, '媒体资源不存在或已过期。') });
           break;
         }
         sendResponse({ ok: true, media });
@@ -425,14 +451,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'PREPARE_MEDIA_PREVIEW': {
         const media = mediaManager.findMediaResourceById(msg.id);
         if (!media) {
-          sendResponse({ ok: false, error: '媒体资源不存在或已过期' });
+          sendResponse({ ok: false, error: t('mediaExpired', undefined, '媒体资源不存在或已过期。') });
           break;
         }
         try {
           const result = await mediaManager.preparePreviewRule(msg.tabId, media);
           sendResponse({ ok: true, ...result });
         } catch (error) {
-          sendResponse({ ok: false, error: error?.message || '预览请求补头失败' });
+          sendResponse({ ok: false, error: error?.message || t('previewPatchFailed', undefined, '预览请求补头失败') });
         }
         break;
       }
@@ -497,7 +523,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             }
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             clearUiAlert();
-            sendResponse({ ok: true, mode: 'abdownload', message: `已连接 ${endpoint}` });
+            sendResponse({ ok: true, mode: 'abdownload', message: t('connectedToEndpoint', [endpoint], `已连接 ${endpoint}`) });
           } catch (error) {
             sendResponse({ ok: false, mode: 'abdownload', error: buildConnectionFailureText('AB DM') });
           }
@@ -537,10 +563,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({ id: 'send-to-aria2', title: '用当前下载器下载链接', contexts: ['link'] });
-    chrome.contextMenus.create({ id: 'send-page-to-aria2', title: '用当前下载器下载当前页面', contexts: ['page'] });
-  });
+  refreshContextMenus();
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {

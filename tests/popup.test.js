@@ -393,6 +393,7 @@ test('aria2 test connection sends the current form config', () => {
   const testMessage = popup.chrome._sentMessages.findLast((message) => message?.type === 'TEST_CONNECTION');
   assert.deepEqual(JSON.parse(JSON.stringify(testMessage?.config)), {
     downloaderType: 'aria2',
+    language: 'auto',
     aria2Rpc: 'http://127.0.0.1:6800/jsonrpc',
     aria2Secret: 'bad-secret',
     saveDir: '/downloads',
@@ -420,6 +421,7 @@ test('AB DM test connection sends the current form config', () => {
   const testMessage = popup.chrome._sentMessages.findLast((message) => message?.type === 'TEST_CONNECTION');
   assert.deepEqual(JSON.parse(JSON.stringify(testMessage?.config)), {
     downloaderType: 'abdownload',
+    language: 'auto',
     aria2Rpc: 'http://localhost:6800/jsonrpc',
     aria2Secret: '',
     saveDir: '',
@@ -533,6 +535,7 @@ test('settings controller collects every visible config field from the form', ()
 
   assert.deepEqual(JSON.parse(JSON.stringify(controller.collectSettingsFromForm())), {
     downloaderType: 'abdownload',
+    language: 'auto',
     aria2Rpc: 'http://127.0.0.1:6800/jsonrpc',
     aria2Secret: 'secret',
     saveDir: '/tmp/downloads',

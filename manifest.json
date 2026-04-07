@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Downlink",
-  "version": "1.0.3",
-  "description": "接管浏览器下载，并发送到你选择的下载器",
+  "name": "__MSG_extensionName__",
+  "version": "1.1.0",
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "zh_CN",
   "permissions": [
     "declarativeNetRequest",
     "downloads",

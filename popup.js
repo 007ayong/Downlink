@@ -1,6 +1,14 @@
 // popup.js — Downlink UI core helpers
 
 const popupUi = globalThis.PopupUI || {};
+const i18n = globalThis.Localization || {};
+const t = i18n.t || ((key, substitutions, fallback = key) => {
+  if (fallback && substitutions !== undefined) {
+    const values = Array.isArray(substitutions) ? substitutions : [substitutions];
+    return String(fallback).replace(/\$(\d+)/g, (_, index) => String(values[Number(index) - 1] ?? ''));
+  }
+  return fallback || key;
+});
 
 let currentConfig = {};
 let isLoadingSettings = false;
@@ -8,6 +16,7 @@ let autoSaveTimer = null;
 let saveFeedbackTimer = null;
 let toastTimer = null;
 let currentState = { tasks: {}, pending: {}, media: {} };
+let savedConfig = {};
 let currentTabId = null;
 let lastRenderedMediaKey = '';
 let previousMediaCount = 0;
@@ -16,6 +25,9 @@ let hiddenTaskGids = new Set();
 let autoConnectionCheckTimer = null;
 let autoConnectionCheckInFlight = null;
 let autoConnectionCheckSettled = null;
+let headerStatusState = { state: 'checking', stat: null, message: '' };
+let headerStatusMinUntil = 0;
+let headerStatusTransitionTimer = null;
 
 const {
   DEFAULT_HEADER_LOGO,
@@ -80,23 +92,28 @@ function openPreviewTab(item) {
   const url = chrome.runtime.getURL(`preview.html?id=${encodeURIComponent(item.id)}`);
   chrome.tabs.create({ url }, (tab) => {
     if (chrome.runtime.lastError) {
-      showToast(chrome.runtime.lastError.message || '打开预览页失败');
+      showToast(chrome.runtime.lastError.message || t('openPreviewFailed', undefined, '打开预览页失败'));
       return;
     }
     const previewTabId = tab?.id;
     if (typeof previewTabId !== 'number') {
-      showToast(item.kind === 'audio' ? '已打开音频预览页' : '已打开视频预览页');
+      showToast(item.kind === 'audio'
+        ? t('previewOpenedAudio', undefined, '已打开音频预览页')
+        : t('previewOpenedVideo', undefined, '已打开视频预览页'));
       return;
     }
     chrome.runtime.sendMessage({ type: 'PREPARE_MEDIA_PREVIEW', id: item.id, tabId: previewTabId }, (res) => {
       if (!res?.ok) {
-        showToast(res?.error || '预览请求补头失败');
+        showToast(res?.error || t('previewPatchFailed', undefined, '预览请求补头失败'));
         return;
       }
       const applied = Array.isArray(res.headersApplied) && res.headersApplied.length
-        ? `，已补头：${res.headersApplied.join(', ')}`
+        ? t('previewHeadersApplied', [res.headersApplied.join(', ')], `，已补头：${res.headersApplied.join(', ')}`)
         : '';
-      showToast(`${item.kind === 'audio' ? '已打开音频预览页' : '已打开视频预览页'}${applied}`);
+      const openedText = item.kind === 'audio'
+        ? t('previewOpenedAudio', undefined, '已打开音频预览页')
+        : t('previewOpenedVideo', undefined, '已打开视频预览页');
+      showToast(`${openedText}${applied}`);
     });
   });
 }
@@ -108,6 +125,7 @@ globalThis.autoSaveTimer = autoSaveTimer;
 globalThis.saveFeedbackTimer = saveFeedbackTimer;
 globalThis.toastTimer = toastTimer;
 globalThis.currentState = currentState;
+globalThis.savedConfig = savedConfig;
 globalThis.currentTabId = currentTabId;
 globalThis.lastRenderedMediaKey = lastRenderedMediaKey;
 globalThis.previousMediaCount = previousMediaCount;
@@ -116,6 +134,9 @@ globalThis.hiddenTaskGids = hiddenTaskGids;
 globalThis.autoConnectionCheckTimer = autoConnectionCheckTimer;
 globalThis.autoConnectionCheckInFlight = autoConnectionCheckInFlight;
 globalThis.autoConnectionCheckSettled = autoConnectionCheckSettled;
+globalThis.headerStatusState = headerStatusState;
+globalThis.headerStatusMinUntil = headerStatusMinUntil;
+globalThis.headerStatusTransitionTimer = headerStatusTransitionTimer;
 globalThis.buildMediaRenderKey = buildMediaRenderKey;
 globalThis.copyText = copyText;
 globalThis.decodeDisplayFilename = decodeDisplayFilename;
