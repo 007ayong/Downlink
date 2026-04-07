@@ -48,6 +48,7 @@ const archivePaths = [
   'preview.html',
   'preview.js',
   'LICENSE',
+  '_locales',
   'lib',
   'assets',
   'icons',
