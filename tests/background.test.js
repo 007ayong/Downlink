@@ -171,12 +171,6 @@ async function invokeBackgroundMessage(background, message) {
   });
 }
 
-async function invokeContextMenuClick(background, info, tab = {}) {
-  const listener = background.chrome._listeners.contextMenusOnClicked;
-  assert.equal(typeof listener, 'function');
-  await listener(info, tab);
-}
-
 test('media sniffing ignores ts segment URLs', () => {
   const background = loadBackgroundRuntime();
   assert.equal(
@@ -266,41 +260,6 @@ test('user-triggered send failure opens popup and exposes task alert', async () 
 
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(state.uiAlert?.message, '与 AB DM 连接失败，检查 AB DM 是否正在运行');
-});
-
-test('context menu download enters popup pending queue instead of sending immediately', async () => {
-  let fetchCalled = false;
-  const background = loadBackgroundRuntime(
-    {
-      downloaderType: 'abdownload',
-      externalLauncherHost: 'localhost',
-      externalLauncherPort: '15151',
-      externalLauncherPath: '/start-headless-download',
-    },
-    {
-      fetch: async () => {
-        fetchCalled = true;
-        throw new Error('should not send immediately');
-      },
-    }
-  );
-
-  await invokeContextMenuClick(background, {
-    menuItemId: 'send-to-aria2',
-    linkUrl: 'https://example.com/file.zip',
-  }, {
-    id: 1,
-    url: 'https://example.com/page',
-  });
-
-  assert.equal(fetchCalled, false);
-  assert.equal(background.chrome._actionCalls.openPopup, 1);
-
-  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
-  const pending = Object.values(state.pending || {});
-  assert.equal(pending.length, 1);
-  assert.equal(pending[0].url, 'https://example.com/file.zip');
-  assert.equal(pending[0].filename, 'file.zip');
 });
 
 test('media send failure keeps current page and only exposes alert state', async () => {

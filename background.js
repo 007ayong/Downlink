@@ -85,14 +85,6 @@ async function openTaskSurface() {
   }
 }
 
-async function enqueuePendingDownload(taskInfo, { openSurface = true } = {}) {
-  const key = taskInfo?.key || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  pendingDownloads[key] = { ...taskInfo, key };
-  broadcastUpdate();
-  if (openSurface) await openTaskSurface();
-  return key;
-}
-
 const configReady = new Promise((resolve) => {
   chrome.storage.sync.get(DEFAULT_CONFIG, (stored) => {
     const normalized = { ...DEFAULT_CONFIG, ...stored };
@@ -348,7 +340,9 @@ chrome.downloads.onCreated.addListener(async (item) => {
   };
 
   if (shouldConfirmBeforeSend()) {
-    await enqueuePendingDownload(taskInfo);
+    pendingDownloads[key] = taskInfo;
+    broadcastUpdate();
+    chrome.action.openPopup().catch(() => {});
     return;
   }
 
@@ -537,12 +531,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const url = info.linkUrl || tab?.url;
   if (!url) return;
   const reqHeaders = requestHeadersCache.get(url)?.headers || {};
-  await enqueuePendingDownload({
+  await sendTask({
     url,
     filename: url.split('?')[0].split('/').pop() || '',
     headers: reqHeaders,
     addedAt: Date.now(),
-  });
+  }, {}, { openPopupOnFailure: true });
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
