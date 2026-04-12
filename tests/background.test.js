@@ -16,11 +16,13 @@ function createChromeStub(storedConfig = {}) {
   const tabsCalls = {
     create: [],
   };
+  const notificationCalls = [];
 
   return {
     _listeners: listeners,
     _actionCalls: actionCalls,
     _tabsCalls: tabsCalls,
+    _notificationCalls: notificationCalls,
     storage: {
       sync: {
         get(defaults, callback) {
@@ -113,7 +115,9 @@ function createChromeStub(storedConfig = {}) {
       updateSessionRules: async () => {},
     },
     notifications: {
-      create() {},
+      create(payload) {
+        notificationCalls.push(payload);
+      },
     },
   };
 }
@@ -210,7 +214,7 @@ test('media sniffing still keeps normal direct media resources', () => {
   );
 });
 
-test('motrixnext view action opens the app without a url', async () => {
+test('motrixnext view action opens extension bridge page', async () => {
   const background = loadBackgroundRuntime();
   let openedUrl = '';
   background.chrome.tabs.create = async ({ url }) => {
@@ -219,7 +223,36 @@ test('motrixnext view action opens the app without a url', async () => {
 
   const result = await background.openMotrixNextView();
   assert.equal(result.ok, true);
-  assert.equal(openedUrl, 'motrixnext://');
+  assert.equal(openedUrl, 'chrome-extension://test/motrix-open.html');
+  assert.equal(result.target, 'motrixnext://');
+});
+
+test('motrixnext view falls back to direct deep link when bridge page fails', async () => {
+  const background = loadBackgroundRuntime();
+  const openedUrls = [];
+  background.chrome.tabs.create = async ({ url }) => {
+    openedUrls.push(url);
+    if (url.includes('motrix-open.html')) throw new Error('bridge open failed');
+  };
+
+  const result = await background.openMotrixNextView();
+  assert.equal(result.ok, true);
+  assert.equal(result.mode, 'direct-fallback');
+  assert.deepEqual(openedUrls, ['chrome-extension://test/motrix-open.html', 'motrixnext://']);
+});
+
+test('motrixnext view returns error and notifies when both bridge and direct open fail', async () => {
+  const background = loadBackgroundRuntime();
+  background.chrome.tabs.create = async () => {
+    throw new Error('cannot open');
+  };
+
+  const result = await background.openMotrixNextView();
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'cannot open');
+  assert.equal(background.chrome._notificationCalls.length, 1);
+  assert.equal(background.chrome._notificationCalls[0].title, 'MotrixNext 打开失败');
+  assert.equal(background.chrome._notificationCalls[0].message, 'cannot open');
 });
 
 test('legacy motrixnext config normalizes to aria2 plus motrix flag', () => {

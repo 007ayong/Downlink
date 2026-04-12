@@ -17,6 +17,7 @@ const DEFAULT_CONFIG = {
   aria2Rpc: 'http://localhost:6800/jsonrpc',
   aria2Secret: '',
   useMotrixNext: false,
+  motrixBridgeAutoClose: false,
   externalLauncherName: 'AB DM',
   externalLauncherHost: 'localhost',
   externalLauncherPort: '15151',
@@ -164,14 +165,25 @@ function buildMotrixNextDeepLink() {
   return 'motrixnext://';
 }
 
+function buildMotrixNextBridgeUrl() {
+  return chrome.runtime.getURL('motrix-open.html');
+}
+
 async function openMotrixNextView() {
+  const deepLink = buildMotrixNextDeepLink();
   try {
-    const deepLink = buildMotrixNextDeepLink();
-    await chrome.tabs.create({ url: deepLink });
-    return { ok: true, url: deepLink };
+    const bridgeUrl = buildMotrixNextBridgeUrl();
+    await chrome.tabs.create({ url: bridgeUrl });
+    return { ok: true, url: bridgeUrl, target: deepLink, mode: 'bridge' };
   } catch (error) {
-    notify(t('motrixOpenFailed', undefined, 'MotrixNext 打开失败'), error.message);
-    return { ok: false, error: error.message };
+    try {
+      await chrome.tabs.create({ url: deepLink });
+      return { ok: true, url: deepLink, target: deepLink, mode: 'direct-fallback' };
+    } catch (fallbackError) {
+      const errorMessage = fallbackError?.message || error?.message || t('cannotLaunchMotrix', undefined, '无法唤起 MotrixNext');
+      notify(t('motrixOpenFailed', undefined, 'MotrixNext 打开失败'), errorMessage);
+      return { ok: false, error: errorMessage };
+    }
   }
 }
 

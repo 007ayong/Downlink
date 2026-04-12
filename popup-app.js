@@ -161,9 +161,15 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
   const isAria2 = type === 'aria2';
   const isAbDownload = type === 'abdownload';
   const isNeatdm = type === 'neatdm';
+  const motrixAutoCloseEnabled = !!currentConfig.motrixBridgeAutoClose;
   document.querySelectorAll('.aria2-only').forEach((el) => el.classList.toggle('settings-hidden', !isAria2));
   document.querySelectorAll('.launcher-only').forEach((el) => el.classList.toggle('settings-hidden', !isAbDownload));
   document.querySelectorAll('.neatdm-only').forEach((el) => el.classList.toggle('settings-hidden', !isNeatdm));
+  document.querySelectorAll('.motrix-autoclose-only').forEach((el) => {
+    const toggle = el.querySelector('#cfgMotrixBridgeAutoClose');
+    if (toggle) toggle.disabled = !motrixAutoCloseEnabled;
+    el.classList.toggle('settings-disabled', !motrixAutoCloseEnabled);
+  });
 }
 
 function renderInlineAlert(elementId, message = currentState.uiAlert?.message || '', { shake = false } = {}) {

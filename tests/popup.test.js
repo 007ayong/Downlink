@@ -398,6 +398,7 @@ test('aria2 test connection sends the current form config', () => {
     aria2Secret: 'bad-secret',
     saveDir: '/downloads',
     useMotrixNext: false,
+    motrixBridgeAutoClose: false,
     externalLauncherName: 'AB DM',
     externalLauncherHost: 'localhost',
     externalLauncherPort: '15151',
@@ -426,6 +427,7 @@ test('AB DM test connection sends the current form config', () => {
     aria2Secret: '',
     saveDir: '',
     useMotrixNext: false,
+    motrixBridgeAutoClose: false,
     externalLauncherName: 'AB DM',
     externalLauncherHost: '10.0.0.8',
     externalLauncherPort: '17000',
@@ -470,6 +472,48 @@ test('connection failure alert renders in both tasks and media panels', async ()
   const mediaAlertEl = popup.document.getElementById('mediaAlert');
   assert.equal(mediaAlertEl.textContent, '连接失败，检查下载器是否在运行');
   assert.equal(mediaAlertEl.classList.contains('show'), true);
+});
+
+test('motrix auto-close setting is disabled when not enabled yet', () => {
+  const popup = loadPopupRuntime();
+  const motrixRow = createElementStub();
+  const motrixToggle = createElementStub();
+  motrixRow.querySelector = (selector) => (selector === '#cfgMotrixBridgeAutoClose' ? motrixToggle : null);
+
+  const ariaRows = [motrixRow];
+  popup.document.querySelectorAll = (selector) => {
+    if (selector === '.aria2-only') return ariaRows;
+    if (selector === '.launcher-only' || selector === '.neatdm-only') return [];
+    if (selector === '.motrix-autoclose-only') return [motrixRow];
+    return [];
+  };
+
+  Object.assign(popup.currentConfig, { downloaderType: 'aria2', motrixBridgeAutoClose: false });
+  popup.updateSettingsVisibility('aria2');
+
+  assert.equal(motrixToggle.disabled, true);
+  assert.equal(motrixRow.classList.contains('settings-disabled'), true);
+});
+
+test('motrix auto-close setting becomes enabled after bridge option is enabled', () => {
+  const popup = loadPopupRuntime();
+  const motrixRow = createElementStub();
+  const motrixToggle = createElementStub();
+  motrixRow.querySelector = (selector) => (selector === '#cfgMotrixBridgeAutoClose' ? motrixToggle : null);
+
+  const ariaRows = [motrixRow];
+  popup.document.querySelectorAll = (selector) => {
+    if (selector === '.aria2-only') return ariaRows;
+    if (selector === '.launcher-only' || selector === '.neatdm-only') return [];
+    if (selector === '.motrix-autoclose-only') return [motrixRow];
+    return [];
+  };
+
+  Object.assign(popup.currentConfig, { downloaderType: 'aria2', motrixBridgeAutoClose: true });
+  popup.updateSettingsVisibility('aria2');
+
+  assert.equal(motrixToggle.disabled, false);
+  assert.equal(motrixRow.classList.contains('settings-disabled'), false);
 });
 
 test('cfgUseMotrixNext only binds one change listener for autosave', () => {
@@ -526,6 +570,7 @@ test('settings controller collects every visible config field from the form', ()
   context.document.getElementById('cfgSecret').value = 'secret';
   context.document.getElementById('cfgSaveDir').value = '/tmp/downloads';
   context.document.getElementById('cfgUseMotrixNext').checked = true;
+  context.document.getElementById('cfgMotrixBridgeAutoClose').checked = true;
   context.document.getElementById('cfgLauncherHost').value = '10.0.0.8';
   context.document.getElementById('cfgLauncherPort').value = '17000';
   context.document.getElementById('cfgLauncherPath').value = '/add';
@@ -540,6 +585,7 @@ test('settings controller collects every visible config field from the form', ()
     aria2Secret: 'secret',
     saveDir: '/tmp/downloads',
     useMotrixNext: true,
+    motrixBridgeAutoClose: true,
     externalLauncherName: 'AB DM',
     externalLauncherHost: '10.0.0.8',
     externalLauncherPort: '17000',
@@ -593,4 +639,5 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgAutoCapture', true, 'checked')).config.autoCapture, true);
   assert.equal((await applyChange('cfgShowConfirm', true, 'checked')).config.showConfirm, true);
   assert.equal((await applyChange('cfgUseMotrixNext', true, 'checked')).config.useMotrixNext, true);
+  assert.equal((await applyChange('cfgMotrixBridgeAutoClose', true, 'checked')).config.motrixBridgeAutoClose, true);
 });

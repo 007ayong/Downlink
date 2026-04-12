@@ -610,6 +610,9 @@
     .settings-input.wide { width: 100%; margin-top: 4px; }
     .settings-row.col { flex-direction: column; align-items: stretch; }
     .settings-hidden { display: none; }
+    .settings-row.settings-disabled {
+      opacity: 0.55;
+    }
 
     /* Toggle */
     .toggle {
@@ -789,6 +792,10 @@
     <div class="settings-row aria2-only">
       <label><span data-i18n="settingsUseMotrixNext">使用 MotrixNext 管理</span> <span class="settings-sub" data-i18n="settingsUseMotrixNextSub">在任务面板显示“Motrix中查看”，默认关闭</span></label>
       <label class="toggle"><input type="checkbox" id="cfgUseMotrixNext"><div class="toggle-track"></div></label>
+    </div>
+    <div class="settings-row aria2-only motrix-autoclose-only">
+      <label><span data-i18n="settingsMotrixBridgeAutoClose">自动关闭 MotrixNext 打开时的承接页</span> <span class="settings-sub" data-i18n="settingsMotrixBridgeAutoCloseSub">需先在承接页启用，设置页仅可关闭</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgMotrixBridgeAutoClose"><div class="toggle-track"></div></label>
     </div>
     <div class="settings-row col launcher-only settings-hidden">
       <label><span data-i18n="settingsServiceHost">服务地址</span> <span class="settings-sub" data-i18n="settingsServiceHostSub">AB DM 默认 localhost</span></label>
