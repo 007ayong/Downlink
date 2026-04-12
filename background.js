@@ -63,15 +63,27 @@ let uiAlert = null;
 const markedUrls = new Map();
 const requestHeadersCache = new Map();
 const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
+let contextMenuRefreshVersion = 0;
 
 function applyLocaleFromConfig(nextConfig = config) {
   i18n.setLocalePreference?.(nextConfig.language || 'auto');
 }
 
 function refreshContextMenus() {
+  const refreshVersion = ++contextMenuRefreshVersion;
+
+  function safeCreateContextMenu(item) {
+    chrome.contextMenus.create(item, () => {
+      // Avoid noisy duplicate-id errors when multiple refreshes overlap.
+      void chrome.runtime.lastError;
+    });
+  }
+
   chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({ id: 'send-to-aria2', title: t('menuDownloadLink', undefined, '用当前下载器下载链接'), contexts: ['link'] });
-    chrome.contextMenus.create({ id: 'send-page-to-aria2', title: t('menuDownloadPage', undefined, '用当前下载器下载当前页面'), contexts: ['page'] });
+    void chrome.runtime.lastError;
+    if (refreshVersion !== contextMenuRefreshVersion) return;
+    safeCreateContextMenu({ id: 'send-to-aria2', title: t('menuDownloadLink', undefined, '用当前下载器下载链接'), contexts: ['link'] });
+    safeCreateContextMenu({ id: 'send-page-to-aria2', title: t('menuDownloadPage', undefined, '用当前下载器下载当前页面'), contexts: ['page'] });
   });
 }
 
