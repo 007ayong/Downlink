@@ -439,7 +439,11 @@ function renderMedia(mediaByTab) {
     `;
     listEl.appendChild(card);
 
-    if (item.kind === 'video' && (!item.width || !item.height)) loadMediaMetadata(item, card);
+    if (item.kind === 'video' && (!item.width || !item.height)) {
+      // Defer metadata loading slightly to allow initial UI paint and avoid
+      // triggering many network requests during popup open.
+      setTimeout(() => loadMediaMetadata(item, card), 300);
+    }
 
     card.querySelector('[data-copy-url]').addEventListener('click', async (event) => {
       const copied = await copyText(event.currentTarget.dataset.copyUrl);
@@ -644,4 +648,10 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 applyLocaleFromConfig(currentConfig);
 syncPopupGlobals();
-refreshAll();
+// Defer heavy initialization to next animation frame so popup can paint quickly.
+// In test (Node) environments `requestAnimationFrame` may be undefined —
+// fall back to `setTimeout` to keep behavior consistent.
+const _defer = (typeof requestAnimationFrame === 'function')
+  ? (cb) => requestAnimationFrame(cb)
+  : (cb) => setTimeout(cb, 0);
+_defer(() => { setTimeout(() => refreshAll(), 0); });
