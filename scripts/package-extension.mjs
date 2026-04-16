@@ -30,7 +30,7 @@ const manifestVersion = normalizeVersion(manifest.version);
 if (!manifestVersion) fail('manifest.json is missing a version field');
 
 const releaseTag = normalizeVersion(process.env.RELEASE_TAG || process.argv[2] || '');
-if (releaseTag && releaseTag !== manifestVersion) {
+if (releaseTag && /^\d/.test(releaseTag) && releaseTag !== manifestVersion) {
   fail(`Tag version (${releaseTag}) does not match manifest version (${manifestVersion})`);
 }
 
