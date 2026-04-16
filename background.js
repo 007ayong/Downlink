@@ -23,7 +23,7 @@ const DEFAULT_CONFIG = {
   externalLauncherPort: '15151',
   externalLauncherPath: '/start-headless-download',
   autoCapture: true,
-  captureExtensions: 'zip,rar,7z,tar,gz,bz2,xz,iso,dmg,exe,msi,deb,pkg,apk,mp4,mkv,avi,mov,webm,mp3,flac,wav,pdf,torrent',
+  captureExtensions: 'zip,rar,7z,tar,gz,bz2,xz,iso,dmg,exe,msi,deb,pkg,apk,mp4,m4s,mkv,avi,mov,webm,mp3,flac,wav,pdf,torrent',
   captureMime: true,
   showConfirm: true,
   saveDir: '',
@@ -206,6 +206,7 @@ function broadcastUpdate() {
     tasks,
     pending: pendingDownloads,
     media: mediaState.media,
+    pausedTabs: mediaState.pausedTabs,
     hiddenTaskGids: Object.keys(hiddenTaskGids),
     uiAlert,
   }).catch(() => {});
@@ -258,11 +259,13 @@ async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false }
   return { ...result, error: message };
 }
 
-function updateActionBadgeForTab(tabId, count) {
+function updateActionBadgeForTab(tabId, count, isPaused = false) {
   if (typeof tabId !== 'number' || tabId < 0) return;
-  chrome.action.setBadgeBackgroundColor({ color: '#e05c2a', tabId });
-  chrome.action.setBadgeTextColor?.({ color: '#ffffff', tabId });
-  chrome.action.setBadgeText({ text: count > 0 ? String(Math.min(count, 99)) : '', tabId });
+  try {
+    chrome.action.setBadgeBackgroundColor({ color: isPaused ? '#6b7280' : '#e05c2a', tabId });
+    chrome.action.setBadgeTextColor?.({ color: '#ffffff', tabId });
+    chrome.action.setBadgeText({ text: count > 0 ? String(Math.min(count, 99)) : '', tabId });
+  } catch {}
 }
 
 function getTabSnapshot(tabId) {
@@ -348,7 +351,7 @@ chrome.webRequest.onHeadersReceived.addListener(
     const filename = decodeHttpFilename(filenameFromHeader || urlFilename);
     const mime = contentType.split(';')[0].trim().toLowerCase();
 
-    const byMime = shouldCaptureByMime(config, mime);
+    const byMime = shouldCaptureByMime(config, mime, details.url, filename);
     const byExt = shouldCaptureByExt(config, details.url, filename);
     const byDisposition = isAttachment;
 
@@ -421,7 +424,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     switch (msg.type) {
       case 'GET_STATE':
-        sendResponse({ tasks, pending: pendingDownloads, media: mediaManager.getState().media, config, hiddenTaskGids: Object.keys(hiddenTaskGids), uiAlert });
+        sendResponse({ tasks, pending: pendingDownloads, media: mediaManager.getState().media, pausedTabs: mediaManager.getState().pausedTabs, config, hiddenTaskGids: Object.keys(hiddenTaskGids), uiAlert });
         break;
       case 'CONFIRM_DOWNLOAD': {
         const info = pendingDownloads[msg.key];
@@ -508,9 +511,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         broadcastUpdate();
         sendResponse({ ok: true });
         break;
+      case 'PAUSE_MEDIA_SNIFFING':
+        mediaManager.pauseSniffing(msg.tabId);
+        updateActionBadgeForTab(msg.tabId, mediaManager.getState().media[msg.tabId]?.length || 0, true);
+        broadcastUpdate();
+        sendResponse({ ok: true });
+        break;
+      case 'RESUME_MEDIA_SNIFFING':
+        mediaManager.resumeSniffing(msg.tabId);
+        updateActionBadgeForTab(msg.tabId, mediaManager.getState().media[msg.tabId]?.length || 0, false);
+        broadcastUpdate();
+        sendResponse({ ok: true });
+        break;
       case 'CLEAR_MEDIA_BADGE':
         if (typeof msg.tabId === 'number' && msg.tabId >= 0) {
-          updateActionBadgeForTab(msg.tabId, mediaManager.getState().media[msg.tabId]?.length || 0);
+          const state = mediaManager.getState();
+          updateActionBadgeForTab(msg.tabId, state.media[msg.tabId]?.length || 0, state.pausedTabs.includes(msg.tabId));
         }
         sendResponse({ ok: true });
         break;
@@ -609,7 +625,8 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  updateActionBadgeForTab(tabId, mediaManager.getState().media[tabId]?.length || 0);
+  const state = mediaManager.getState();
+  updateActionBadgeForTab(tabId, state.media[tabId]?.length || 0, state.pausedTabs.includes(tabId));
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {

@@ -372,25 +372,40 @@ function loadMediaMetadata(item, card) {
   card.appendChild(mediaEl);
 }
 
-function renderMedia(mediaByTab) {
+function renderMedia(mediaByTab, pausedTabs = []) {
   const listEl = document.getElementById('mediaList');
   const emptyEl = document.getElementById('mediaEmpty');
   const summaryEl = document.getElementById('mediaSummary');
   const mediaBadge = document.getElementById('mediaBadge');
+  const toggleSniffingBtn = document.getElementById('toggleSniffingBtn');
   renderInlineAlert('mediaAlert');
   const media = currentTabId == null ? [] : (mediaByTab?.[currentTabId] || []);
   const mediaKey = buildMediaRenderKey(media);
   const mediaCount = media.length;
+  const isPaused = currentTabId != null && pausedTabs.includes(currentTabId);
 
   emptyEl.style.display = media.length ? 'none' : 'flex';
-  summaryEl.textContent = media.length
-    ? popupAppT('currentTabMediaFound', [media.length], `当前标签页已发现 ${media.length} 个直链媒体资源`)
-    : popupAppT('waitingMediaRequests', undefined, '等待页面发起音视频请求…');
+  if (isPaused) {
+    summaryEl.textContent = popupAppT('sniffingPaused', undefined, '⏸ 已暂停嗅探，直播资源不再刷新');
+  } else {
+    summaryEl.textContent = media.length
+      ? popupAppT('currentTabMediaFound', [media.length], `当前标签页已发现 ${media.length} 个直链媒体资源`)
+      : popupAppT('waitingMediaRequests', undefined, '等待页面发起音视频请求…');
+  }
   if (mediaCount > 0) {
     mediaBadge.textContent = String(mediaCount);
     mediaBadge.style.display = 'inline-block';
   } else {
     mediaBadge.style.display = 'none';
+  }
+
+  if (toggleSniffingBtn) {
+    toggleSniffingBtn.textContent = isPaused ? '▶' : '⏸';
+    toggleSniffingBtn.title = isPaused
+      ? popupAppT('resumeSniffing', undefined, '恢复嗅探')
+      : popupAppT('pauseSniffing', undefined, '暂停嗅探');
+    toggleSniffingBtn.classList.toggle('btn-primary', isPaused);
+    toggleSniffingBtn.classList.toggle('btn-ghost', !isPaused);
   }
 
   const pendingCount = Object.values(currentState.pending || {}).length;
@@ -494,11 +509,12 @@ function renderState(state) {
     tasks: state.tasks || {},
     pending: state.pending || {},
     media: state.media || {},
+    pausedTabs: state.pausedTabs || [],
     uiAlert: state.uiAlert || null,
   };
   syncPopupGlobals();
   renderTasks(currentState.tasks, currentState.pending);
-  renderMedia(currentState.media);
+  renderMedia(currentState.media, currentState.pausedTabs);
 }
 
 async function refreshAll() {
@@ -639,6 +655,16 @@ document.getElementById('clearMediaBtn').addEventListener('click', () => {
     lastAutoSwitchedMediaCount = 0;
     syncPopupGlobals();
     showToast(popupAppT('clearedCurrentPageMedia', undefined, '已清空当前页面媒体列表'));
+  });
+});
+
+document.getElementById('toggleSniffingBtn').addEventListener('click', () => {
+  const isPaused = currentState.pausedTabs?.includes(currentTabId);
+  const msgType = isPaused ? 'RESUME_MEDIA_SNIFFING' : 'PAUSE_MEDIA_SNIFFING';
+  chrome.runtime.sendMessage({ type: msgType, tabId: currentTabId }, () => {
+    showToast(isPaused
+      ? popupAppT('sniffingResumed', undefined, '已恢复嗅探')
+      : popupAppT('sniffingPausedToast', undefined, '已暂停嗅探'));
   });
 });
 

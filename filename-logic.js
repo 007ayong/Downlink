@@ -5,8 +5,8 @@
   }
   root.FilenameLogic = factory();
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
-  const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi', 'm4v', 'ogv']);
-  const AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'oga', 'opus']);
+  const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi', 'm4v', 'ogv', 'm4s']);
+  const AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'oga', 'opus', 'm4s']);
 
   function decodeBase64(payload) {
     const normalized = String(payload || '').replace(/\s+/g, '');
@@ -194,13 +194,17 @@
     return ensureFilenameExtension(pickDisplayFilename(item), item.resourceUrl, item.mime);
   }
 
-  function mediaKindOf(url = '', mime = '') {
+  function mediaKindOf(url = '', mime = '', filename = '') {
     const normalizedMime = String(mime).split(';')[0].trim().toLowerCase();
+    if (normalizedMime === 'text/plain') return '';
     if (normalizedMime.startsWith('video/')) return 'video';
     if (normalizedMime.startsWith('audio/')) return 'audio';
-    const ext = extOf(url);
-    if (VIDEO_EXTENSIONS.has(ext)) return 'video';
-    if (AUDIO_EXTENSIONS.has(ext)) return 'audio';
+    const ext = extOf(url) || extOf(filename);
+    const inVideo = VIDEO_EXTENSIONS.has(ext);
+    const inAudio = AUDIO_EXTENSIONS.has(ext);
+    if (inVideo && inAudio) return 'media';
+    if (inVideo) return 'video';
+    if (inAudio) return 'audio';
     return '';
   }
 

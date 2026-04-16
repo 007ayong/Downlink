@@ -732,7 +732,10 @@
   <div class="media-toolbar">
     <div class="media-toolbar-top">
       <div class="media-toolbar-title" data-i18n="mediaToolbarTitle">当前页面媒体资源</div>
-      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 12px" id="clearMediaBtn" data-i18n="clear">清空</button>
+      <div style="display:flex;gap:5px">
+        <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 10px" id="toggleSniffingBtn" title="暂停/恢复嗅探">⏸</button>
+        <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 12px" id="clearMediaBtn" data-i18n="clear">清空</button>
+      </div>
     </div>
     <div class="media-toolbar-sub" id="mediaSummary" data-i18n="waitingMediaRequests">等待页面发起音视频请求…</div>
   </div>
