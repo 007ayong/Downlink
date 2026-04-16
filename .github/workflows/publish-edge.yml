@@ -1,9 +1,12 @@
 name: Publish to Edge Add-ons
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag version to publish (e.g. v1.0.0)'
+        required: true
+        type: string
 
 jobs:
   publish:
@@ -25,7 +28,7 @@ jobs:
         id: package
         run: echo "zip_path=$(node scripts/package-extension.mjs)" >> "$GITHUB_OUTPUT"
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ github.event.inputs.tag }}
 
       - name: Publish to Microsoft Edge Add-ons
         run: node scripts/publish-edge.mjs "${ZIP_PATH}"
