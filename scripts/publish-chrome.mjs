@@ -124,7 +124,7 @@ if (statusData?.uploadState === 'UPLOAD_IN_PROGRESS') {
   fail('Chrome upload is still in progress after waiting');
 }
 
-if (statusData?.uploadState && !['SUCCESS', 'OK'].includes(statusData.uploadState)) {
+if (statusData?.uploadState && !['SUCCESS', 'SUCCEEDED', 'OK'].includes(statusData.uploadState)) {
   fail(`Chrome upload did not succeed: ${JSON.stringify(statusData)}`);
 }
 
