@@ -860,3 +860,81 @@ test('AB DM connection test uses the incoming config override instead of the las
   assert.equal(result.mode, 'abdownload');
   assert.equal(result.error, '与 AB DM 连接失败，检查 AB DM 是否正在运行');
 });
+
+test('MotrixNext connection test validates the incoming secret through stat endpoint', async () => {
+  const requests = [];
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'motrixnext',
+      motrixNextPort: '16801',
+      motrixNextSecret: 'saved-secret',
+    },
+    {
+      fetch: async (url, options = {}) => {
+        requests.push({ url, headers: options.headers || {}, method: options.method || 'GET' });
+        if (url === 'http://localhost:17001/add') {
+          return { ok: true, status: 204 };
+        }
+        if (url === 'http://localhost:17001/stat') {
+          return options.headers?.Authorization === 'Bearer live-secret'
+            ? { ok: true, status: 200 }
+            : { ok: false, status: 401 };
+        }
+        return { ok: false, status: 404 };
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'TEST_CONNECTION',
+    config: {
+      downloaderType: 'motrixnext',
+      motrixNextPort: '17001',
+      motrixNextSecret: 'live-secret',
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [
+    {
+      url: 'http://localhost:17001/add',
+      method: 'OPTIONS',
+      headers: { Authorization: 'Bearer live-secret' },
+    },
+    {
+      url: 'http://localhost:17001/stat',
+      method: 'GET',
+      headers: { Authorization: 'Bearer live-secret' },
+    },
+  ]);
+});
+
+test('MotrixNext connection test fails when incoming secret is rejected', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'motrixnext',
+      motrixNextPort: '16801',
+      motrixNextSecret: 'saved-secret',
+    },
+    {
+      fetch: async (url) => {
+        if (url === 'http://localhost:17001/add') return { ok: true, status: 204 };
+        if (url === 'http://localhost:17001/stat') return { ok: false, status: 401 };
+        return { ok: false, status: 404 };
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'TEST_CONNECTION',
+    config: {
+      downloaderType: 'motrixnext',
+      motrixNextPort: '17001',
+      motrixNextSecret: 'bad-secret',
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.mode, 'motrixnext');
+  assert.equal(result.error, '与 MotrixNext 连接失败，检查 MotrixNext 是否正在运行');
+});
