@@ -121,7 +121,13 @@ function getConnectionCheckSignature(cfg = currentConfig) {
       'abdownload',
       cfg.externalLauncherHost || 'localhost',
       cfg.externalLauncherPort || '15151',
-      cfg.externalLauncherPath || '/start-headless-download',
+    ].join('|');
+  }
+  if (cfg.downloaderType === 'motrixnext') {
+    return [
+      'motrixnext',
+      cfg.motrixNextPort || '16801',
+      cfg.motrixNextSecret || '',
     ].join('|');
   }
   if (cfg.downloaderType === 'neatdm') return 'neatdm';
@@ -160,10 +166,12 @@ function requestAutoConnectionCheck(cfg = currentConfig) {
 function updateSettingsVisibility(type = currentConfig.downloaderType) {
   const isAria2 = type === 'aria2';
   const isAbDownload = type === 'abdownload';
+  const isMotrixNext = type === 'motrixnext';
   const isNeatdm = type === 'neatdm';
   const motrixAutoCloseEnabled = !!currentConfig.motrixBridgeAutoClose;
   document.querySelectorAll('.aria2-only').forEach((el) => el.classList.toggle('settings-hidden', !isAria2));
   document.querySelectorAll('.launcher-only').forEach((el) => el.classList.toggle('settings-hidden', !isAbDownload));
+  document.querySelectorAll('.motrixnext-only').forEach((el) => el.classList.toggle('settings-hidden', !isMotrixNext));
   document.querySelectorAll('.neatdm-only').forEach((el) => el.classList.toggle('settings-hidden', !isNeatdm));
   document.querySelectorAll('.motrix-autoclose-only').forEach((el) => {
     const toggle = el.querySelector('#cfgMotrixBridgeAutoClose');
@@ -477,7 +485,9 @@ function renderMedia(mediaByTab, pausedTabs = []) {
             btn.disabled = false;
             btn.textContent = `⚡ ${getSendLabel(currentConfig)}`;
           }, 1200);
-          setTimeout(() => { document.querySelector('[data-tab="tasks"]').click(); }, 300);
+          if (currentConfig.downloaderType !== 'motrixnext') {
+            setTimeout(() => { document.querySelector('[data-tab="tasks"]').click(); }, 300);
+          }
         } else {
           btn.disabled = false;
           btn.textContent = `⚡ ${getSendLabel(currentConfig)}`;
@@ -626,6 +636,22 @@ document.getElementById('testLauncherBtn').addEventListener('click', () => {
     }
     resultEl.className = 'conn-result fail';
     resultEl.textContent = `✗ ${res?.error || popupAppT('connectionFailedWithLabel', ['AB DM'], '与 AB DM 连接失败，检查 AB DM 是否正在运行')}`;
+  });
+});
+
+document.getElementById('testMotrixNextBtn').addEventListener('click', () => {
+  const resultEl = document.getElementById('connResultMotrixNext');
+  resultEl.className = 'conn-result';
+  resultEl.textContent = popupAppT('downloaderConnecting', ['MotrixNext'], 'MotrixNext 连接中…');
+  resultEl.style.display = 'block';
+  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
+    if (res?.ok) {
+      resultEl.className = 'conn-result ok';
+      resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('motrixNextReady', undefined, 'MotrixNext 已就绪')], `✓ ${res.message || 'MotrixNext 已就绪'}`);
+      return;
+    }
+    resultEl.className = 'conn-result fail';
+    resultEl.textContent = `✗ ${res?.error || popupAppT('connectionFailedWithLabel', ['MotrixNext'], '与 MotrixNext 连接失败，检查 MotrixNext 是否正在运行')}`;
   });
 });
 

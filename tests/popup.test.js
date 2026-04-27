@@ -371,6 +371,7 @@ test('motrix button only shows for aria2 mode with motrix flag enabled', () => {
   const canViewInMotrix = (cfg) => cfg.downloaderType === 'aria2' && !!cfg.useMotrixNext;
   assert.equal(canViewInMotrix({ downloaderType: 'aria2', useMotrixNext: true }), true);
   assert.equal(canViewInMotrix({ downloaderType: 'abdownload', useMotrixNext: true }), false);
+  assert.equal(canViewInMotrix({ downloaderType: 'motrixnext', useMotrixNext: true }), false);
   assert.equal(canViewInMotrix({ downloaderType: 'neatdm', useMotrixNext: true }), false);
 });
 
@@ -397,14 +398,16 @@ test('aria2 test connection sends the current form config', () => {
     aria2Rpc: 'http://127.0.0.1:6800/jsonrpc',
     aria2Secret: 'bad-secret',
     saveDir: '/downloads',
+    aria2Silent: false,
     useMotrixNext: false,
     motrixBridgeAutoClose: false,
+    motrixNextPort: '16801',
+    motrixNextSecret: '',
     externalLauncherName: 'AB DM',
     externalLauncherHost: 'localhost',
     externalLauncherPort: '15151',
-    externalLauncherPath: '/start-headless-download',
+    abDownloadSilent: false,
     autoCapture: false,
-    showConfirm: false,
     captureExtensions: '',
   });
 });
@@ -415,7 +418,7 @@ test('AB DM test connection sends the current form config', () => {
   popup.document.getElementById('cfgDownloaderType').value = 'abdownload';
   popup.document.getElementById('cfgLauncherHost').value = '10.0.0.8';
   popup.document.getElementById('cfgLauncherPort').value = '17000';
-  popup.document.getElementById('cfgLauncherPath').value = '/add';
+  popup.document.getElementById('cfgAbDownloadSilent').checked = true;
 
   popup.document.getElementById('testLauncherBtn').click();
 
@@ -426,14 +429,16 @@ test('AB DM test connection sends the current form config', () => {
     aria2Rpc: 'http://localhost:6800/jsonrpc',
     aria2Secret: '',
     saveDir: '',
+    aria2Silent: false,
     useMotrixNext: false,
     motrixBridgeAutoClose: false,
+    motrixNextPort: '16801',
+    motrixNextSecret: '',
     externalLauncherName: 'AB DM',
     externalLauncherHost: '10.0.0.8',
     externalLauncherPort: '17000',
-    externalLauncherPath: '/add',
+    abDownloadSilent: true,
     autoCapture: false,
-    showConfirm: false,
     captureExtensions: '',
   });
 });
@@ -569,13 +574,15 @@ test('settings controller collects every visible config field from the form', ()
   context.document.getElementById('cfgRpc').value = 'http://127.0.0.1:6800/jsonrpc';
   context.document.getElementById('cfgSecret').value = 'secret';
   context.document.getElementById('cfgSaveDir').value = '/tmp/downloads';
+  context.document.getElementById('cfgAria2Silent').checked = true;
   context.document.getElementById('cfgUseMotrixNext').checked = true;
   context.document.getElementById('cfgMotrixBridgeAutoClose').checked = true;
+  context.document.getElementById('cfgMotrixNextPort').value = '16888';
+  context.document.getElementById('cfgMotrixNextSecret').value = 'motrix-secret';
   context.document.getElementById('cfgLauncherHost').value = '10.0.0.8';
   context.document.getElementById('cfgLauncherPort').value = '17000';
-  context.document.getElementById('cfgLauncherPath').value = '/add';
+  context.document.getElementById('cfgAbDownloadSilent').checked = true;
   context.document.getElementById('cfgAutoCapture').checked = true;
-  context.document.getElementById('cfgShowConfirm').checked = true;
   context.document.getElementById('cfgExts').value = 'zip,mp4';
 
   assert.deepEqual(JSON.parse(JSON.stringify(controller.collectSettingsFromForm())), {
@@ -584,14 +591,16 @@ test('settings controller collects every visible config field from the form', ()
     aria2Rpc: 'http://127.0.0.1:6800/jsonrpc',
     aria2Secret: 'secret',
     saveDir: '/tmp/downloads',
+    aria2Silent: true,
     useMotrixNext: true,
     motrixBridgeAutoClose: true,
+    motrixNextPort: '16888',
+    motrixNextSecret: 'motrix-secret',
     externalLauncherName: 'AB DM',
     externalLauncherHost: '10.0.0.8',
     externalLauncherPort: '17000',
-    externalLauncherPath: '/add',
+    abDownloadSilent: true,
     autoCapture: true,
-    showConfirm: true,
     captureExtensions: 'zip,mp4',
   });
 });
@@ -632,12 +641,14 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgRpc', 'http://127.0.0.1:6800/jsonrpc')).config.aria2Rpc, 'http://127.0.0.1:6800/jsonrpc');
   assert.equal((await applyChange('cfgSecret', 'new-secret')).config.aria2Secret, 'new-secret');
   assert.equal((await applyChange('cfgSaveDir', '/downloads')).config.saveDir, '/downloads');
+  assert.equal((await applyChange('cfgAria2Silent', true, 'checked')).config.aria2Silent, true);
+  assert.equal((await applyChange('cfgMotrixNextPort', '16888')).config.motrixNextPort, '16888');
+  assert.equal((await applyChange('cfgMotrixNextSecret', 'motrix-secret')).config.motrixNextSecret, 'motrix-secret');
   assert.equal((await applyChange('cfgLauncherHost', '10.0.0.8')).config.externalLauncherHost, '10.0.0.8');
   assert.equal((await applyChange('cfgLauncherPort', '17000')).config.externalLauncherPort, '17000');
-  assert.equal((await applyChange('cfgLauncherPath', '/add')).config.externalLauncherPath, '/add');
   assert.equal((await applyChange('cfgExts', 'zip,mp4')).config.captureExtensions, 'zip,mp4');
   assert.equal((await applyChange('cfgAutoCapture', true, 'checked')).config.autoCapture, true);
-  assert.equal((await applyChange('cfgShowConfirm', true, 'checked')).config.showConfirm, true);
   assert.equal((await applyChange('cfgUseMotrixNext', true, 'checked')).config.useMotrixNext, true);
   assert.equal((await applyChange('cfgMotrixBridgeAutoClose', true, 'checked')).config.motrixBridgeAutoClose, true);
+  assert.equal((await applyChange('cfgAbDownloadSilent', true, 'checked')).config.abDownloadSilent, true);
 });

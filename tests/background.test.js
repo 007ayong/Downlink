@@ -16,12 +16,16 @@ function createChromeStub(storedConfig = {}) {
   const tabsCalls = {
     create: [],
   };
+  const windowsCalls = {
+    create: [],
+  };
   const notificationCalls = [];
 
   return {
     _listeners: listeners,
     _actionCalls: actionCalls,
     _tabsCalls: tabsCalls,
+    _windowsCalls: windowsCalls,
     _notificationCalls: notificationCalls,
     storage: {
       sync: {
@@ -111,6 +115,12 @@ function createChromeStub(storedConfig = {}) {
         addListener() {},
       },
     },
+    windows: {
+      create: async (opts) => {
+        windowsCalls.create.push(opts);
+        return { id: 2 };
+      },
+    },
     declarativeNetRequest: {
       updateSessionRules: async () => {},
     },
@@ -174,6 +184,12 @@ async function invokeBackgroundMessage(background, message) {
       resolve(response);
     });
   });
+}
+
+async function invokeDownloadCreated(background, item) {
+  const listener = background.chrome._listeners.downloadsOnCreated;
+  assert.equal(typeof listener, 'function');
+  await listener(item);
 }
 
 async function invokeContextMenuClick(background, info, tab = {}) {
@@ -255,11 +271,113 @@ test('motrixnext view returns error and notifies when both bridge and direct ope
   assert.equal(background.chrome._notificationCalls[0].message, 'cannot open');
 });
 
-test('legacy motrixnext config normalizes to aria2 plus motrix flag', () => {
+test('motrixnext config remains an independent downloader type', () => {
   const background = loadBackgroundRuntime({ downloaderType: 'motrixnext' });
   const cfg = background.getBackgroundConfig();
-  assert.equal(cfg.downloaderType, 'aria2');
-  assert.equal(cfg.useMotrixNext, true);
+  assert.equal(cfg.downloaderType, 'motrixnext');
+});
+
+test('Aria2 intercepted downloads enter pending queue by default', async () => {
+  let fetchCalled = false;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://localhost:6800/jsonrpc',
+      autoCapture: true,
+      aria2Silent: false,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async () => {
+        fetchCalled = true;
+        throw new Error('should not send immediately');
+      },
+    }
+  );
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.equal(fetchCalled, false);
+  assert.equal(background.chrome._actionCalls.openPopup, 1);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, 'https://example.com/file.zip');
+  assert.equal(pending[0].filename, 'file.zip');
+});
+
+test('Aria2 pending confirmation falls back to popup window when action popup is blocked', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      autoCapture: true,
+      aria2Silent: false,
+      captureExtensions: 'zip',
+    }
+  );
+  background.chrome.action.openPopup = async () => {
+    throw new Error('openPopup requires user gesture');
+  };
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.equal(background.chrome._windowsCalls.create.length, 1);
+  assert.equal(background.chrome._windowsCalls.create[0].type, 'popup');
+  assert.equal(background.chrome._windowsCalls.create[0].url, 'chrome-extension://test/popup.html');
+  assert.equal(background.chrome._tabsCalls.create.length, 0);
+});
+
+test('Aria2 silent intercepted downloads send immediately', async () => {
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://localhost:6800/jsonrpc',
+      autoCapture: true,
+      aria2Silent: true,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async (_url, options) => {
+        requestBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            return { result: 'gid-1' };
+          },
+        };
+      },
+    }
+  );
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.equal(requestBody.method, 'aria2.addUri');
+  assert.deepEqual(requestBody.params[0], ['https://example.com/file.zip']);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.values(state.pending || {}).length, 0);
+  assert.equal(state.tasks['gid-1']?.filename, 'file.zip');
 });
 
 test('AB DM downloader label is fixed', () => {
@@ -272,6 +390,265 @@ test('AB DM downloader label is fixed', () => {
   });
 
   assert.equal(clients.getDownloaderLabel('abdownload', { downloaderType: 'abdownload' }), 'AB DM');
+});
+
+test('AB DM normal sends use add endpoint by default', async () => {
+  let requestedUrl = '';
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+      abDownloadSilent: false,
+    },
+    {
+      fetch: async (url, options) => {
+        requestedUrl = url;
+        requestBody = JSON.parse(options.body);
+        return { ok: true, status: 200 };
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_URL',
+    url: 'https://example.com/file.zip',
+    filename: 'custom.zip',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requestedUrl, 'http://localhost:15151/add');
+  assert.deepEqual(requestBody, [{ link: 'https://example.com/file.zip' }]);
+});
+
+test('MotrixNext sends direct /add request with referer and cookie', async () => {
+  let requestedUrl = '';
+  let requestHeaders = null;
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'motrixnext',
+      motrixNextPort: '16888',
+      motrixNextSecret: 'next-secret',
+    },
+    {
+      fetch: async (url, options) => {
+        requestedUrl = url;
+        requestHeaders = options.headers;
+        requestBody = JSON.parse(options.body);
+        return { ok: true, status: 200 };
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_URL',
+    url: 'https://example.com/file.zip',
+    filename: 'custom.zip',
+    referrer: 'https://example.com/page',
+    headers: {
+      cookie: 'sid=abc123',
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requestedUrl, 'http://localhost:16888/add');
+  assert.equal(requestHeaders.Authorization, 'Bearer next-secret');
+  assert.deepEqual(requestBody, {
+    url: 'https://example.com/file.zip',
+    referer: 'https://example.com/page',
+    cookie: 'sid=abc123',
+  });
+});
+
+test('MotrixNext intercepted downloads send immediately without pending confirmation', async () => {
+  let requestedUrl = '';
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'motrixnext',
+      motrixNextPort: '16888',
+      autoCapture: true,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async (url) => {
+        requestedUrl = url;
+        return { ok: true, status: 200 };
+      },
+    }
+  );
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.equal(requestedUrl, 'http://localhost:16888/add');
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.values(state.pending || {}).length, 0);
+});
+
+test('MotrixNext media send falls back to page URL as referer', async () => {
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'motrixnext',
+      motrixNextPort: '16888',
+    },
+    {
+      fetch: async (_url, options) => {
+        requestBody = JSON.parse(options.body);
+        return { ok: true, status: 200 };
+      },
+    }
+  );
+
+  background.__backgroundTestHooks.mediaManager.clearMediaResources();
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_1',
+    tabId: 1,
+    resourceUrl: 'https://cdn.example.com/video.mp4',
+    pageUrl: 'https://example.com/watch/123',
+    filename: 'video.mp4',
+    headers: {},
+    mime: 'video/mp4',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_MEDIA_TASK',
+    id: 'media_1',
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(requestBody, {
+    url: 'https://cdn.example.com/video.mp4',
+    referer: 'https://example.com/watch/123',
+  });
+});
+
+test('MotrixNext media send includes captured cookie', async () => {
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'motrixnext',
+      motrixNextPort: '16888',
+    },
+    {
+      fetch: async (_url, options) => {
+        requestBody = JSON.parse(options.body);
+        return { ok: true, status: 200 };
+      },
+    }
+  );
+
+  background.__backgroundTestHooks.mediaManager.clearMediaResources();
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_1',
+    tabId: 1,
+    resourceUrl: 'https://cdn.example.com/video.mp4',
+    pageUrl: 'https://example.com/watch/123',
+    filename: 'video.mp4',
+    headers: {
+      cookie: 'sid=abc123',
+      referer: 'https://example.com/player',
+    },
+    mime: 'video/mp4',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_MEDIA_TASK',
+    id: 'media_1',
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(requestBody, {
+    url: 'https://cdn.example.com/video.mp4',
+    referer: 'https://example.com/player',
+    cookie: 'sid=abc123',
+  });
+});
+
+test('AB DM silent normal sends use headless endpoint with filename', async () => {
+  let requestedUrl = '';
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+      abDownloadSilent: true,
+      saveDir: '/downloads',
+    },
+    {
+      fetch: async (url, options) => {
+        requestedUrl = url;
+        requestBody = JSON.parse(options.body);
+        return { ok: true, status: 200 };
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_URL',
+    url: 'https://example.com/file.zip',
+    filename: 'custom.zip',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requestedUrl, 'http://localhost:15151/start-headless-download');
+  assert.equal(requestBody.name, 'custom.zip');
+  assert.equal(requestBody.folder, '/downloads');
+  assert.deepEqual(requestBody.downloadSource, {
+    link: 'https://example.com/file.zip',
+  });
+});
+
+test('AB DM media sends always use headless endpoint with filename', async () => {
+  let requestedUrl = '';
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+      abDownloadSilent: false,
+    },
+    {
+      fetch: async (url, options) => {
+        requestedUrl = url;
+        requestBody = JSON.parse(options.body);
+        return { ok: true, status: 200 };
+      },
+    }
+  );
+
+  background.__backgroundTestHooks.mediaManager.clearMediaResources();
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_1',
+    tabId: 1,
+    resourceUrl: 'https://example.com/video.mp4',
+    filename: 'video-title.mp4',
+    headers: {},
+    mime: 'video/mp4',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_MEDIA_TASK',
+    id: 'media_1',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requestedUrl, 'http://localhost:15151/start-headless-download');
+  assert.equal(requestBody.name, 'video-title.mp4');
+  assert.deepEqual(requestBody.downloadSource, {
+    link: 'https://example.com/video.mp4',
+  });
 });
 
 test('user-triggered send failure opens popup and exposes task alert', async () => {

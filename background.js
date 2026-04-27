@@ -16,16 +16,19 @@ const DEFAULT_CONFIG = {
   downloaderType: 'aria2',
   aria2Rpc: 'http://localhost:6800/jsonrpc',
   aria2Secret: '',
+  aria2Silent: false,
   useMotrixNext: false,
   motrixBridgeAutoClose: false,
+  motrixNextPort: '16801',
+  motrixNextSecret: '',
   externalLauncherName: 'AB DM',
   externalLauncherHost: 'localhost',
   externalLauncherPort: '15151',
   externalLauncherPath: '/start-headless-download',
+  abDownloadSilent: false,
   autoCapture: true,
   captureExtensions: 'zip,rar,7z,tar,gz,bz2,xz,iso,dmg,exe,msi,deb,pkg,apk,mp4,m4s,mkv,avi,mov,webm,mp3,flac,wav,pdf,torrent',
   captureMime: true,
-  showConfirm: true,
   saveDir: '',
 };
 const i18n = globalThis.Localization || {};
@@ -87,21 +90,17 @@ function refreshContextMenus() {
   });
 }
 
-function shouldConfirmBeforeSend() {
-  return config.downloaderType === 'aria2' && config.showConfirm;
-}
-
 function buildConnectionFailureText(label) {
   return t('connectionFailedWithLabel', [label], `与 ${label} 连接失败，检查 ${label} 是否正在运行`);
+}
+
+function shouldConfirmBeforeSend() {
+  return config.downloaderType === 'aria2' && !config.aria2Silent;
 }
 
 function getEffectiveConfig(override = {}) {
   const normalized = { ...config, ...(override || {}) };
   normalized.externalLauncherName = 'AB DM';
-  if (normalized.downloaderType === 'motrixnext') {
-    normalized.downloaderType = 'aria2';
-    normalized.useMotrixNext = true;
-  }
   return normalized;
 }
 
@@ -121,6 +120,17 @@ async function openTaskSurface() {
     await chrome.action.openPopup();
     return true;
   } catch {
+    try {
+      if (chrome.windows?.create) {
+        await chrome.windows.create({
+          url: chrome.runtime.getURL('popup.html'),
+          type: 'popup',
+          width: 420,
+          height: 720,
+        });
+        return true;
+      }
+    } catch {}
     try {
       await chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
       return true;
@@ -142,10 +152,6 @@ const configReady = new Promise((resolve) => {
   chrome.storage.sync.get(DEFAULT_CONFIG, (stored) => {
     const normalized = { ...DEFAULT_CONFIG, ...stored };
     normalized.externalLauncherName = 'AB DM';
-    if (normalized.downloaderType === 'motrixnext') {
-      normalized.downloaderType = 'aria2';
-      normalized.useMotrixNext = true;
-    }
     config = normalized;
     applyLocaleFromConfig(config);
     refreshContextMenus();
@@ -156,10 +162,6 @@ const configReady = new Promise((resolve) => {
 chrome.storage.onChanged.addListener((changes) => {
   for (const key in changes) config[key] = changes[key].newValue;
   config.externalLauncherName = 'AB DM';
-  if (config.downloaderType === 'motrixnext') {
-    config.downloaderType = 'aria2';
-    config.useMotrixNext = true;
-  }
   applyLocaleFromConfig(config);
   if (changes.language) refreshContextMenus();
 });
@@ -244,6 +246,7 @@ const {
   getDownloaderLabel,
   sendTask: sendTaskToDownloader,
   testNeatdmConnection,
+  testMotrixNextConnection,
 } = downloaderClients;
 
 async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false } = {}) {
@@ -444,7 +447,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(await sendTask({
           url: msg.url,
           filename: msg.filename || '',
-          headers: {},
+          headers: msg.headers || {},
+          referrer: msg.referrer || '',
           addedAt: Date.now(),
         }, msg.opts || {}, { openPopupOnFailure: true }));
         break;
@@ -460,10 +464,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           headers: media.headers || {},
           mime: media.mime || '',
           contentDisposition: media.contentDisposition || '',
-          referrer: media.referrer || '',
+          referrer: media.referrer || media.headers?.referer || media.pageUrl || '',
+          downloadPage: media.pageUrl || media.referrer || '',
           origin: media.origin || '',
           addedAt: Date.now(),
-        }, msg.opts || {}, { openPopupOnFailure: false }));
+        }, { ...(msg.opts || {}), abDownloadMode: 'headless' }, { openPopupOnFailure: false }));
         break;
       }
       case 'GET_MEDIA_ITEM': {
@@ -552,7 +557,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const testConfig = getEffectiveConfig(msg.config);
         if (testConfig.downloaderType === 'abdownload') {
           try {
-            const endpoint = buildExternalEndpoint(testConfig).replace(/\/start-headless-download$|\/add$/, '/queues');
+            const endpoint = buildExternalEndpoint(testConfig, '/queues');
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), EXTERNAL_LAUNCHER_TIMEOUT_MS);
             let res;
@@ -575,6 +580,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse(result);
           break;
         }
+        if (testConfig.downloaderType === 'motrixnext') {
+          const result = await testMotrixNextConnection(testConfig);
+          if (result?.ok) clearUiAlert();
+          sendResponse(result);
+          break;
+        }
         try {
           const stat = await getAria2GlobalStat(testConfig);
           clearUiAlert();
@@ -585,10 +596,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       case 'SAVE_CONFIG':
         const savedConfig = { ...msg.config };
-        if (savedConfig.downloaderType === 'motrixnext') {
-          savedConfig.downloaderType = 'aria2';
-          savedConfig.useMotrixNext = true;
-        }
         await chrome.storage.sync.set(savedConfig);
         config = { ...config, ...savedConfig };
         sendResponse({ ok: true });
@@ -611,12 +618,18 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const url = info.linkUrl || tab?.url;
   if (!url) return;
   const reqHeaders = requestHeadersCache.get(url)?.headers || {};
-  await enqueuePendingDownload({
+  const taskInfo = {
     url,
     filename: url.split('?')[0].split('/').pop() || '',
     headers: reqHeaders,
+    referrer: reqHeaders.referer || tab?.url || '',
     addedAt: Date.now(),
-  });
+  };
+  if (config.downloaderType === 'motrixnext') {
+    await sendTask(taskInfo, {}, { openPopupOnFailure: true });
+    return;
+  }
+  await enqueuePendingDownload(taskInfo);
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {

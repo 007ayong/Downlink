@@ -756,6 +756,7 @@
       <label><span data-i18n="settingsTargetDownloader">目标下载器</span> <span class="settings-sub" data-i18n="settingsTargetDownloaderSub">按设置切换到不同下载器适配器</span></label>
       <select class="settings-input wide" id="cfgDownloaderType">
         <option value="aria2">Aria2 RPC</option>
+        <option value="motrixnext">MotrixNext</option>
         <option value="abdownload">AB DM</option>
         <option value="neatdm">NeatDM</option>
       </select>
@@ -792,6 +793,10 @@
       <input class="settings-input wide" id="cfgSaveDir" type="text" placeholder="/Downloads"/>
     </div>
     <div class="settings-row aria2-only">
+      <label><span data-i18n="settingsAria2Silent">普通任务静默下载</span> <span class="settings-sub" data-i18n="settingsAria2SilentSub">默认下载前需手动二次确认；开启后自动开始下载，无需二次确认</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgAria2Silent"><div class="toggle-track"></div></label>
+    </div>
+    <div class="settings-row aria2-only">
       <label><span data-i18n="settingsUseMotrixNext">使用 MotrixNext 管理</span> <span class="settings-sub" data-i18n="settingsUseMotrixNextSub">在任务面板显示“Motrix中查看”，默认关闭</span></label>
       <label class="toggle"><input type="checkbox" id="cfgUseMotrixNext"><div class="toggle-track"></div></label>
     </div>
@@ -807,9 +812,9 @@
       <label><span data-i18n="settingsPort">端口号</span> <span class="settings-sub" data-i18n="settingsPortSub">默认 15151</span></label>
       <input class="settings-input wide" id="cfgLauncherPort" type="text" placeholder="15151"/>
     </div>
-    <div class="settings-row col launcher-only settings-hidden">
-      <label><span data-i18n="settingsEndpointPath">接口路径</span> <span class="settings-sub" data-i18n="settingsEndpointPathSub">推荐 /start-headless-download，可传文件名和目录；/add 仅传链接和请求头</span></label>
-      <input class="settings-input wide" id="cfgLauncherPath" type="text" placeholder="/start-headless-download"/>
+    <div class="settings-row launcher-only settings-hidden">
+      <label><span data-i18n="settingsAbDownloadSilent">普通任务静默下载</span> <span class="settings-sub" data-i18n="settingsAbDownloadSilentSub">默认下载前需手动二次确认；开启后自动开始下载，无需二次确认</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgAbDownloadSilent"><div class="toggle-track"></div></label>
     </div>
     <div class="settings-row launcher-only settings-hidden">
       <label style="flex:1">
@@ -817,6 +822,21 @@
         <div class="conn-result" id="connResultLauncher"></div>
       </label>
       <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="testLauncherBtn" data-i18n="test">测试</button>
+    </div>
+    <div class="settings-row col motrixnext-only settings-hidden">
+      <label><span data-i18n="settingsMotrixNextPort">MotrixNext 端口</span> <span class="settings-sub" data-i18n="settingsMotrixNextPortSub">MotrixNext HTTP 接收服务端口</span></label>
+      <input class="settings-input wide" id="cfgMotrixNextPort" type="text" placeholder="16801"/>
+    </div>
+    <div class="settings-row col motrixnext-only settings-hidden">
+      <label><span data-i18n="settingsMotrixNextSecret">MotrixNext 密钥</span> <span class="settings-sub" data-i18n="settingsMotrixNextSecretSub">发送到本机 /add 接口时使用</span></label>
+      <input class="settings-input wide" id="cfgMotrixNextSecret" type="password" placeholder="留空则不使用" data-i18n-placeholder="settingsRpcSecretPlaceholder"/>
+    </div>
+    <div class="settings-row motrixnext-only settings-hidden">
+      <label style="flex:1">
+        <div style="margin-bottom:4px" data-i18n="settingsTestConnection">测试连接</div>
+        <div class="conn-result" id="connResultMotrixNext"></div>
+      </label>
+      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="testMotrixNextBtn" data-i18n="test">测试</button>
     </div>
     <div class="settings-row neatdm-only settings-hidden">
       <label style="flex:1">
@@ -833,10 +853,6 @@
     <div class="settings-row">
       <label><span data-i18n="settingsAutoCapture">自动拦截下载</span> <span class="settings-sub" data-i18n="settingsAutoCaptureSub">接管浏览器下载并转交给当前下载器</span></label>
       <label class="toggle"><input type="checkbox" id="cfgAutoCapture"><div class="toggle-track"></div></label>
-    </div>
-    <div class="settings-row">
-      <label><span data-i18n="settingsConfirmBeforeSend">下载前确认</span> <span class="settings-sub" data-i18n="settingsConfirmBeforeSendSub">拦截后弹窗询问是否发送</span></label>
-      <label class="toggle"><input type="checkbox" id="cfgShowConfirm"><div class="toggle-track"></div></label>
     </div>
     <div class="settings-row col">
       <label><span data-i18n="settingsCaptureExtensions">拦截文件类型</span> <span class="settings-sub" data-i18n="settingsCaptureExtensionsSub">逗号分隔，留空拦截所有</span></label>

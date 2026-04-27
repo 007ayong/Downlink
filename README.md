@@ -79,15 +79,24 @@ tag 版本需要和 `manifest.json` 里的 `version` 保持一致，例如 `v1.0
 适合本地或远程运行 `aria2c` 或 Motrix，并开启 RPC 的场景。
 如果你同时安装了 MotrixNext，可勾选“使用 MotrixNext 管理”，在任务面板中快速打开查看。
 
+### MotrixNext
+
+需要填写：
+
+- 端口号
+- 密钥，可留空
+
+Downlink 会直接向本机 MotrixNext HTTP 接收服务发送 `POST /add`，请求体格式为 `{ "url": "...", "referer": "...", "cookie": "..." }`。`referer` 和 `cookie` 会在浏览器捕获到相关请求头时附带。MotrixNext 模式不使用扩展侧的二次确认、暂停/继续或进度控制。
+
 ### AB DM
 
 需要填写：
 
 - 服务地址
 - 端口号
-- 接口路径
 
 一般情况下，需要核实软件本体和该扩展中的端口号是否一致。
+普通任务默认通过 `/add` 添加；如需普通任务静默开始下载，可在设置中开启对应选项。媒体资源会固定使用 `/start-headless-download`，以保证视频文件名正确。
 
 ### NeatDM
 

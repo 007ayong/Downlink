@@ -79,15 +79,24 @@ Required fields:
 This works for local or remote `aria2c` or Motrix setups with RPC enabled.
 If you also have MotrixNext installed, you can enable "Manage with MotrixNext" and open it quickly from the task panel.
 
+### MotrixNext
+
+Required fields:
+
+- Port
+- Secret, optional
+
+Downlink sends directly to the local MotrixNext HTTP receiver with `POST /add`, using a request body like `{ "url": "...", "referer": "...", "cookie": "..." }`. `referer` and `cookie` are included when the browser captured those request headers. MotrixNext mode does not use extension-side confirmation, pause/resume, or progress controls.
+
 ### AB DM
 
 Required fields:
 
 - Service host
 - Port
-- API path
 
 In most cases, you should verify that the port configured in the extension matches the actual port used by the application.
+Normal tasks use `/add` by default. Enable silent normal downloads in settings to use `/start-headless-download` for normal tasks. Media resources always use `/start-headless-download` so video filenames stay correct.
 
 ### NeatDM
 
