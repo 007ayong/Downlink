@@ -84,7 +84,7 @@ tag 版本需要和 `manifest.json` 里的 `version` 保持一致，例如 `v1.0
 需要填写：
 
 - 端口号
-- 密钥，可留空
+- 密钥，可留空。留空表示 MotrixNext 的 `extensionApiSecret` 未配置，此时 HTTP API 不启用鉴权，连接检测仍会成功。
 
 Downlink 会直接向本机 MotrixNext HTTP 接收服务发送 `POST /add`，请求体格式为 `{ "url": "...", "referer": "...", "cookie": "..." }`。`referer` 和 `cookie` 会在浏览器捕获到相关请求头时附带。MotrixNext 模式不使用扩展侧的二次确认、暂停/继续或进度控制。
 
