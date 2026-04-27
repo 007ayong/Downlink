@@ -7,18 +7,19 @@ const vm = require('node:vm');
 function createElementStub() {
   const classes = new Set();
   const listeners = {};
-  return {
+  let innerHTML = '';
+  const element = {
     style: {},
     dataset: {},
     value: '',
     checked: false,
     textContent: '',
-    innerHTML: '',
     disabled: false,
     className: '',
     src: '',
     alt: '',
     children: [],
+    _queryMap: new Map(),
     classList: {
       add(...tokens) {
         tokens.forEach((token) => classes.add(token));
@@ -60,8 +61,8 @@ function createElementStub() {
     click() {
       (listeners.click || []).forEach((handler) => handler({ currentTarget: this, target: this }));
     },
-    querySelector() {
-      return createElementStub();
+    querySelector(selector) {
+      return this._queryMap.get(selector) || createElementStub();
     },
     querySelectorAll() {
       return [];
@@ -69,6 +70,24 @@ function createElementStub() {
     _classes: classes,
     _listeners: listeners,
   };
+  Object.defineProperty(element, 'innerHTML', {
+    get() {
+      return innerHTML;
+    },
+    set(value) {
+      innerHTML = value;
+      this._queryMap.clear();
+      if (!String(value).includes('pending-fname')) return;
+
+      const input = createElementStub();
+      const valueMatch = String(value).match(/class="pending-fname"[^>]*value="([^"]*)"/);
+      input.value = valueMatch ? valueMatch[1] : '';
+      this._queryMap.set('.pending-fname', input);
+      this._queryMap.set('.confirm-btn', createElementStub());
+      this._queryMap.set('.reject-btn', createElementStub());
+    },
+  });
+  return element;
 }
 
 function loadPopupRuntime(options = {}) {
@@ -291,6 +310,33 @@ test('does not auto-switch when there are pending confirmation cards', () => {
     }),
     false
   );
+});
+
+test('pending confirmation filename edit survives state re-render', () => {
+  const popup = loadPopupRuntime();
+  const pending = {
+    task1: {
+      key: 'task1',
+      url: 'https://example.com/file.zip',
+      filename: 'file.zip',
+    },
+  };
+  const pendingList = popup.document.getElementById('pendingList');
+
+  popup.renderTasks({}, pending);
+  assert.equal(pendingList.children.length, 1);
+
+  const card = pendingList.children[0];
+  const input = card.querySelector('.pending-fname');
+  assert.equal(input.value, 'file.zip');
+
+  input.value = 'renamed.zip';
+  input._listeners.input[0]({ currentTarget: input });
+  popup.renderTasks({}, pending);
+
+  assert.equal(pendingList.children.length, 1);
+  assert.strictEqual(pendingList.children[0], card);
+  assert.equal(card.querySelector('.pending-fname').value, 'renamed.zip');
 });
 
 test('does not auto-switch again for the same media count', () => {

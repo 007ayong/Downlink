@@ -10,6 +10,26 @@ const popupAppT = popupAppI18n.t || ((key, substitutions, fallback = key) => {
   }
   return fallback || key;
 });
+const pendingFilenameDrafts = new Map();
+let lastRenderedPendingKey = '';
+
+function getPendingFilenameValue(item) {
+  return pendingFilenameDrafts.has(item.key)
+    ? pendingFilenameDrafts.get(item.key)
+    : decodeDisplayFilename(item.filename || item.url.split('?')[0].split('/').pop() || '');
+}
+
+function buildPendingConfirmRenderKey(pendingVals) {
+  return pendingVals.map((item) => [
+    item.key,
+    item.url,
+    getPendingFilenameValue(item),
+  ].join('\u0001')).join('\u0002')
+    + `|${popupAppT('pendingDownload', undefined, '待确认下载')}`
+    + `|${popupAppT('fileName', undefined, '文件名')}`
+    + `|${popupAppT('ignore', undefined, '✕ 忽略')}`
+    + `|${getSendLabel(currentConfig)}`;
+}
 
 function syncPopupGlobals() {
   globalThis.currentConfig = currentConfig;
@@ -209,41 +229,60 @@ function renderTasks(tasks, pending) {
   document.getElementById('tasksEmpty').style.display = allEmpty ? 'flex' : 'none';
   document.getElementById('footerBar').style.display = allEmpty ? 'none' : 'flex';
 
+  const visiblePendingKeys = new Set(pendingVals.map((item) => item.key));
+  Array.from(pendingFilenameDrafts.keys()).forEach((key) => {
+    if (!visiblePendingKeys.has(key)) pendingFilenameDrafts.delete(key);
+  });
+
+  const pendingRenderKey = buildPendingConfirmRenderKey(pendingVals);
   const pendingList = document.getElementById('pendingList');
-  pendingList.innerHTML = '';
-  pendingVals.forEach((item) => {
-    const filename = decodeDisplayFilename(item.filename || item.url.split('?')[0].split('/').pop() || '');
-    const card = document.createElement('div');
-    card.className = 'pending-card';
-    card.innerHTML = `
-      <div class="pending-label">${popupAppT('pendingDownload', undefined, '待确认下载')}</div>
-      <div class="pending-url">${escHtml(item.url)}</div>
-      <div class="pending-filename-row">
-        <label>${popupAppT('fileName', undefined, '文件名')}</label>
-        <input type="text" class="pending-fname" value="${escHtml(filename)}" placeholder="${escHtml(popupAppT('autoDetect', undefined, '自动识别'))}"/>
-      </div>
-      <div class="pending-actions">
-        <button class="btn btn-primary confirm-btn" data-key="${item.key}">⚡ ${getSendLabel(currentConfig)}</button>
-        <button class="btn btn-ghost reject-btn" data-key="${item.key}">${popupAppT('ignore', undefined, '✕ 忽略')}</button>
-      </div>
-    `;
-    pendingList.appendChild(card);
-    card.querySelector('.confirm-btn').addEventListener('click', () => {
-      const fname = card.querySelector('.pending-fname').value.trim();
-    chrome.runtime.sendMessage({ type: 'CONFIRM_DOWNLOAD', key: item.key, filename: fname }, (res) => {
-        if (!res?.ok) {
-          showToast(popupAppT(
-            'sendFailed',
-            [res?.error || popupAppT('downloaderConnectionFailed', undefined, '与下载器连接失败，检查下载器是否正在运行')],
-            `发送失败：${res?.error || '与下载器连接失败，检查下载器是否正在运行'}`
-          ));
-        }
+  if (pendingRenderKey !== lastRenderedPendingKey) {
+    pendingList.innerHTML = '';
+    pendingVals.forEach((item) => {
+      const filename = getPendingFilenameValue(item);
+      const card = document.createElement('div');
+      card.className = 'pending-card';
+      card.innerHTML = `
+        <div class="pending-label">${popupAppT('pendingDownload', undefined, '待确认下载')}</div>
+        <div class="pending-url">${escHtml(item.url)}</div>
+        <div class="pending-filename-row">
+          <label>${popupAppT('fileName', undefined, '文件名')}</label>
+          <input type="text" class="pending-fname" value="${escHtml(filename)}" placeholder="${escHtml(popupAppT('autoDetect', undefined, '自动识别'))}" autocomplete="off" spellcheck="false"/>
+        </div>
+        <div class="pending-actions">
+          <button class="btn btn-primary confirm-btn" data-key="${item.key}">⚡ ${getSendLabel(currentConfig)}</button>
+          <button class="btn btn-ghost reject-btn" data-key="${item.key}">${popupAppT('ignore', undefined, '✕ 忽略')}</button>
+        </div>
+      `;
+      pendingList.appendChild(card);
+      card.querySelector('.pending-fname').addEventListener('input', (event) => {
+        pendingFilenameDrafts.set(item.key, event.currentTarget.value);
+        lastRenderedPendingKey = buildPendingConfirmRenderKey(pendingVals);
+      });
+      card.querySelector('.confirm-btn').addEventListener('click', () => {
+        const fname = card.querySelector('.pending-fname').value.trim();
+        chrome.runtime.sendMessage({ type: 'CONFIRM_DOWNLOAD', key: item.key, filename: fname }, (res) => {
+          if (res?.ok) {
+            pendingFilenameDrafts.delete(item.key);
+            lastRenderedPendingKey = '';
+          }
+          if (!res?.ok) {
+            showToast(popupAppT(
+              'sendFailed',
+              [res?.error || popupAppT('downloaderConnectionFailed', undefined, '与下载器连接失败，检查下载器是否正在运行')],
+              `发送失败：${res?.error || '与下载器连接失败，检查下载器是否正在运行'}`
+            ));
+          }
+        });
+      });
+      card.querySelector('.reject-btn').addEventListener('click', () => {
+        pendingFilenameDrafts.delete(item.key);
+        lastRenderedPendingKey = '';
+        chrome.runtime.sendMessage({ type: 'REJECT_DOWNLOAD', key: item.key });
       });
     });
-    card.querySelector('.reject-btn').addEventListener('click', () => {
-      chrome.runtime.sendMessage({ type: 'REJECT_DOWNLOAD', key: item.key });
-    });
-  });
+    lastRenderedPendingKey = pendingRenderKey;
+  }
 
   const taskList = document.getElementById('taskList');
   taskList.innerHTML = '';
