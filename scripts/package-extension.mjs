@@ -52,7 +52,9 @@ const archivePaths = [
   'LICENSE',
   '_locales',
   'lib',
-  'assets',
+  'assets/null.png',
+  'assets/file-icons',
+  'assets/provider-icons',
   'icons',
 ];
 

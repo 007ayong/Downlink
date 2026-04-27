@@ -36,8 +36,8 @@ Downlink 是一个浏览器扩展，用来接管浏览器下载，并把任务�
 
 ## 商店地址
 
-- Chrome Web Store: [Downlink](https://chromewebstore.google.com/detail/eepjgbffnmmhpinlmlncdfnhjccpigcg)
-- Microsoft Edge: [Downlink](https://microsoftedge.microsoft.com/addons/detail/klkhmcdcnnhggpiipgedlafhpobojpgl)
+[![Chrome Web Store:](./assets/chrome-support.png)](https://chromewebstore.google.com/detail/eepjgbffnmmhpinlmlncdfnhjccpigcg)
+[![Chrome Web Store:](./assets/edge-support.png)](https://microsoftedge.microsoft.com/addons/detail/klkhmcdcnnhggpiipgedlafhpobojpgl)
 
 ## 自动发布
 
