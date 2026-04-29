@@ -294,6 +294,24 @@
     }
     .pending-filename-row input:focus { border-color: var(--accent); }
 
+    .pending-option {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      width: fit-content;
+      margin: 0 0 9px;
+      font-size: 11px;
+      color: var(--text-2);
+      cursor: pointer;
+      user-select: none;
+    }
+    .pending-option input {
+      width: 14px;
+      height: 14px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
     .pending-actions {
       display: flex; gap: 6px;
     }

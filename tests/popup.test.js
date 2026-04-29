@@ -83,6 +83,9 @@ function createElementStub() {
       const valueMatch = String(value).match(/class="pending-fname"[^>]*value="([^"]*)"/);
       input.value = valueMatch ? valueMatch[1] : '';
       this._queryMap.set('.pending-fname', input);
+      if (String(value).includes('aria2-single-thread')) {
+        this._queryMap.set('.aria2-single-thread', createElementStub());
+      }
       this._queryMap.set('.confirm-btn', createElementStub());
       this._queryMap.set('.reject-btn', createElementStub());
     },
@@ -337,6 +340,33 @@ test('pending confirmation filename edit survives state re-render', () => {
   assert.equal(pendingList.children.length, 1);
   assert.strictEqual(pendingList.children[0], card);
   assert.equal(card.querySelector('.pending-fname').value, 'renamed.zip');
+});
+
+test('aria2 pending confirmation can force single threaded download options', () => {
+  const popup = loadPopupRuntime();
+  Object.assign(popup.currentConfig, { downloaderType: 'aria2' });
+  const pending = {
+    task1: {
+      key: 'task1',
+      url: 'https://example.com/file.zip',
+      filename: 'file.zip',
+      addedAt: 1,
+    },
+  };
+
+  popup.renderTasks({}, pending);
+  const card = popup.document.getElementById('pendingList').children[0];
+  card.querySelector('.aria2-single-thread').checked = true;
+  card.querySelector('.confirm-btn').click();
+
+  const message = popup.chrome._sentMessages.at(-1);
+  assert.equal(message.type, 'CONFIRM_DOWNLOAD');
+  assert.equal(message.key, 'task1');
+  assert.deepEqual(JSON.parse(JSON.stringify(message.opts)), {
+    split: '1',
+    'max-connection-per-server': '1',
+    'min-split-size': '1024M',
+  });
 });
 
 test('does not auto-switch again for the same media count', () => {

@@ -380,6 +380,62 @@ test('Aria2 silent intercepted downloads send immediately', async () => {
   assert.equal(state.tasks['gid-1']?.filename, 'file.zip');
 });
 
+test('Aria2 pending confirmation forwards single threaded override options', async () => {
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://localhost:6800/jsonrpc',
+      autoCapture: true,
+      aria2Silent: false,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async (_url, options) => {
+        requestBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            return { result: 'gid-1' };
+          },
+        };
+      },
+    }
+  );
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'CONFIRM_DOWNLOAD',
+    key: pending[0].key,
+    filename: 'file.zip',
+    opts: {
+      split: '1',
+      'max-connection-per-server': '1',
+      'min-split-size': '1024M',
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requestBody.method, 'aria2.addUri');
+  assert.deepEqual(requestBody.params[1], {
+    out: 'file.zip',
+    split: '1',
+    'max-connection-per-server': '1',
+    'min-split-size': '1024M',
+  });
+});
+
 test('AB DM downloader label is fixed', () => {
   const background = loadBackgroundRuntime();
   const clients = background.BackgroundDownloaders.createClients({

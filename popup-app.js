@@ -13,6 +13,14 @@ const popupAppT = popupAppI18n.t || ((key, substitutions, fallback = key) => {
 const pendingFilenameDrafts = new Map();
 let lastRenderedPendingKey = '';
 
+function getAria2SingleThreadOptions() {
+  return {
+    split: '1',
+    'max-connection-per-server': '1',
+    'min-split-size': '1024M',
+  };
+}
+
 function getPendingFilenameValue(item) {
   return pendingFilenameDrafts.has(item.key)
     ? pendingFilenameDrafts.get(item.key)
@@ -27,8 +35,10 @@ function buildPendingConfirmRenderKey(pendingVals) {
   ].join('\u0001')).join('\u0002')
     + `|${popupAppT('pendingDownload', undefined, '待确认下载')}`
     + `|${popupAppT('fileName', undefined, '文件名')}`
+    + `|${popupAppT('aria2SingleThread', undefined, '单线程不分片下载')}`
     + `|${popupAppT('ignore', undefined, '✕ 忽略')}`
-    + `|${getSendLabel(currentConfig)}`;
+    + `|${getSendLabel(currentConfig)}`
+    + `|${currentConfig.downloaderType || ''}`;
 }
 
 function syncPopupGlobals() {
@@ -240,6 +250,13 @@ function renderTasks(tasks, pending) {
     pendingList.innerHTML = '';
     pendingVals.forEach((item) => {
       const filename = getPendingFilenameValue(item);
+      const isAria2Pending = currentConfig.downloaderType === 'aria2';
+      const aria2SingleThreadOption = isAria2Pending ? `
+        <label class="pending-option">
+          <input type="checkbox" class="aria2-single-thread"/>
+          <span>${popupAppT('aria2SingleThread', undefined, '单线程不分片下载')}</span>
+        </label>
+      ` : '';
       const card = document.createElement('div');
       card.className = 'pending-card';
       card.innerHTML = `
@@ -249,6 +266,7 @@ function renderTasks(tasks, pending) {
           <label>${popupAppT('fileName', undefined, '文件名')}</label>
           <input type="text" class="pending-fname" value="${escHtml(filename)}" placeholder="${escHtml(popupAppT('autoDetect', undefined, '自动识别'))}" autocomplete="off" spellcheck="false"/>
         </div>
+        ${aria2SingleThreadOption}
         <div class="pending-actions">
           <button class="btn btn-primary confirm-btn" data-key="${item.key}">⚡ ${getSendLabel(currentConfig)}</button>
           <button class="btn btn-ghost reject-btn" data-key="${item.key}">${popupAppT('ignore', undefined, '✕ 忽略')}</button>
@@ -261,7 +279,10 @@ function renderTasks(tasks, pending) {
       });
       card.querySelector('.confirm-btn').addEventListener('click', () => {
         const fname = card.querySelector('.pending-fname').value.trim();
-        chrome.runtime.sendMessage({ type: 'CONFIRM_DOWNLOAD', key: item.key, filename: fname }, (res) => {
+        const opts = isAria2Pending && card.querySelector('.aria2-single-thread')?.checked
+          ? getAria2SingleThreadOptions()
+          : {};
+        chrome.runtime.sendMessage({ type: 'CONFIRM_DOWNLOAD', key: item.key, filename: fname, opts }, (res) => {
           if (res?.ok) {
             pendingFilenameDrafts.delete(item.key);
             lastRenderedPendingKey = '';
