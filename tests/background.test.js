@@ -513,6 +513,7 @@ test('MotrixNext sends direct /add request with referer and cookie', async () =>
   assert.equal(requestHeaders.Authorization, 'Bearer next-secret');
   assert.deepEqual(requestBody, {
     url: 'https://example.com/file.zip',
+    filename: 'custom.zip',
     referer: 'https://example.com/page',
     cookie: 'sid=abc123',
   });
@@ -571,7 +572,7 @@ test('MotrixNext media send falls back to page URL as referer', async () => {
     tabId: 1,
     resourceUrl: 'https://cdn.example.com/video.mp4',
     pageUrl: 'https://example.com/watch/123',
-    filename: 'video.mp4',
+    filename: 'video-title.mp4',
     headers: {},
     mime: 'video/mp4',
   });
@@ -584,6 +585,7 @@ test('MotrixNext media send falls back to page URL as referer', async () => {
   assert.equal(result.ok, true);
   assert.deepEqual(requestBody, {
     url: 'https://cdn.example.com/video.mp4',
+    filename: 'video-title.mp4',
     referer: 'https://example.com/watch/123',
   });
 });
@@ -609,7 +611,7 @@ test('MotrixNext media send includes captured cookie', async () => {
     tabId: 1,
     resourceUrl: 'https://cdn.example.com/video.mp4',
     pageUrl: 'https://example.com/watch/123',
-    filename: 'video.mp4',
+    filename: 'video-title.mp4',
     headers: {
       cookie: 'sid=abc123',
       referer: 'https://example.com/player',
@@ -625,6 +627,7 @@ test('MotrixNext media send includes captured cookie', async () => {
   assert.equal(result.ok, true);
   assert.deepEqual(requestBody, {
     url: 'https://cdn.example.com/video.mp4',
+    filename: 'video-title.mp4',
     referer: 'https://example.com/player',
     cookie: 'sid=abc123',
   });

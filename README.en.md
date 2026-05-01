@@ -86,7 +86,7 @@ Required fields:
 - Port
 - Secret, optional. Leaving it empty means MotrixNext `extensionApiSecret` is not configured; in that state the HTTP API disables authentication and connection checks still succeed.
 
-Downlink sends directly to the local MotrixNext HTTP receiver with `POST /add`, using a request body like `{ "url": "...", "referer": "...", "cookie": "..." }`. `referer` and `cookie` are included when the browser captured those request headers. MotrixNext mode does not use extension-side confirmation, pause/resume, or progress controls.
+Downlink sends directly to the local MotrixNext HTTP receiver with `POST /add`, using a request body like `{ "url": "...", "filename": "...", "referer": "...", "cookie": "..." }`. `filename` is included when the browser captures it or the media panel detects it, and `referer` and `cookie` are included when the browser captured those request headers. MotrixNext mode does not use extension-side confirmation, pause/resume, or progress controls.
 
 ### AB DM
 
