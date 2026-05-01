@@ -457,6 +457,14 @@ test('AB DM display name is fixed', () => {
   assert.equal(popup.getSendLabel({ downloaderType: 'abdownload', externalLauncherName: 'Custom Name' }), '发送到 AB DM');
 });
 
+test('MotrixNext header logo uses packaged provider icon', () => {
+  const popup = loadPopupRuntime();
+  assert.equal(
+    popup.getHeaderLogoSrc({ downloaderType: 'motrixnext' }),
+    'assets/provider-icons/motrixnext.png'
+  );
+});
+
 test('aria2 test connection sends the current form config', () => {
   const popup = loadPopupRuntime();
 
