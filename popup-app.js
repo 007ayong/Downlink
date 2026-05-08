@@ -500,9 +500,10 @@ function renderMedia(mediaByTab, pausedTabs = []) {
     const card = document.createElement('div');
     card.className = 'media-card';
     card.dataset.mediaId = item.id;
+    const iconSrc = getFileIcon({ name: item.filename, mime: item.mime, kind: item.kind });
     card.innerHTML = `
       <div class="media-top">
-        <div class="media-icon">${item.kind === 'audio' ? '🎵' : '🎬'}</div>
+        <div class="media-icon"><img src="${escHtml(iconSrc)}" alt="" loading="lazy"></div>
         <div class="media-info">
           <div class="media-name" title="${escHtml(item.filename || popupAppT('untitledMedia', undefined, '未命名媒体'))}">${escHtml(item.filename || popupAppT('untitledMedia', undefined, '未命名媒体'))}</div>
           <div class="media-url">${escHtml(item.resourceUrl)}</div>
@@ -521,6 +522,8 @@ function renderMedia(mediaByTab, pausedTabs = []) {
       </div>
     `;
     listEl.appendChild(card);
+    const icon = card.querySelector('.media-icon img');
+    if (icon) icon.addEventListener('error', handleTaskIconError);
 
     if (item.kind === 'video' && (!item.width || !item.height)) {
       // Defer metadata loading slightly to allow initial UI paint and avoid
@@ -729,10 +732,6 @@ document.getElementById('testNeatdmBtn').addEventListener('click', () => {
     resultEl.className = 'conn-result fail';
     resultEl.textContent = `✗ ${res?.error || popupAppT('connectionFailedWithLabel', ['NeatDM'], '与 NeatDM 连接失败，检查 NeatDM 是否正在运行')}`;
   });
-});
-
-document.getElementById('refreshBtn').addEventListener('click', () => {
-  refreshAll();
 });
 
 document.getElementById('clearMediaBtn').addEventListener('click', () => {

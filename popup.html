@@ -95,21 +95,6 @@
     }
     .status-dot.online { background: var(--green); box-shadow: 0 0 5px var(--green); }
     .status-dot.offline { background: var(--red); }
-    .header-actions {
-      display: flex; gap: 5px; align-items: center;
-    }
-    .icon-btn {
-      width: 28px; height: 28px;
-      border: 1px solid var(--border);
-      background: var(--bg);
-      border-radius: 7px;
-      cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 13px;
-      color: var(--text-2);
-      transition: all 0.15s;
-    }
-    .icon-btn:hover { background: var(--bg3); border-color: var(--text-3); }
 
     /* ── Tabs ────────────────────────────────── */
     .tabs {
@@ -336,6 +321,14 @@
       color: var(--text-2);
     }
     .btn-ghost:hover { background: var(--bg3); border-color: var(--text-3); }
+    .btn.compact-icon {
+      flex: 0 0 auto;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      font-size: 13px;
+      line-height: 1;
+    }
     .btn-danger {
       background: var(--red-bg);
       border-color: #fca5a5;
@@ -490,13 +483,19 @@
       width: 30px;
       height: 30px;
       border-radius: 7px;
-      background: var(--accent-bg);
-      border: 1px solid var(--accent-bd);
+      background: var(--bg3);
+      border: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 15px;
       flex-shrink: 0;
+    }
+    .media-icon img {
+      width: 18px;
+      height: 18px;
+      display: block;
+      object-fit: contain;
     }
     .media-info {
       flex: 1;
@@ -634,28 +633,42 @@
     /* Toggle */
     .toggle {
       position: relative;
-      width: 36px; height: 20px; flex-shrink: 0;
+      display: inline-block;
+      width: 32px; height: 18px;
+      flex: 0 0 32px;
+    }
+    .settings-row label.toggle {
+      flex: 0 0 32px;
+      width: 32px;
+      height: 18px;
     }
     .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
     .toggle-track {
       position: absolute; inset: 0;
       background: var(--bg4);
-      border-radius: 20px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
     }
-    .toggle input:checked + .toggle-track { background: var(--accent); }
+    .toggle input:focus-visible + .toggle-track {
+      box-shadow: 0 0 0 3px rgba(224, 92, 42, 0.16);
+    }
+    .toggle input:checked + .toggle-track {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
     .toggle-track::after {
       content: '';
       position: absolute;
       top: 2px; left: 2px;
-      width: 16px; height: 16px;
+      width: 12px; height: 12px;
       border-radius: 50%;
       background: white;
       box-shadow: 0 1px 3px rgba(0,0,0,0.2);
       transition: transform 0.2s;
     }
-    .toggle input:checked + .toggle-track::after { transform: translateX(16px); }
+    .toggle input:checked + .toggle-track::after { transform: translateX(14px); }
 
     /* Test connection result */
     .conn-result {
@@ -713,9 +726,6 @@
       <span id="statusText" data-i18n="statusChecking">检测中…</span>
     </div>
   </div>
-  <div class="header-actions">
-    <button class="icon-btn" id="refreshBtn" title="刷新" data-i18n-title="refresh">↻</button>
-  </div>
 </div>
 
 <!-- Tabs -->
@@ -751,7 +761,7 @@
     <div class="media-toolbar-top">
       <div class="media-toolbar-title" data-i18n="mediaToolbarTitle">当前页面媒体资源</div>
       <div style="display:flex;gap:5px">
-        <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 10px" id="toggleSniffingBtn" title="暂停/恢复嗅探">⏸</button>
+        <button class="btn btn-ghost compact-icon" id="toggleSniffingBtn" title="暂停/恢复嗅探">⏸</button>
         <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 12px" id="clearMediaBtn" data-i18n="clear">清空</button>
       </div>
     </div>
@@ -759,7 +769,9 @@
   </div>
   <div class="task-alert" id="mediaAlert"></div>
   <div class="empty" id="mediaEmpty">
-    <div class="empty-icon emoji">🎧</div>
+    <div class="empty-icon">
+      <img src="assets/file-icons/video.svg" alt="" loading="lazy"/>
+    </div>
     <div class="empty-title" data-i18n="mediaEmptyTitle">暂无直链媒体</div>
     <div class="empty-sub" data-i18n="mediaEmptySub">打开页面中的音频或视频后会显示在这里</div>
   </div>
