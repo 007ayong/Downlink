@@ -492,6 +492,7 @@ test('aria2 test connection sends the current form config', () => {
     externalLauncherPort: '15151',
     abDownloadSilent: false,
     autoCapture: false,
+    captureBypassModifier: 'alt',
     captureExtensions: '',
   });
 });
@@ -523,6 +524,7 @@ test('AB DM test connection sends the current form config', () => {
     externalLauncherPort: '17000',
     abDownloadSilent: true,
     autoCapture: false,
+    captureBypassModifier: 'alt',
     captureExtensions: '',
   });
 });
@@ -667,6 +669,7 @@ test('settings controller collects every visible config field from the form', ()
   context.document.getElementById('cfgLauncherPort').value = '17000';
   context.document.getElementById('cfgAbDownloadSilent').checked = true;
   context.document.getElementById('cfgAutoCapture').checked = true;
+  context.document.getElementById('cfgCaptureBypassModifier').value = 'Control + Option';
   context.document.getElementById('cfgExts').value = 'zip,mp4';
 
   assert.deepEqual(JSON.parse(JSON.stringify(controller.collectSettingsFromForm())), {
@@ -685,6 +688,7 @@ test('settings controller collects every visible config field from the form', ()
     externalLauncherPort: '17000',
     abDownloadSilent: true,
     autoCapture: true,
+    captureBypassModifier: 'ctrl+alt',
     captureExtensions: 'zip,mp4',
   });
 });
@@ -730,6 +734,52 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgMotrixNextSecret', 'motrix-secret')).config.motrixNextSecret, 'motrix-secret');
   assert.equal((await applyChange('cfgLauncherHost', '10.0.0.8')).config.externalLauncherHost, '10.0.0.8');
   assert.equal((await applyChange('cfgLauncherPort', '17000')).config.externalLauncherPort, '17000');
+  assert.equal((await applyChange('cfgCaptureBypassModifier', 'ctrl')).config.captureBypassModifier, 'ctrl');
+  const shortcutEl = context.document.getElementById('cfgCaptureBypassModifier');
+  assert.equal(shortcutEl.readOnly, true);
+  for (const handler of listenersById.get('cfgCaptureBypassModifier')?.keydown || []) {
+    handler({
+      key: 'Shift',
+      ctrlKey: true,
+      altKey: false,
+      shiftKey: true,
+      metaKey: false,
+      preventDefault() {},
+      target: shortcutEl,
+      currentTarget: shortcutEl,
+    });
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(sentMessages.at(-1).config.captureBypassModifier, 'ctrl+shift');
+  const beforeInvalidKeyCount = sentMessages.length;
+  for (const handler of listenersById.get('cfgCaptureBypassModifier')?.keydown || []) {
+    handler({
+      key: 'A',
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      metaKey: false,
+      preventDefault() {},
+      target: shortcutEl,
+      currentTarget: shortcutEl,
+    });
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(sentMessages.length, beforeInvalidKeyCount);
+  for (const handler of listenersById.get('cfgCaptureBypassModifier')?.keydown || []) {
+    handler({
+      key: 'Meta',
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      metaKey: true,
+      preventDefault() {},
+      target: shortcutEl,
+      currentTarget: shortcutEl,
+    });
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(sentMessages.at(-1).config.captureBypassModifier, 'cmd');
   assert.equal((await applyChange('cfgExts', 'zip,mp4')).config.captureExtensions, 'zip,mp4');
   assert.equal((await applyChange('cfgAutoCapture', true, 'checked')).config.autoCapture, true);
   assert.equal((await applyChange('cfgUseMotrixNext', true, 'checked')).config.useMotrixNext, true);

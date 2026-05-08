@@ -27,6 +27,7 @@ const DEFAULT_CONFIG = {
   externalLauncherPath: '/start-headless-download',
   abDownloadSilent: false,
   autoCapture: true,
+  captureBypassModifier: 'alt',
   captureExtensions: 'zip,rar,7z,tar,gz,bz2,xz,iso,dmg,exe,msi,deb,pkg,apk,mp4,m4s,mkv,avi,mov,webm,mp3,flac,wav,pdf,torrent',
   captureMime: true,
   saveDir: '',
@@ -64,6 +65,7 @@ let hiddenTaskGids = {};
 let uiAlert = null;
 
 const markedUrls = new Map();
+const bypassCaptureClicks = new Map();
 const requestHeadersCache = new Map();
 const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
 let contextMenuRefreshVersion = 0;
@@ -96,6 +98,71 @@ function buildConnectionFailureText(label) {
 
 function shouldConfirmBeforeSend() {
   return config.downloaderType === 'aria2' && !config.aria2Silent;
+}
+
+function normalizeBypassUrl(url) {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url);
+    parsed.hash = '';
+    return parsed.href;
+  } catch {
+    return String(url).split('#')[0];
+  }
+}
+
+function normalizeBypassShortcut(value) {
+  const tokens = String(value || '')
+    .toLowerCase()
+    .replace(/control/g, 'ctrl')
+    .replace(/option/g, 'alt')
+    .replace(/command|cmd|meta/g, 'cmd')
+    .split(/[^a-z]+/)
+    .filter(Boolean);
+  if (tokens.includes('none') || tokens.includes('off')) return 'none';
+  const ordered = ['ctrl', 'alt', 'shift', 'cmd'].filter((key) => tokens.includes(key));
+  return ordered.join('+') || DEFAULT_CONFIG.captureBypassModifier;
+}
+
+function cleanBypassCaptureClicks() {
+  cleanExpired(bypassCaptureClicks);
+}
+
+function markBypassCaptureClick({ url, modifier, tabId } = {}) {
+  const expectedModifier = normalizeBypassShortcut(config.captureBypassModifier || DEFAULT_CONFIG.captureBypassModifier);
+  if (expectedModifier === 'none' || normalizeBypassShortcut(modifier) !== expectedModifier) return false;
+  const scopedTabId = typeof tabId === 'number' ? tabId : 'global';
+  const key = normalizeBypassUrl(url) || `__next__:${scopedTabId}:${expectedModifier}`;
+  bypassCaptureClicks.set(key, {
+    modifier,
+    tabId: typeof tabId === 'number' ? tabId : undefined,
+    expiresAt: Date.now() + 10000,
+  });
+  cleanBypassCaptureClicks();
+  return true;
+}
+
+function shouldBypassAutoCapture(item, url, marked) {
+  cleanBypassCaptureClicks();
+  const requestMeta = requestHeadersCache.get(url) || requestHeadersCache.get(item?.url) || requestHeadersCache.get(item?.finalUrl);
+  const sourceTabId = typeof marked?.tabId === 'number' ? marked.tabId : requestMeta?.tabId;
+  const candidates = [url, item?.url, item?.finalUrl].map(normalizeBypassUrl).filter(Boolean);
+  for (const candidate of candidates) {
+    const marker = bypassCaptureClicks.get(candidate);
+    if (!marker) continue;
+    if (typeof marker.tabId === 'number' && typeof sourceTabId === 'number' && marker.tabId !== sourceTabId) continue;
+    bypassCaptureClicks.delete(candidate);
+    return true;
+  }
+  for (const [key] of bypassCaptureClicks) {
+    if (!String(key).startsWith('__next__:')) continue;
+    const marker = bypassCaptureClicks.get(key);
+    if (typeof marker?.tabId === 'number' && typeof sourceTabId === 'number' && marker.tabId !== sourceTabId) continue;
+    if (typeof marker?.tabId === 'number' && typeof sourceTabId !== 'number') continue;
+    bypassCaptureClicks.delete(key);
+    return true;
+  }
+  return false;
 }
 
 function getEffectiveConfig(override = {}) {
@@ -329,7 +396,7 @@ chrome.webRequest.onSendHeaders.addListener(
     if (!config.autoCapture) return;
     const headers = {};
     for (const header of details.requestHeaders || []) headers[header.name.toLowerCase()] = header.value;
-    requestHeadersCache.set(details.url, { headers, expiresAt: Date.now() + 60000 });
+    requestHeadersCache.set(details.url, { headers, tabId: details.tabId, expiresAt: Date.now() + 60000 });
     cleanExpired(requestHeadersCache);
   },
   { urls: ['<all_urls>'] },
@@ -386,6 +453,13 @@ chrome.downloads.onCreated.addListener(async (item) => {
   const url = item.finalUrl || item.url;
   const browserFilename = item.filename ? decodeHttpFilename(item.filename.split(/[\\/]/).pop()) : '';
   const marked = markedUrls.get(url) || markedUrls.get(item.url);
+  if (shouldBypassAutoCapture(item, url, marked)) {
+    if (marked) {
+      markedUrls.delete(url);
+      markedUrls.delete(item.url);
+    }
+    return;
+  }
   const byExt = shouldCaptureByExt(config, url, browserFilename);
   if (!marked && !byExt) return;
 
@@ -428,6 +502,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     switch (msg.type) {
       case 'GET_STATE':
         sendResponse({ tasks, pending: pendingDownloads, media: mediaManager.getState().media, pausedTabs: mediaManager.getState().pausedTabs, config, hiddenTaskGids: Object.keys(hiddenTaskGids), uiAlert });
+        break;
+      case 'BYPASS_NEXT_DOWNLOAD':
+        sendResponse({
+          ok: markBypassCaptureClick({
+            url: msg.url,
+            modifier: msg.modifier,
+            tabId: sender?.tab?.id,
+          }),
+        });
         break;
       case 'CONFIRM_DOWNLOAD': {
         const info = pendingDownloads[msg.key];

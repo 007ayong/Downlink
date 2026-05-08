@@ -9,6 +9,8 @@ function createChromeStub(storedConfig = {}) {
     runtimeOnMessage: null,
     downloadsOnCreated: null,
     contextMenusOnClicked: null,
+    webRequestOnSendHeaders: [],
+    webRequestOnHeadersReceived: [],
   };
   const actionCalls = {
     openPopup: 0,
@@ -20,6 +22,10 @@ function createChromeStub(storedConfig = {}) {
     create: [],
   };
   const notificationCalls = [];
+  const downloadCalls = {
+    cancel: [],
+    erase: [],
+  };
 
   return {
     _listeners: listeners,
@@ -27,6 +33,7 @@ function createChromeStub(storedConfig = {}) {
     _tabsCalls: tabsCalls,
     _windowsCalls: windowsCalls,
     _notificationCalls: notificationCalls,
+    _downloadCalls: downloadCalls,
     storage: {
       sync: {
         get(defaults, callback) {
@@ -49,10 +56,14 @@ function createChromeStub(storedConfig = {}) {
     },
     webRequest: {
       onSendHeaders: {
-        addListener() {},
+        addListener(callback) {
+          listeners.webRequestOnSendHeaders.push(callback);
+        },
       },
       onHeadersReceived: {
-        addListener() {},
+        addListener(callback) {
+          listeners.webRequestOnHeadersReceived.push(callback);
+        },
       },
     },
     downloads: {
@@ -62,9 +73,12 @@ function createChromeStub(storedConfig = {}) {
         },
       },
       cancel(_id, callback) {
+        downloadCalls.cancel.push(_id);
         callback?.();
       },
-      erase() {},
+      erase(query) {
+        downloadCalls.erase.push(query);
+      },
     },
     runtime: {
       onMessage: {
@@ -175,12 +189,12 @@ function loadBackgroundRuntime(storedConfig = {}, options = {}) {
   return context;
 }
 
-async function invokeBackgroundMessage(background, message) {
+async function invokeBackgroundMessage(background, message, sender = {}) {
   const listener = background.chrome._listeners.runtimeOnMessage;
   assert.equal(typeof listener, 'function');
 
   return new Promise((resolve) => {
-    listener(message, {}, (response) => {
+    listener(message, sender, (response) => {
       resolve(response);
     });
   });
@@ -190,6 +204,12 @@ async function invokeDownloadCreated(background, item) {
   const listener = background.chrome._listeners.downloadsOnCreated;
   assert.equal(typeof listener, 'function');
   await listener(item);
+}
+
+async function invokeSendHeaders(background, details) {
+  for (const listener of background.chrome._listeners.webRequestOnSendHeaders || []) {
+    await listener(details);
+  }
 }
 
 async function invokeContextMenuClick(background, info, tab = {}) {
@@ -311,6 +331,205 @@ test('Aria2 intercepted downloads enter pending queue by default', async () => {
   assert.equal(pending.length, 1);
   assert.equal(pending[0].url, 'https://example.com/file.zip');
   assert.equal(pending[0].filename, 'file.zip');
+});
+
+test('configured modifier click bypasses the next matching intercepted download', async () => {
+  let fetchCalled = false;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      autoCapture: true,
+      aria2Silent: false,
+      captureBypassModifier: 'alt',
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async () => {
+        fetchCalled = true;
+        throw new Error('should not send when bypassing');
+      },
+    }
+  );
+
+  const bypass = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'BYPASS_NEXT_DOWNLOAD',
+      url: 'https://example.com/file.zip#section',
+      modifier: 'alt',
+    },
+    { tab: { id: 12 } }
+  );
+
+  assert.equal(bypass.ok, true);
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.equal(fetchCalled, false);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('non-matching bypass modifier does not disable interception', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureBypassModifier: 'shift',
+    captureExtensions: 'zip',
+  });
+
+  const bypass = await invokeBackgroundMessage(background, {
+    type: 'BYPASS_NEXT_DOWNLOAD',
+    url: 'https://example.com/file.zip',
+    modifier: 'alt',
+  });
+
+  assert.equal(bypass.ok, false);
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [1]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 1);
+});
+
+test('modifier click without link href bypasses the next intercepted download', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureBypassModifier: 'alt',
+    captureExtensions: 'zip',
+  });
+
+  const bypass = await invokeBackgroundMessage(background, {
+    type: 'BYPASS_NEXT_DOWNLOAD',
+    url: '',
+    modifier: 'alt',
+  });
+
+  assert.equal(bypass.ok, true);
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://download.example.com/generated/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+
+  await invokeDownloadCreated(background, {
+    id: 2,
+    url: 'https://download.example.com/generated/second.zip',
+    filename: 'second.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [2]);
+});
+
+test('duplicate modifier click signals only bypass one intercepted download', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureBypassModifier: 'alt',
+    captureExtensions: 'zip',
+  });
+
+  await invokeBackgroundMessage(
+    background,
+    { type: 'BYPASS_NEXT_DOWNLOAD', url: '', modifier: 'alt' },
+    { tab: { id: 12 } }
+  );
+  await invokeBackgroundMessage(
+    background,
+    { type: 'BYPASS_NEXT_DOWNLOAD', url: '', modifier: 'alt' },
+    { tab: { id: 12 } }
+  );
+
+  await invokeSendHeaders(background, {
+    tabId: 12,
+    url: 'https://download.example.com/generated/file.zip',
+    requestHeaders: [],
+  });
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://download.example.com/generated/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+
+  await invokeSendHeaders(background, {
+    tabId: 12,
+    url: 'https://download.example.com/generated/second.zip',
+    requestHeaders: [],
+  });
+
+  await invokeDownloadCreated(background, {
+    id: 2,
+    url: 'https://download.example.com/generated/second.zip',
+    filename: 'second.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [2]);
+});
+
+test('tab-scoped bypass does not release another tab download', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureBypassModifier: 'alt',
+    captureExtensions: 'zip',
+  });
+
+  await invokeBackgroundMessage(
+    background,
+    { type: 'BYPASS_NEXT_DOWNLOAD', url: '', modifier: 'alt' },
+    { tab: { id: 12 } }
+  );
+
+  await invokeSendHeaders(background, {
+    tabId: 34,
+    url: 'https://download.example.com/generated/file.zip',
+    requestHeaders: [],
+  });
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://download.example.com/generated/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [1]);
 });
 
 test('Aria2 pending confirmation falls back to popup window when action popup is blocked', async () => {

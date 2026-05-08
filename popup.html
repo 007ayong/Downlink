@@ -873,6 +873,10 @@
       <label class="toggle"><input type="checkbox" id="cfgAutoCapture"><div class="toggle-track"></div></label>
     </div>
     <div class="settings-row col">
+      <label><span data-i18n="settingsCaptureBypassModifier">临时跳过拦截快捷键</span> <span class="settings-sub" data-i18n="settingsCaptureBypassModifierSub">按住该按键点击下载链接时，保留浏览器默认下载</span></label>
+      <input class="settings-input wide" id="cfgCaptureBypassModifier" type="text" readonly placeholder="alt / ctrl+shift / cmd" data-i18n-placeholder="settingsCaptureBypassModifierPlaceholder"/>
+    </div>
+    <div class="settings-row col">
       <label><span data-i18n="settingsCaptureExtensions">拦截文件类型</span> <span class="settings-sub" data-i18n="settingsCaptureExtensionsSub">逗号分隔，留空拦截所有</span></label>
       <input class="settings-input wide" id="cfgExts" type="text" placeholder="zip,rar,mp4,exe..." data-i18n-placeholder="settingsCaptureExtensionsPlaceholder"/>
     </div>
