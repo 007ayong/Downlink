@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -13,11 +13,11 @@ function normalizeVersion(value) {
   return String(value || '').trim().replace(/^v/, '');
 }
 
-function runGit(args) {
-  const result = spawnSync('git', args, { encoding: 'utf8' });
+function runZip(args) {
+  const result = spawnSync('zip', args, { cwd: repoRoot, encoding: 'utf8' });
   if (result.status !== 0) {
     const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
-    fail(output || `git ${args.join(' ')} failed`);
+    fail(output || `zip ${args.join(' ')} failed`);
   }
 }
 
@@ -41,6 +41,7 @@ mkdirSync(dirname(outputPath), { recursive: true });
 const archivePaths = [
   'manifest.json',
   'background.js',
+  'content-script.js',
   'filename-logic.js',
   'popup.html',
   'popup.js',
@@ -58,6 +59,7 @@ const archivePaths = [
   'icons',
 ];
 
-runGit(['archive', '--format=zip', '--output', outputPath, 'HEAD', ...archivePaths]);
+rmSync(outputPath, { force: true });
+runZip(['-qr', outputPath, ...archivePaths, '-x', '*.DS_Store']);
 
 console.log(relative(repoRoot, outputPath));
