@@ -333,6 +333,259 @@ test('Aria2 intercepted downloads enter pending queue by default', async () => {
   assert.equal(pending[0].filename, 'file.zip');
 });
 
+test('matching link click is captured before browser download is created', async () => {
+  let fetchCalled = false;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      autoCapture: true,
+      aria2Silent: false,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async () => {
+        fetchCalled = true;
+        throw new Error('should not send immediately');
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'CAPTURE_LINK_DOWNLOAD',
+      url: 'https://example.com/file.zip',
+      filename: 'file.zip',
+      referrer: 'https://example.com/page',
+    },
+    { tab: { id: 12, url: 'https://example.com/page' } }
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.captured, true);
+  assert.equal(result.fallback, false);
+  assert.equal(result.pending, true);
+  assert.equal(fetchCalled, false);
+  assert.equal(background.chrome._actionCalls.openPopup, 1);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, 'https://example.com/file.zip');
+  assert.equal(pending[0].filename, 'file.zip');
+  assert.equal(pending[0].referrer, 'https://example.com/page');
+  assert.equal(pending[0].captureSource, 'click');
+  assert.equal(pending[0].captureReason, 'extension');
+});
+
+test('download attribute link can be captured before extension is known', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'CAPTURE_LINK_DOWNLOAD',
+    url: 'https://example.com/export?id=1',
+    filename: 'report',
+    hasDownloadAttribute: true,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.captured, true);
+  assert.equal(result.fallback, false);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, 'https://example.com/export?id=1');
+  assert.equal(pending[0].filename, 'report');
+  assert.equal(pending[0].captureReason, 'download-attribute');
+});
+
+test('suspicious link probe captures response attachment before browser download dialog', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      autoCapture: true,
+      aria2Silent: false,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async (url, options) => {
+        assert.equal(url, 'https://example.com/download?id=1');
+        assert.equal(options.method, 'HEAD');
+        return {
+          ok: true,
+          url,
+          headers: {
+            get(name) {
+              const values = {
+                'content-disposition': 'attachment; filename="server-file.zip"',
+                'content-type': 'application/octet-stream',
+                'content-length': '2048',
+              };
+              return values[String(name).toLowerCase()] || '';
+            },
+          },
+        };
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'PROBE_LINK_DOWNLOAD',
+    url: 'https://example.com/download?id=1',
+    referrer: 'https://example.com/page',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.captured, true);
+  assert.equal(result.fallback, false);
+  assert.equal(result.pending, true);
+  assert.equal(background.chrome._actionCalls.openPopup, 1);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, 'https://example.com/download?id=1');
+  assert.equal(pending[0].filename, 'server-file.zip');
+  assert.equal(pending[0].size, 2048);
+  assert.equal(pending[0].contentDisposition, 'attachment; filename="server-file.zip"');
+  assert.equal(pending[0].captureSource, 'probe');
+  assert.equal(pending[0].captureReason, 'content-disposition');
+});
+
+test('suspicious link probe releases normal html navigation', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      autoCapture: true,
+      aria2Silent: false,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async () => ({
+        ok: true,
+        url: 'https://example.com/download',
+        headers: {
+          get(name) {
+            const values = {
+              'content-disposition': 'attachment; filename="landing.html"',
+              'content-type': 'text/html; charset=utf-8',
+            };
+            return values[String(name).toLowerCase()] || '';
+          },
+        },
+      }),
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'PROBE_LINK_DOWNLOAD',
+    url: 'https://example.com/download',
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.captured, false);
+  assert.equal(result.fallback, true);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('suspicious link probe releases non-success responses even with attachment headers', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      autoCapture: true,
+      aria2Silent: false,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async () => ({
+        ok: false,
+        status: 403,
+        url: 'https://example.com/download',
+        headers: {
+          get(name) {
+            const values = {
+              'content-disposition': 'attachment; filename="blocked.zip"',
+              'content-type': 'application/octet-stream',
+            };
+            return values[String(name).toLowerCase()] || '';
+          },
+        },
+      }),
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'PROBE_LINK_DOWNLOAD',
+    url: 'https://example.com/download',
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.captured, false);
+  assert.equal(result.fallback, true);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('browser download fallback skips document mime even with captured extension', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+    captureMime: true,
+  });
+
+  await invokeDownloadCreated(background, {
+    id: 9,
+    url: 'https://example.com/download.zip',
+    finalUrl: 'https://example.com/download.zip',
+    filename: 'download.zip',
+    mime: 'application/xhtml+xml',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('early link capture honors disabled auto capture', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: false,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'CAPTURE_LINK_DOWNLOAD',
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.captured, false);
+  assert.equal(result.fallback, true);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
 test('configured modifier click bypasses the next matching intercepted download', async () => {
   let fetchCalled = false;
   const background = loadBackgroundRuntime(

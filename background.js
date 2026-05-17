@@ -47,15 +47,13 @@ const mediaModule = globalThis.BackgroundMedia;
 
 const {
   cleanExpired,
+  classifyDownloadCandidate,
   decodeHttpFilename,
   deriveOrigin,
   dirname,
   fallbackMediaFilename,
-  filenameFromCD,
   filenameFromUrl,
   isDirectMediaResource,
-  shouldCaptureByExt,
-  shouldCaptureByMime,
 } = shared;
 
 let config = { ...DEFAULT_CONFIG };
@@ -68,6 +66,7 @@ const markedUrls = new Map();
 const bypassCaptureClicks = new Map();
 const requestHeadersCache = new Map();
 const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
+const DOWNLOAD_PROBE_TIMEOUT_MS = 2500;
 let contextMenuRefreshVersion = 0;
 
 function applyLocaleFromConfig(nextConfig = config) {
@@ -213,6 +212,80 @@ async function enqueuePendingDownload(taskInfo, { openSurface = true } = {}) {
   broadcastUpdate();
   if (openSurface) await openTaskSurface();
   return key;
+}
+
+function buildManualLinkTask({ url, filename = '', referrer = '' } = {}) {
+  const reqHeaders = requestHeadersCache.get(url)?.headers || {};
+  return {
+    url,
+    filename: decodeHttpFilename(filename || filenameFromUrl(url) || ''),
+    headers: reqHeaders,
+    referrer: reqHeaders.referer || referrer || '',
+    origin: reqHeaders.origin || deriveOrigin(url, reqHeaders.referer || referrer || ''),
+    addedAt: Date.now(),
+  };
+}
+
+function getResponseHeader(headers, name) {
+  if (!headers || !name) return '';
+  try {
+    const value = headers.get?.(name);
+    if (value) return value;
+  } catch {}
+  const lower = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers || {})) {
+    if (String(key).toLowerCase() === lower) return String(value || '');
+  }
+  return '';
+}
+
+async function queueOrSendCapturedLink(taskInfo) {
+  if (shouldConfirmBeforeSend()) {
+    const key = await enqueuePendingDownload(taskInfo);
+    return { ok: true, captured: true, fallback: false, pending: true, key };
+  }
+  const result = await sendTask(taskInfo, {}, { openPopupOnFailure: true });
+  return { ...result, captured: true, fallback: false };
+}
+
+async function probeAndCaptureLink({ url, filename = '', referrer = '' } = {}) {
+  if (!config.autoCapture || !url) return { ok: false, captured: false, fallback: Boolean(url) };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DOWNLOAD_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: 'HEAD',
+      credentials: 'include',
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    if (!response.ok) return { ok: false, captured: false, fallback: true };
+    const contentDisposition = getResponseHeader(response.headers, 'content-disposition');
+    const contentType = getResponseHeader(response.headers, 'content-type');
+    const contentLength = getResponseHeader(response.headers, 'content-length');
+    const resolvedUrl = response.url || url;
+    const classification = classifyDownloadCandidate(config, {
+      url: resolvedUrl,
+      filename,
+      mime: contentType,
+      contentDisposition,
+      source: 'probe',
+    });
+    if (!classification.shouldCapture) return { ok: false, captured: false, fallback: true };
+
+    return queueOrSendCapturedLink({
+      ...buildManualLinkTask({ url: resolvedUrl, filename: classification.filename, referrer }),
+      size: Number.parseInt(contentLength, 10) || 0,
+      mime: classification.mime,
+      contentDisposition,
+      captureSource: classification.source,
+      captureReason: classification.reason,
+    });
+  } catch {
+    return { ok: false, captured: false, fallback: true };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const configReady = new Promise((resolve) => {
@@ -415,22 +488,20 @@ chrome.webRequest.onHeadersReceived.addListener(
       if (name === 'content-type') contentType = header.value || '';
     }
 
-    const isAttachment = /attachment/i.test(contentDisposition);
-    const filenameFromHeader = filenameFromCD(contentDisposition);
-    const urlFilename = filenameFromUrl(details.url);
-    const filename = decodeHttpFilename(filenameFromHeader || urlFilename);
-    const mime = contentType.split(';')[0].trim().toLowerCase();
-
-    const byMime = shouldCaptureByMime(config, mime, details.url, filename);
-    const byExt = shouldCaptureByExt(config, details.url, filename);
-    const byDisposition = isAttachment;
-
-    if (!byMime && !byExt && !byDisposition) return;
+    const classification = classifyDownloadCandidate(config, {
+      url: details.url,
+      mime: contentType,
+      contentDisposition,
+      source: 'headers',
+    });
+    if (!classification.shouldCapture) return;
 
     markedUrls.set(details.url, {
-      filename,
-      mime,
+      filename: classification.filename,
+      mime: classification.mime,
       contentDisposition,
+      captureSource: classification.source,
+      captureReason: classification.reason,
       tabId: details.tabId,
       expiresAt: Date.now() + 30000,
     });
@@ -460,12 +531,17 @@ chrome.downloads.onCreated.addListener(async (item) => {
     }
     return;
   }
-  const byExt = shouldCaptureByExt(config, url, browserFilename);
-  if (!marked && !byExt) return;
+  const classification = classifyDownloadCandidate(config, {
+    url,
+    filename: browserFilename,
+    mime: item.mime || '',
+    source: 'browser-download',
+  });
+  if (!marked && !classification.shouldCapture) return;
 
   chrome.downloads.cancel(item.id, () => chrome.downloads.erase({ id: item.id }));
 
-  const filename = decodeHttpFilename(marked?.filename || browserFilename || filenameFromUrl(url) || '');
+  const filename = decodeHttpFilename(marked?.filename || classification.filename || browserFilename || filenameFromUrl(url) || '');
   const reqHeaders = requestHeadersCache.get(url)?.headers || requestHeadersCache.get(item.url)?.headers || {};
 
   if (marked) {
@@ -481,6 +557,8 @@ chrome.downloads.onCreated.addListener(async (item) => {
     size: item.totalBytes,
     mime: marked?.mime || '',
     contentDisposition: marked?.contentDisposition || '',
+    captureSource: marked?.captureSource || classification.source,
+    captureReason: marked?.captureReason || classification.reason,
     headers: reqHeaders,
     origin: reqHeaders.origin || deriveOrigin(url, reqHeaders.referer || ''),
     referrer: reqHeaders.referer || '',
@@ -512,6 +590,38 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }),
         });
         break;
+      case 'CAPTURE_LINK_DOWNLOAD': {
+        const url = msg.url || '';
+        const classification = classifyDownloadCandidate(config, {
+          url,
+          filename: msg.filename || '',
+          hasDownloadAttribute: Boolean(msg.hasDownloadAttribute),
+          source: 'click',
+        });
+        if (!config.autoCapture || !url || !classification.shouldCapture) {
+          sendResponse({ ok: false, captured: false, fallback: Boolean(url) });
+          break;
+        }
+
+        const taskInfo = buildManualLinkTask({
+          url,
+          filename: classification.filename,
+          referrer: msg.referrer || sender?.tab?.url || '',
+        });
+        taskInfo.captureSource = classification.source;
+        taskInfo.captureReason = classification.reason;
+
+        sendResponse(await queueOrSendCapturedLink(taskInfo));
+        break;
+      }
+      case 'PROBE_LINK_DOWNLOAD': {
+        sendResponse(await probeAndCaptureLink({
+          url: msg.url || '',
+          filename: msg.filename || '',
+          referrer: msg.referrer || sender?.tab?.url || '',
+        }));
+        break;
+      }
       case 'CONFIRM_DOWNLOAD': {
         const info = pendingDownloads[msg.key];
         if (!info) break;
