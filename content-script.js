@@ -73,7 +73,7 @@
   function filenameFromUrl(url = '') {
     try {
       const name = new URL(url).pathname.split('/').pop() || '';
-      return decodeURIComponent(name.replace(/\+/g, '%20'));
+      return decodeURIComponent(name);
     } catch {
       try {
         return decodeURIComponent(String(url || '').split('?')[0].split('/').pop() || '');

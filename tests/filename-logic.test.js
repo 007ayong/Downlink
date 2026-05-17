@@ -25,10 +25,26 @@ test('decodes percent-encoded Chinese filenames', () => {
   );
 });
 
+test('preserves plus signs while decoding percent-encoded filenames', () => {
+  assert.equal(decodeHttpFilename('C++%20Primer.pdf'), 'C++ Primer.pdf');
+  assert.equal(filenameFromUrl('https://example.com/files/C++%20Primer.pdf?token=1'), 'C++ Primer.pdf');
+});
+
 test('extracts UTF-8 filename* from content-disposition', () => {
   assert.equal(
     filenameFromCD("attachment; filename*=UTF-8''%E4%B8%AD%E6%96%87%E6%B5%8B%E8%AF%95.mp4"),
     '中文测试.mp4'
+  );
+});
+
+test('preserves plus signs in content-disposition filenames', () => {
+  assert.equal(
+    filenameFromCD("attachment; filename*=UTF-8''C++%20Primer.pdf"),
+    'C++ Primer.pdf'
+  );
+  assert.equal(
+    filenameFromCD('attachment; filename="C++%20Primer.pdf"'),
+    'C++ Primer.pdf'
   );
 });
 
