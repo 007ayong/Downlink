@@ -52,6 +52,7 @@ const {
   deriveOrigin,
   dirname,
   fallbackMediaFilename,
+  filenameFromCD,
   filenameFromUrl,
   isDirectMediaResource,
 } = shared;
@@ -65,6 +66,7 @@ let uiAlert = null;
 const markedUrls = new Map();
 const bypassCaptureClicks = new Map();
 const requestHeadersCache = new Map();
+const responseHeadersCache = new Map();
 const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
 const DOWNLOAD_PROBE_TIMEOUT_MS = 2500;
 let contextMenuRefreshVersion = 0;
@@ -224,6 +226,19 @@ function buildManualLinkTask({ url, filename = '', referrer = '' } = {}) {
     origin: reqHeaders.origin || deriveOrigin(url, reqHeaders.referer || referrer || ''),
     addedAt: Date.now(),
   };
+}
+
+function shouldPreferUrlFilename(urlFilename = '', browserFilename = '') {
+  return Boolean(urlFilename && urlFilename.includes('+') && !String(browserFilename || '').includes('+'));
+}
+
+function getCachedResponseHeaders(...urls) {
+  for (const url of urls) {
+    if (!url) continue;
+    const cached = responseHeadersCache.get(url);
+    if (cached) return cached;
+  }
+  return {};
 }
 
 function getResponseHeader(headers, name) {
@@ -488,6 +503,16 @@ chrome.webRequest.onHeadersReceived.addListener(
       if (name === 'content-type') contentType = header.value || '';
     }
 
+    if (contentDisposition || contentType) {
+      responseHeadersCache.set(details.url, {
+        contentDisposition,
+        contentType,
+        tabId: details.tabId,
+        expiresAt: Date.now() + 60000,
+      });
+      cleanExpired(responseHeadersCache);
+    }
+
     const classification = classifyDownloadCandidate(config, {
       url: details.url,
       mime: contentType,
@@ -523,7 +548,11 @@ chrome.downloads.onCreated.addListener(async (item) => {
 
   const url = item.finalUrl || item.url;
   const browserFilename = item.filename ? decodeHttpFilename(item.filename.split(/[\\/]/).pop()) : '';
+  const urlFilename = filenameFromUrl(url);
+  const preferredUrlFilename = shouldPreferUrlFilename(urlFilename, browserFilename) ? urlFilename : '';
   const marked = markedUrls.get(url) || markedUrls.get(item.url);
+  const cachedResponse = getCachedResponseHeaders(url, item.url);
+  const headerFilename = filenameFromCD(marked?.contentDisposition || cachedResponse.contentDisposition || '');
   if (shouldBypassAutoCapture(item, url, marked)) {
     if (marked) {
       markedUrls.delete(url);
@@ -533,15 +562,16 @@ chrome.downloads.onCreated.addListener(async (item) => {
   }
   const classification = classifyDownloadCandidate(config, {
     url,
-    filename: browserFilename,
-    mime: item.mime || '',
+    filename: headerFilename || preferredUrlFilename || browserFilename,
+    mime: item.mime || cachedResponse.contentType || '',
+    contentDisposition: marked?.contentDisposition || cachedResponse.contentDisposition || '',
     source: 'browser-download',
   });
   if (!marked && !classification.shouldCapture) return;
 
   chrome.downloads.cancel(item.id, () => chrome.downloads.erase({ id: item.id }));
 
-  const filename = decodeHttpFilename(marked?.filename || classification.filename || browserFilename || filenameFromUrl(url) || '');
+  const filename = decodeHttpFilename(headerFilename || marked?.filename || preferredUrlFilename || classification.filename || browserFilename || urlFilename || '');
   const reqHeaders = requestHeadersCache.get(url)?.headers || requestHeadersCache.get(item.url)?.headers || {};
 
   if (marked) {
@@ -555,8 +585,8 @@ chrome.downloads.onCreated.addListener(async (item) => {
     url,
     filename,
     size: item.totalBytes,
-    mime: marked?.mime || '',
-    contentDisposition: marked?.contentDisposition || '',
+    mime: marked?.mime || cachedResponse.contentType || '',
+    contentDisposition: marked?.contentDisposition || cachedResponse.contentDisposition || '',
     captureSource: marked?.captureSource || classification.source,
     captureReason: marked?.captureReason || classification.reason,
     headers: reqHeaders,

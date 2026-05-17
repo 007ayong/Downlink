@@ -30,6 +30,10 @@ test('preserves plus signs while decoding percent-encoded filenames', () => {
   assert.equal(filenameFromUrl('https://example.com/files/C++%20Primer.pdf?token=1'), 'C++ Primer.pdf');
 });
 
+test('does not infer filenames from query parameters', () => {
+  assert.equal(filenameFromUrl('https://example.com/download?filename=C++%20Primer.pdf'), 'download');
+});
+
 test('extracts UTF-8 filename* from content-disposition', () => {
   assert.equal(
     filenameFromCD("attachment; filename*=UTF-8''%E4%B8%AD%E6%96%87%E6%B5%8B%E8%AF%95.mp4"),

@@ -212,6 +212,12 @@ async function invokeSendHeaders(background, details) {
   }
 }
 
+async function invokeResponseHeaders(background, details) {
+  for (const listener of background.chrome._listeners.webRequestOnHeadersReceived || []) {
+    await listener(details);
+  }
+}
+
 async function invokeContextMenuClick(background, info, tab = {}) {
   const listener = background.chrome._listeners.contextMenusOnClicked;
   assert.equal(typeof listener, 'function');
@@ -331,6 +337,64 @@ test('Aria2 intercepted downloads enter pending queue by default', async () => {
   assert.equal(pending.length, 1);
   assert.equal(pending[0].url, 'https://example.com/file.zip');
   assert.equal(pending[0].filename, 'file.zip');
+});
+
+test('browser download interception prefers URL filename when Chrome converts plus signs to spaces', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  await invokeDownloadCreated(background, {
+    id: 88,
+    url: 'https://example.com/files/library++1.0.zip',
+    finalUrl: 'https://example.com/files/library++1.0.zip',
+    filename: '/Downloads/library  1.0.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].filename, 'library++1.0.zip');
+});
+
+test('browser download interception prefers content-disposition filename over Chrome filename', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  const url = 'https://example.com/download?id=1';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    responseHeaders: [
+      { name: 'content-disposition', value: "attachment; filename*=UTF-8''server%2B%2Bfile.zip" },
+      { name: 'content-type', value: 'application/zip' },
+    ],
+  });
+  await invokeDownloadCreated(background, {
+    id: 90,
+    url,
+    finalUrl: url,
+    filename: '/Downloads/browser-file.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].filename, 'server++file.zip');
+  assert.equal(pending[0].contentDisposition, "attachment; filename*=UTF-8''server%2B%2Bfile.zip");
 });
 
 test('matching link click is captured before browser download is created', async () => {
