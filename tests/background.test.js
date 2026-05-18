@@ -1313,7 +1313,7 @@ test('AB DM media sends always use headless endpoint with filename', async () =>
   });
 });
 
-test('user-triggered send failure opens popup and exposes task alert', async () => {
+test('user-triggered send failure only exposes task alert', async () => {
   const background = loadBackgroundRuntime(
     {
       downloaderType: 'abdownload',
@@ -1335,10 +1335,56 @@ test('user-triggered send failure opens popup and exposes task alert', async () 
   });
 
   assert.equal(result.ok, false);
-  assert.equal(background.chrome._actionCalls.openPopup, 1);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+  assert.equal(background.chrome._windowsCalls.create.length, 0);
+  assert.equal(background.chrome._tabsCalls.create.length, 0);
 
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(state.uiAlert?.message, '与 AB DM 连接失败，检查 AB DM 是否正在运行');
+});
+
+test('pending confirmation send failure does not open a new task surface', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+      externalLauncherPath: '/start-headless-download',
+    },
+    {
+      fetch: async () => {
+        throw new Error('offline');
+      },
+    }
+  );
+
+  await invokeContextMenuClick(background, {
+    menuItemId: 'send-to-aria2',
+    linkUrl: 'https://example.com/file.zip',
+  }, {
+    id: 1,
+    url: 'https://example.com/page',
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+
+  background.chrome._actionCalls.openPopup = 0;
+  const result = await invokeBackgroundMessage(background, {
+    type: 'CONFIRM_DOWNLOAD',
+    key: pending[0].key,
+    filename: 'file.zip',
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+  assert.equal(background.chrome._windowsCalls.create.length, 0);
+  assert.equal(background.chrome._tabsCalls.create.length, 0);
+
+  const nextState = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.values(nextState.pending || {}).length, 1);
+  assert.equal(nextState.uiAlert?.message, '与 AB DM 连接失败，检查 AB DM 是否正在运行');
 });
 
 test('context menu download enters popup pending queue instead of sending immediately', async () => {

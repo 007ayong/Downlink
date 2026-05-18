@@ -656,7 +656,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'CONFIRM_DOWNLOAD': {
         const info = pendingDownloads[msg.key];
         if (!info) break;
-        const result = await sendTask({ ...info, filename: msg.filename || info.filename }, msg.opts || {}, { openPopupOnFailure: true });
+        const result = await sendTask({ ...info, filename: msg.filename || info.filename }, msg.opts || {}, { openPopupOnFailure: false });
         if (result?.ok) delete pendingDownloads[msg.key];
         sendResponse(result);
         broadcastUpdate();
@@ -674,7 +674,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           headers: msg.headers || {},
           referrer: msg.referrer || '',
           addedAt: Date.now(),
-        }, msg.opts || {}, { openPopupOnFailure: true }));
+        }, msg.opts || {}, { openPopupOnFailure: false }));
         break;
       case 'ADD_MEDIA_TASK': {
         const media = mediaManager.findMediaResourceById(msg.id);
