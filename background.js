@@ -51,6 +51,7 @@ const {
   decodeHttpFilename,
   deriveOrigin,
   dirname,
+  extOf,
   fallbackMediaFilename,
   filenameFromCD,
   filenameFromUrl,
@@ -228,8 +229,8 @@ function buildManualLinkTask({ url, filename = '', referrer = '' } = {}) {
   };
 }
 
-function shouldPreferUrlFilename(urlFilename = '', browserFilename = '') {
-  return Boolean(urlFilename && urlFilename.includes('+') && !String(browserFilename || '').includes('+'));
+function preferredUrlFilename(urlFilename = '') {
+  return urlFilename && extOf(urlFilename) ? urlFilename : '';
 }
 
 function getCachedResponseHeaders(...urls) {
@@ -549,7 +550,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
   const url = item.finalUrl || item.url;
   const browserFilename = item.filename ? decodeHttpFilename(item.filename.split(/[\\/]/).pop()) : '';
   const urlFilename = filenameFromUrl(url);
-  const preferredUrlFilename = shouldPreferUrlFilename(urlFilename, browserFilename) ? urlFilename : '';
+  const urlPreferredFilename = preferredUrlFilename(urlFilename);
   const marked = markedUrls.get(url) || markedUrls.get(item.url);
   const cachedResponse = getCachedResponseHeaders(url, item.url);
   const headerFilename = filenameFromCD(marked?.contentDisposition || cachedResponse.contentDisposition || '');
@@ -562,7 +563,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
   }
   const classification = classifyDownloadCandidate(config, {
     url,
-    filename: headerFilename || preferredUrlFilename || browserFilename,
+    filename: urlPreferredFilename || headerFilename || browserFilename,
     mime: item.mime || cachedResponse.contentType || '',
     contentDisposition: marked?.contentDisposition || cachedResponse.contentDisposition || '',
     source: 'browser-download',
@@ -571,7 +572,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
 
   chrome.downloads.cancel(item.id, () => chrome.downloads.erase({ id: item.id }));
 
-  const filename = decodeHttpFilename(headerFilename || marked?.filename || preferredUrlFilename || classification.filename || browserFilename || urlFilename || '');
+  const filename = decodeHttpFilename(urlPreferredFilename || headerFilename || marked?.filename || classification.filename || browserFilename || urlFilename || '');
   const reqHeaders = requestHeadersCache.get(url)?.headers || requestHeadersCache.get(item.url)?.headers || {};
 
   if (marked) {
