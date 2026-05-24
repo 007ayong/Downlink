@@ -68,6 +68,8 @@ let tasks = {};
 let pendingDownloads = {};
 let hiddenTaskGids = {};
 let uiAlert = null;
+let taskSurfaceWindowId = null;
+let taskSurfaceOpenPromise = null;
 
 const markedUrls = new Map();
 const responseCaptureClaims = new Map();
@@ -203,27 +205,51 @@ function clearUiAlert() {
 }
 
 async function openTaskSurface() {
-  try {
-    await chrome.action.openPopup();
-    return true;
-  } catch {
-    try {
-      if (chrome.windows?.create) {
-        await chrome.windows.create({
-          url: chrome.runtime.getURL('popup.html'),
-          type: 'popup',
-          width: 420,
-          height: 720,
-        });
+  if (taskSurfaceOpenPromise) return taskSurfaceOpenPromise;
+
+  taskSurfaceOpenPromise = (async () => {
+    if (taskSurfaceWindowId !== null) {
+      try {
+        if (chrome.windows?.update) await chrome.windows.update(taskSurfaceWindowId, { focused: true });
         return true;
+      } catch {
+        taskSurfaceWindowId = null;
       }
-    } catch {}
+    }
+
     try {
-      await chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
+      await chrome.action.openPopup();
       return true;
     } catch {
-      return false;
+      try {
+        if (taskSurfaceWindowId !== null) {
+          if (chrome.windows?.update) await chrome.windows.update(taskSurfaceWindowId, { focused: true });
+          return true;
+        }
+        if (chrome.windows?.create) {
+          const win = await chrome.windows.create({
+            url: chrome.runtime.getURL('popup.html'),
+            type: 'popup',
+            width: 420,
+            height: 720,
+          });
+          if (typeof win?.id === 'number') taskSurfaceWindowId = win.id;
+          return true;
+        }
+      } catch {}
+      try {
+        await chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
+        return true;
+      } catch {
+        return false;
+      }
     }
+  })();
+
+  try {
+    return await taskSurfaceOpenPromise;
+  } finally {
+    taskSurfaceOpenPromise = null;
   }
 }
 
@@ -1013,6 +1039,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   mediaManager.clearTabState(tabId);
   mediaManager.clearPreviewRule(tabId);
+});
+
+chrome.windows?.onRemoved?.addListener((windowId) => {
+  if (windowId === taskSurfaceWindowId) taskSurfaceWindowId = null;
 });
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {

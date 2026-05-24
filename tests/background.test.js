@@ -1624,6 +1624,46 @@ test('Aria2 pending confirmation falls back to popup window when action popup is
   assert.equal(background.chrome._tabsCalls.create.length, 0);
 });
 
+test('automatic send failures reuse one fallback task popup window', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      autoCapture: true,
+      captureExtensions: 'zip',
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+    },
+    {
+      fetch: async () => {
+        throw new Error('offline');
+      },
+    }
+  );
+  background.chrome.action.openPopup = async () => {
+    background.chrome._actionCalls.openPopup += 1;
+    throw new Error('openPopup requires user gesture');
+  };
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/first.zip',
+    filename: 'first.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+  await invokeDownloadCreated(background, {
+    id: 2,
+    url: 'https://example.com/second.zip',
+    filename: 'second.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.equal(background.chrome._actionCalls.openPopup, 1);
+  assert.equal(background.chrome._windowsCalls.create.length, 1);
+  assert.equal(background.chrome._tabsCalls.create.length, 0);
+});
+
 test('Aria2 silent intercepted downloads send immediately', async () => {
   let requestBody = null;
   const background = loadBackgroundRuntime(
