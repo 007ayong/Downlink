@@ -4,10 +4,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+const LEGACY_DEFAULT_CAPTURE_EXTENSIONS = 'zip,rar,7z,tar,gz,bz2,xz,iso,dmg,exe,msi,deb,pkg,apk,mp4,m4s,mkv,avi,mov,webm,mp3,flac,wav,pdf,torrent';
+
 function createChromeStub(storedConfig = {}) {
   const listeners = {
     runtimeOnMessage: null,
     downloadsOnCreated: null,
+    downloadsOnDeterminingFilename: null,
     contextMenusOnClicked: null,
     webRequestOnSendHeaders: [],
     webRequestOnHeadersReceived: [],
@@ -70,6 +73,11 @@ function createChromeStub(storedConfig = {}) {
       onCreated: {
         addListener(callback) {
           listeners.downloadsOnCreated = callback;
+        },
+      },
+      onDeterminingFilename: {
+        addListener(callback) {
+          listeners.downloadsOnDeterminingFilename = callback;
         },
       },
       cancel(_id, callback) {
@@ -204,6 +212,16 @@ async function invokeDownloadCreated(background, item) {
   const listener = background.chrome._listeners.downloadsOnCreated;
   assert.equal(typeof listener, 'function');
   await listener(item);
+}
+
+async function invokeDeterminingFilename(background, item) {
+  const listener = background.chrome._listeners.downloadsOnDeterminingFilename;
+  assert.equal(typeof listener, 'function');
+  let suggested = false;
+  await listener(item, () => {
+    suggested = true;
+  });
+  return suggested;
 }
 
 async function invokeSendHeaders(background, details) {
@@ -464,53 +482,7 @@ test('browser download interception prefers specific URL filename over content-d
   assert.equal(pending[0].contentDisposition, "attachment; filename*=UTF-8''server-file.zip");
 });
 
-test('matching link click is captured before browser download is created', async () => {
-  let fetchCalled = false;
-  const background = loadBackgroundRuntime(
-    {
-      downloaderType: 'aria2',
-      autoCapture: true,
-      aria2Silent: false,
-      captureExtensions: 'zip',
-    },
-    {
-      fetch: async () => {
-        fetchCalled = true;
-        throw new Error('should not send immediately');
-      },
-    }
-  );
-
-  const result = await invokeBackgroundMessage(
-    background,
-    {
-      type: 'CAPTURE_LINK_DOWNLOAD',
-      url: 'https://example.com/file.zip',
-      filename: 'file.zip',
-      referrer: 'https://example.com/page',
-    },
-    { tab: { id: 12, url: 'https://example.com/page' } }
-  );
-
-  assert.equal(result.ok, true);
-  assert.equal(result.captured, true);
-  assert.equal(result.fallback, false);
-  assert.equal(result.pending, true);
-  assert.equal(fetchCalled, false);
-  assert.equal(background.chrome._actionCalls.openPopup, 1);
-  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
-
-  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
-  const pending = Object.values(state.pending || {});
-  assert.equal(pending.length, 1);
-  assert.equal(pending[0].url, 'https://example.com/file.zip');
-  assert.equal(pending[0].filename, 'file.zip');
-  assert.equal(pending[0].referrer, 'https://example.com/page');
-  assert.equal(pending[0].captureSource, 'click');
-  assert.equal(pending[0].captureReason, 'extension');
-});
-
-test('download attribute link can be captured before extension is known', async () => {
+test('response header capture enters pending queue before browser download is created', async () => {
   const background = loadBackgroundRuntime({
     downloaderType: 'aria2',
     autoCapture: true,
@@ -518,156 +490,773 @@ test('download attribute link can be captured before extension is known', async 
     captureExtensions: 'zip',
   });
 
-  const result = await invokeBackgroundMessage(background, {
-    type: 'CAPTURE_LINK_DOWNLOAD',
-    url: 'https://example.com/export?id=1',
-    filename: 'report',
-    hasDownloadAttribute: true,
+  await invokeResponseHeaders(background, {
+    url: 'https://example.com/response-only.zip',
+    tabId: 1,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="response-only.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '2048' },
+    ],
   });
 
-  assert.equal(result.ok, true);
-  assert.equal(result.captured, true);
-  assert.equal(result.fallback, false);
-
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   const pending = Object.values(state.pending || {});
   assert.equal(pending.length, 1);
-  assert.equal(pending[0].url, 'https://example.com/export?id=1');
-  assert.equal(pending[0].filename, 'report');
-  assert.equal(pending[0].captureReason, 'download-attribute');
+  assert.equal(pending[0].url, 'https://example.com/response-only.zip');
+  assert.equal(pending[0].filename, 'response-only.zip');
+  assert.equal(pending[0].size, 2048);
+  assert.equal(pending[0].captureSource, 'headers');
 });
 
-test('suspicious link probe captures response attachment before browser download dialog', async () => {
+test('browser download created after response capture is cancelled without duplicate pending task', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  const url = 'https://example.com/response-first.zip';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="response-first.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+    ],
+  });
+  await invokeDownloadCreated(background, {
+    id: 18,
+    url,
+    finalUrl: url,
+    filename: '/Downloads/response-first.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [18]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, url);
+});
+
+test('Aria2 pending response capture cancels before browser filename prompt', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  const url = 'https://example.com/prompt.zip';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="prompt.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+    ],
+  });
+
+  const suggested = await invokeDeterminingFilename(background, {
+    id: 24,
+    url,
+    finalUrl: url,
+    filename: 'prompt.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.equal(suggested, true);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [24]);
+  assert.deepEqual(background.chrome._downloadCalls.erase.map(item => ({ ...item })), [{ id: 24 }]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.values(state.pending || {}).length, 1);
+});
+
+test('direct response capture cancels before browser filename prompt after send succeeds', async () => {
+  let requestBody = null;
   const background = loadBackgroundRuntime(
     {
-      downloaderType: 'aria2',
+      downloaderType: 'motrixnext',
       autoCapture: true,
-      aria2Silent: false,
       captureExtensions: 'zip',
     },
     {
-      fetch: async (url, options) => {
-        assert.equal(url, 'https://example.com/download?id=1');
-        assert.equal(options.method, 'HEAD');
-        return {
-          ok: true,
-          url,
-          headers: {
-            get(name) {
-              const values = {
-                'content-disposition': 'attachment; filename="server-file.zip"',
-                'content-type': 'application/octet-stream',
-                'content-length': '2048',
-              };
-              return values[String(name).toLowerCase()] || '';
-            },
-          },
-        };
+      fetch: async (_url, options) => {
+        requestBody = JSON.parse(options.body);
+        return { ok: true, json: async () => ({}) };
       },
     }
   );
 
-  const result = await invokeBackgroundMessage(background, {
-    type: 'PROBE_LINK_DOWNLOAD',
-    url: 'https://example.com/download?id=1',
-    referrer: 'https://example.com/page',
+  const url = 'https://example.com/direct.zip';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="direct.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+    ],
   });
 
-  assert.equal(result.ok, true);
-  assert.equal(result.captured, true);
-  assert.equal(result.fallback, false);
-  assert.equal(result.pending, true);
-  assert.equal(background.chrome._actionCalls.openPopup, 1);
+  const suggested = await invokeDeterminingFilename(background, {
+    id: 25,
+    url,
+    finalUrl: url,
+    filename: 'direct.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.equal(suggested, true);
+  assert.equal(requestBody.url, url);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [25]);
+  assert.deepEqual(background.chrome._downloadCalls.erase.map(item => ({ ...item })), [{ id: 25 }]);
+});
+
+test('failed response capture does not cancel browser filename prompt', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'motrixnext',
+      autoCapture: true,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async () => ({ ok: false, status: 500 }),
+    }
+  );
+
+  const url = 'https://example.com/fallback.zip';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="fallback.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+    ],
+  });
+
+  const suggested = await invokeDeterminingFilename(background, {
+    id: 26,
+    url,
+    finalUrl: url,
+    filename: 'fallback.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.equal(suggested, true);
   assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  assert.deepEqual(background.chrome._downloadCalls.erase, []);
+});
+
+test('POST redirect intent waits for redirected response headers before entering pending queue', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  const postUrl = 'https://example.com/export';
+  const redirectUrl = 'http://example.com/files/report.zip';
+  await invokeSendHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    method: 'POST',
+    requestHeaders: [
+      { name: 'referer', value: 'https://example.com/form' },
+      { name: 'cookie', value: 'sid=1' },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    type: 'main_frame',
+    method: 'POST',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: redirectUrl },
+    ],
+  });
+
+  let state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+
+  await invokeResponseHeaders(background, {
+    url: redirectUrl,
+    tabId: 1,
+    type: 'main_frame',
+    method: 'GET',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="report.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
+
+  state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, redirectUrl);
+  assert.equal(pending[0].filename, 'report.zip');
+  assert.equal(pending[0].captureSource, 'redirect');
+  assert.equal(pending[0].captureReason, 'content-disposition');
+  assert.equal(pending[0].headers.cookie, 'sid=1');
+});
+
+test('POST redirect intent captures final response without extension from attachment headers', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  const postUrl = 'https://files.example.com/file/token';
+  const redirectUrl = 'http://download.example.com/file/token';
+  await invokeSendHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    method: 'POST',
+    requestHeaders: [
+      { name: 'referer', value: postUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'POST',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: redirectUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: redirectUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'GET',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="official.iso"' },
+      { name: 'content-type', value: 'application/octet-stream' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
 
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   const pending = Object.values(state.pending || {});
   assert.equal(pending.length, 1);
-  assert.equal(pending[0].url, 'https://example.com/download?id=1');
-  assert.equal(pending[0].filename, 'server-file.zip');
-  assert.equal(pending[0].size, 2048);
-  assert.equal(pending[0].contentDisposition, 'attachment; filename="server-file.zip"');
-  assert.equal(pending[0].captureSource, 'probe');
-  assert.equal(pending[0].captureReason, 'content-disposition');
+  assert.equal(pending[0].url, redirectUrl);
+  assert.equal(pending[0].filename, 'official.iso');
+  assert.equal(pending[0].captureSource, 'redirect');
+  assert.equal(pending[0].referrer, postUrl);
 });
 
-test('suspicious link probe releases normal html navigation', async () => {
-  const background = loadBackgroundRuntime(
-    {
-      downloaderType: 'aria2',
-      autoCapture: true,
-      aria2Silent: false,
-      captureExtensions: 'zip',
-    },
-    {
-      fetch: async () => ({
-        ok: true,
-        url: 'https://example.com/download',
-        headers: {
-          get(name) {
-            const values = {
-              'content-disposition': 'attachment; filename="landing.html"',
-              'content-type': 'text/html; charset=utf-8',
-            };
-            return values[String(name).toLowerCase()] || '';
-          },
-        },
-      }),
-    }
-  );
-
-  const result = await invokeBackgroundMessage(background, {
-    type: 'PROBE_LINK_DOWNLOAD',
-    url: 'https://example.com/download',
+test('legacy default extensions are upgraded to capture Windows ESD redirects', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: LEGACY_DEFAULT_CAPTURE_EXTENSIONS,
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(result.captured, false);
-  assert.equal(result.fallback, true);
-  assert.equal(background.chrome._actionCalls.openPopup, 0);
+  const postUrl = 'https://files.rg-adguard.net/file/token';
+  const redirectUrl = 'http://dl.delivery.mp.microsoft.com/filestreamingservice/files/token/client_zh-cn.esd';
+  await invokeSendHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    method: 'POST',
+    requestHeaders: [
+      { name: 'referer', value: postUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'POST',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: redirectUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: redirectUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'GET',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'application/octet-stream' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.match(state.config.captureExtensions, /(?:^|,)esd(?:,|$)/);
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, redirectUrl);
+  assert.equal(pending[0].filename, 'client_zh-cn.esd');
+  assert.equal(pending[0].captureSource, 'redirect');
+  assert.equal(pending[0].captureReason, 'extension');
+});
+
+test('empty capture extension config stays empty instead of being upgraded', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: '',
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.captureExtensions, '');
+});
+
+test('POST redirect intent does not capture final HTML response', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+    captureMime: true,
+  });
+
+  const postUrl = 'https://example.com/form-submit';
+  const redirectUrl = 'https://example.com/success';
+  await invokeSendHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    method: 'POST',
+    requestHeaders: [],
+  });
+  await invokeResponseHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'POST',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: redirectUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: redirectUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'GET',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'text/html; charset=utf-8' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
 
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(Object.keys(state.pending || {}).length, 0);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
 });
 
-test('suspicious link probe releases non-success responses even with attachment headers', async () => {
-  const background = loadBackgroundRuntime(
-    {
-      downloaderType: 'aria2',
-      autoCapture: true,
-      aria2Silent: false,
-      captureExtensions: 'zip',
-    },
-    {
-      fetch: async () => ({
-        ok: false,
-        status: 403,
-        url: 'https://example.com/download',
-        headers: {
-          get(name) {
-            const values = {
-              'content-disposition': 'attachment; filename="blocked.zip"',
-              'content-type': 'application/octet-stream',
-            };
-            return values[String(name).toLowerCase()] || '';
-          },
-        },
-      }),
-    }
-  );
-
-  const result = await invokeBackgroundMessage(background, {
-    type: 'PROBE_LINK_DOWNLOAD',
-    url: 'https://example.com/download',
+test('POST redirect intent does not capture final JSON response', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+    captureMime: true,
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(result.captured, false);
-  assert.equal(result.fallback, true);
-  assert.equal(background.chrome._actionCalls.openPopup, 0);
+  const postUrl = 'https://example.com/api/export';
+  const redirectUrl = 'https://example.com/api/status';
+  await invokeSendHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    method: 'POST',
+    requestHeaders: [],
+  });
+  await invokeResponseHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'POST',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: redirectUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: redirectUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'GET',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'application/json' },
+      { name: 'content-length', value: '512' },
+    ],
+  });
 
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(Object.keys(state.pending || {}).length, 0);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+});
+
+test('POST redirect final response capture cancels browser filename prompt for redirected URL', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  const postUrl = 'https://example.com/export';
+  const redirectUrl = 'http://example.com/files/report.zip';
+  await invokeSendHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    method: 'POST',
+    requestHeaders: [],
+  });
+  await invokeResponseHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    type: 'main_frame',
+    method: 'POST',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: redirectUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: redirectUrl,
+    tabId: 1,
+    type: 'main_frame',
+    method: 'GET',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="report.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+    ],
+  });
+
+  const suggested = await invokeDeterminingFilename(background, {
+    id: 28,
+    url: redirectUrl,
+    finalUrl: redirectUrl,
+    filename: 'report.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.equal(suggested, true);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [28]);
+});
+
+test('POST redirect final response capture cancels browser filename prompt for original URL', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: LEGACY_DEFAULT_CAPTURE_EXTENSIONS,
+  });
+
+  const postUrl = 'https://files.rg-adguard.net/file/token';
+  const redirectUrl = 'http://dl.delivery.mp.microsoft.com/filestreamingservice/files/token/client_zh-cn.esd';
+  await invokeSendHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    method: 'POST',
+    requestHeaders: [],
+  });
+  await invokeResponseHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'POST',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: redirectUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: redirectUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'GET',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'application/octet-stream' },
+      { name: 'content-length', value: '6018724448' },
+    ],
+  });
+
+  const suggested = await invokeDeterminingFilename(background, {
+    id: 29,
+    url: postUrl,
+    filename: 'client_zh-cn.esd',
+    mime: 'application/octet-stream',
+    state: 'in_progress',
+    totalBytes: 6018724448,
+  });
+
+  assert.equal(suggested, true);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [29]);
+});
+
+test('Aria2 pending response claim cancels browser filename prompt before popup finishes opening', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: LEGACY_DEFAULT_CAPTURE_EXTENSIONS,
+  });
+  background.chrome.action.openPopup = () => new Promise(() => {});
+
+  const postUrl = 'https://files.rg-adguard.net/file/token';
+  const redirectUrl = 'http://dl.delivery.mp.microsoft.com/filestreamingservice/files/token/client_zh-cn.esd';
+  await invokeSendHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    method: 'POST',
+    requestHeaders: [],
+  });
+  await invokeResponseHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'POST',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: redirectUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: redirectUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'GET',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'application/octet-stream' },
+      { name: 'content-length', value: '6018724448' },
+    ],
+  });
+
+  const suggested = await invokeDeterminingFilename(background, {
+    id: 30,
+    url: postUrl,
+    filename: 'client_zh-cn.esd',
+    mime: 'application/octet-stream',
+    state: 'in_progress',
+    totalBytes: 6018724448,
+  });
+
+  assert.equal(suggested, true);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [30]);
+});
+
+test('GET redirects are not captured from response headers before browser download creation', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  await invokeResponseHeaders(background, {
+    url: 'https://example.com/link',
+    tabId: 1,
+    type: 'main_frame',
+    method: 'GET',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: 'https://example.com/file.zip' },
+    ],
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+});
+
+test('attachment without extension or download mime is only marked until browser download is created', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+    captureMime: true,
+  });
+
+  const url = 'https://example.com/export?id=1';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="export"' },
+      { name: 'content-type', value: 'application/octet-stream' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
+
+  let state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+
+  await invokeDownloadCreated(background, {
+    id: 27,
+    url,
+    finalUrl: url,
+    filename: 'export.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [27]);
+  state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, url);
+  assert.equal(pending[0].filename, 'export.zip');
+});
+
+test('attachment XHR responses are not sent directly to downloader', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+    captureMime: true,
+  });
+
+  await invokeResponseHeaders(background, {
+    url: 'https://example.com/api/report.zip',
+    tabId: 1,
+    type: 'xmlhttprequest',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="report.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+});
+
+test('passive media responses are not sent directly to downloader', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'mp4',
+    captureMime: true,
+  });
+
+  await invokeResponseHeaders(background, {
+    url: 'https://cdn.example.com/video.mp4',
+    tabId: 1,
+    type: 'media',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'video/mp4' },
+      { name: 'content-length', value: '5242880' },
+    ],
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+});
+
+test('non-attachment archive responses are only marked until browser download is created', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+    captureMime: true,
+  });
+
+  const url = 'https://cdn.example.com/app-data.zip';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
+
+  let state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+
+  await invokeDownloadCreated(background, {
+    id: 23,
+    url,
+    finalUrl: url,
+    filename: 'app-data.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [23]);
+  state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, url);
+});
+
+test('attachment media responses are only marked until browser download is created', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'mp4',
+    captureMime: true,
+  });
+
+  await invokeResponseHeaders(background, {
+    url: 'https://cdn.example.com/download-video',
+    tabId: 1,
+    type: 'media',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="video.mp4"' },
+      { name: 'content-type', value: 'video/mp4' },
+      { name: 'content-length', value: '5242880' },
+    ],
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
 });
 
 test('browser download fallback skips document mime even with captured extension', async () => {
@@ -694,27 +1283,119 @@ test('browser download fallback skips document mime even with captured extension
   assert.equal(Object.keys(state.pending || {}).length, 0);
 });
 
-test('early link capture honors disabled auto capture', async () => {
+test('small known downloads can stay in the browser when configured', async () => {
   const background = loadBackgroundRuntime({
     downloaderType: 'aria2',
-    autoCapture: false,
+    autoCapture: true,
     aria2Silent: false,
     captureExtensions: 'zip',
+    skipSmallDownloads: true,
+    smallDownloadThresholdBytes: 1024 * 1024,
   });
 
-  const result = await invokeBackgroundMessage(background, {
-    type: 'CAPTURE_LINK_DOWNLOAD',
-    url: 'https://example.com/file.zip',
-    filename: 'file.zip',
+  await invokeDownloadCreated(background, {
+    id: 19,
+    url: 'https://example.com/small.zip',
+    finalUrl: 'https://example.com/small.zip',
+    filename: 'small.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 512 * 1024,
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(result.captured, false);
-  assert.equal(result.fallback, true);
-  assert.equal(background.chrome._actionCalls.openPopup, 0);
-
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('small known response downloads can stay in the browser when configured', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+    skipSmallDownloads: true,
+    smallDownloadThresholdBytes: 1024 * 1024,
+  });
+
+  const url = 'https://example.com/small-response.zip';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="small-response.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: String(512 * 1024) },
+    ],
+  });
+  await invokeDownloadCreated(background, {
+    id: 22,
+    url,
+    finalUrl: url,
+    filename: 'small-response.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 0,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('unknown-size downloads are still captured when small-download skipping is enabled', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+    skipSmallDownloads: true,
+    smallDownloadThresholdBytes: 1024 * 1024,
+  });
+
+  await invokeDownloadCreated(background, {
+    id: 20,
+    url: 'https://example.com/unknown.zip',
+    finalUrl: 'https://example.com/unknown.zip',
+    filename: 'unknown.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 0,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [20]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, 'https://example.com/unknown.zip');
+});
+
+test('downloads at or above small-file threshold are still captured', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+    skipSmallDownloads: true,
+    smallDownloadThresholdBytes: 1024 * 1024,
+  });
+
+  await invokeDownloadCreated(background, {
+    id: 21,
+    url: 'https://example.com/large.zip',
+    finalUrl: 'https://example.com/large.zip',
+    filename: 'large.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 1024 * 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [21]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, 'https://example.com/large.zip');
 });
 
 test('configured modifier click bypasses the next matching intercepted download', async () => {

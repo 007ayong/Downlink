@@ -11,6 +11,9 @@ try {
   );
 } catch {}
 
+const LEGACY_DEFAULT_CAPTURE_EXTENSIONS = 'zip,rar,7z,tar,gz,bz2,xz,iso,dmg,exe,msi,deb,pkg,apk,mp4,m4s,mkv,avi,mov,webm,mp3,flac,wav,pdf,torrent';
+const DEFAULT_CAPTURE_EXTENSIONS = `${LEGACY_DEFAULT_CAPTURE_EXTENSIONS},esd,cab,msu,wim`;
+
 const DEFAULT_CONFIG = {
   language: 'auto',
   downloaderType: 'aria2',
@@ -28,8 +31,10 @@ const DEFAULT_CONFIG = {
   abDownloadSilent: false,
   autoCapture: true,
   captureBypassModifier: 'alt',
-  captureExtensions: 'zip,rar,7z,tar,gz,bz2,xz,iso,dmg,exe,msi,deb,pkg,apk,mp4,m4s,mkv,avi,mov,webm,mp3,flac,wav,pdf,torrent',
+  captureExtensions: DEFAULT_CAPTURE_EXTENSIONS,
   captureMime: true,
+  skipSmallDownloads: false,
+  smallDownloadThresholdBytes: 1048576,
   saveDir: '',
 };
 const i18n = globalThis.Localization || {};
@@ -65,12 +70,27 @@ let hiddenTaskGids = {};
 let uiAlert = null;
 
 const markedUrls = new Map();
+const responseCaptureClaims = new Map();
 const bypassCaptureClicks = new Map();
 const requestHeadersCache = new Map();
 const responseHeadersCache = new Map();
+const redirectIntents = new Map();
 const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
-const DOWNLOAD_PROBE_TIMEOUT_MS = 2500;
 let contextMenuRefreshVersion = 0;
+
+function normalizeCaptureExtensionsConfig(value) {
+  const normalized = String(value || '').replace(/\s+/g, '').toLowerCase();
+  if (normalized === LEGACY_DEFAULT_CAPTURE_EXTENSIONS) return DEFAULT_CAPTURE_EXTENSIONS;
+  return value;
+}
+
+function normalizeConfig(nextConfig = {}) {
+  return {
+    ...nextConfig,
+    externalLauncherName: 'AB DM',
+    captureExtensions: normalizeCaptureExtensionsConfig(nextConfig.captureExtensions),
+  };
+}
 
 function applyLocaleFromConfig(nextConfig = config) {
   i18n.setLocalePreference?.(nextConfig.language || 'auto');
@@ -168,9 +188,7 @@ function shouldBypassAutoCapture(item, url, marked) {
 }
 
 function getEffectiveConfig(override = {}) {
-  const normalized = { ...config, ...(override || {}) };
-  normalized.externalLauncherName = 'AB DM';
-  return normalized;
+  return normalizeConfig({ ...config, ...(override || {}) });
 }
 
 function setUiAlert(alert) {
@@ -217,18 +235,6 @@ async function enqueuePendingDownload(taskInfo, { openSurface = true } = {}) {
   return key;
 }
 
-function buildManualLinkTask({ url, filename = '', referrer = '' } = {}) {
-  const reqHeaders = requestHeadersCache.get(url)?.headers || {};
-  return {
-    url,
-    filename: decodeHttpFilename(filename || filenameFromUrl(url) || ''),
-    headers: reqHeaders,
-    referrer: reqHeaders.referer || referrer || '',
-    origin: reqHeaders.origin || deriveOrigin(url, reqHeaders.referer || referrer || ''),
-    addedAt: Date.now(),
-  };
-}
-
 function preferredUrlFilename(urlFilename = '') {
   return urlFilename && extOf(urlFilename) ? urlFilename : '';
 }
@@ -242,73 +248,146 @@ function getCachedResponseHeaders(...urls) {
   return {};
 }
 
-function getResponseHeader(headers, name) {
-  if (!headers || !name) return '';
-  try {
-    const value = headers.get?.(name);
-    if (value) return value;
-  } catch {}
-  const lower = name.toLowerCase();
-  for (const [key, value] of Object.entries(headers || {})) {
-    if (String(key).toLowerCase() === lower) return String(value || '');
+function getResponseHeaderValue(headers = [], name = '') {
+  const lower = String(name || '').toLowerCase();
+  for (const header of headers || []) {
+    if (String(header.name || '').toLowerCase() === lower) return header.value || header.binaryValue || '';
   }
   return '';
 }
 
-async function queueOrSendCapturedLink(taskInfo) {
-  if (shouldConfirmBeforeSend()) {
-    const key = await enqueuePendingDownload(taskInfo);
-    return { ok: true, captured: true, fallback: false, pending: true, key };
-  }
-  const result = await sendTask(taskInfo, {}, { openPopupOnFailure: true });
-  return { ...result, captured: true, fallback: false };
+function parseResponseSize(headers = []) {
+  const contentRange = getResponseHeaderValue(headers, 'content-range');
+  const rangeMatch = String(contentRange || '').match(/^bytes\s+\d+-\d+\/(\d+)$/i);
+  if (rangeMatch) return Number.parseInt(rangeMatch[1], 10) || 0;
+  return Number.parseInt(getResponseHeaderValue(headers, 'content-length'), 10) || 0;
 }
 
-async function probeAndCaptureLink({ url, filename = '', referrer = '' } = {}) {
-  if (!config.autoCapture || !url) return { ok: false, captured: false, fallback: Boolean(url) };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), DOWNLOAD_PROBE_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: 'HEAD',
-      credentials: 'include',
-      redirect: 'follow',
-      signal: controller.signal,
-    });
-    if (!response.ok) return { ok: false, captured: false, fallback: true };
-    const contentDisposition = getResponseHeader(response.headers, 'content-disposition');
-    const contentType = getResponseHeader(response.headers, 'content-type');
-    const contentLength = getResponseHeader(response.headers, 'content-length');
-    const resolvedUrl = response.url || url;
-    const classification = classifyDownloadCandidate(config, {
-      url: resolvedUrl,
-      filename,
-      mime: contentType,
-      contentDisposition,
-      source: 'probe',
-    });
-    if (!classification.shouldCapture) return { ok: false, captured: false, fallback: true };
+function getSmallDownloadThresholdBytes(cfg = config) {
+  const raw = Number(cfg.smallDownloadThresholdBytes);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_CONFIG.smallDownloadThresholdBytes;
+}
 
-    return queueOrSendCapturedLink({
-      ...buildManualLinkTask({ url: resolvedUrl, filename: classification.filename, referrer }),
-      size: Number.parseInt(contentLength, 10) || 0,
-      mime: classification.mime,
-      contentDisposition,
-      captureSource: classification.source,
-      captureReason: classification.reason,
-    });
-  } catch {
-    return { ok: false, captured: false, fallback: true };
-  } finally {
-    clearTimeout(timer);
+function shouldSkipSmallDownloadSize(totalBytes, cfg = config) {
+  if (!cfg.skipSmallDownloads) return false;
+  const size = Number(totalBytes);
+  if (!Number.isFinite(size) || size <= 0) return false;
+  return size < getSmallDownloadThresholdBytes(cfg);
+}
+
+function getResponseCaptureClaim(...urls) {
+  cleanExpired(responseCaptureClaims);
+  for (const url of urls) {
+    if (!url) continue;
+    const claim = responseCaptureClaims.get(url);
+    if (claim) return claim;
   }
+  return null;
+}
+
+function deleteResponseCaptureClaim(...urls) {
+  for (const url of urls) {
+    if (url) responseCaptureClaims.delete(url);
+  }
+}
+
+async function queueOrSendCapturedDownload(taskInfo, { openPopupOnFailure = true } = {}) {
+  if (shouldConfirmBeforeSend()) {
+    const key = await enqueuePendingDownload(taskInfo);
+    return { ok: true, pending: true, key };
+  }
+  return sendTask(taskInfo, {}, { openPopupOnFailure });
+}
+
+function rememberResponseCaptureClaim(url, promise, { cancelBrowserDownloadImmediately = false } = {}) {
+  if (!url) return;
+  responseCaptureClaims.set(url, {
+    promise,
+    cancelBrowserDownloadImmediately,
+    expiresAt: Date.now() + 30000,
+  });
+  cleanExpired(responseCaptureClaims);
+}
+
+function rememberRedirectIntent(sourceUrl = '', redirectUrl = '', details = {}) {
+  if (!sourceUrl || !redirectUrl) return null;
+  const requestMeta = requestHeadersCache.get(sourceUrl) || {};
+  const intent = {
+    sourceUrl,
+    redirectUrl,
+    method: details.method || requestMeta.method || '',
+    headers: requestMeta.headers || {},
+    tabId: details.tabId,
+    expiresAt: Date.now() + 30000,
+  };
+  redirectIntents.set(redirectUrl, intent);
+  cleanExpired(redirectIntents);
+  return intent;
+}
+
+function getRedirectIntent(...urls) {
+  cleanExpired(redirectIntents);
+  for (const url of urls) {
+    if (!url) continue;
+    const intent = redirectIntents.get(url);
+    if (intent) return intent;
+  }
+  return null;
+}
+
+function deleteRedirectIntent(...urls) {
+  for (const url of urls) {
+    if (url) redirectIntents.delete(url);
+  }
+}
+
+function isUserDownloadLikeResponse(details = {}) {
+  const type = String(details.type || '').toLowerCase();
+  if (!type) return true;
+  return ['main_frame', 'sub_frame', 'object', 'other'].includes(type);
+}
+
+function shouldSendFromResponseHeaders(details = {}, classification = {}, redirectIntent = null) {
+  if (redirectIntent) {
+    return Boolean(classification.shouldCapture && (classification.byDisposition || classification.byExt || classification.byMime));
+  }
+  return Boolean(
+    classification.shouldCapture &&
+    classification.byDisposition &&
+    (classification.byExt || classification.byMime) &&
+    isUserDownloadLikeResponse(details)
+  );
+}
+
+function isRedirectStatus(statusCode) {
+  const status = Number(statusCode);
+  return status >= 300 && status < 400;
+}
+
+function resolveRedirectUrl(baseUrl = '', location = '') {
+  if (!location) return '';
+  try {
+    return new URL(location, baseUrl).href;
+  } catch {
+    return '';
+  }
+}
+
+function isPostRedirectIntentCandidate(details = {}, redirectUrl = '') {
+  if (!redirectUrl || !isRedirectStatus(details.statusCode)) return false;
+  const method = String(details.method || requestHeadersCache.get(details.url)?.method || '').toUpperCase();
+  if (!method || method === 'GET' || method === 'HEAD') return false;
+  return true;
+}
+
+function cancelBrowserDownloadItem(item = {}) {
+  if (typeof item.id !== 'number') return;
+  chrome.downloads.cancel(item.id, () => chrome.downloads.erase({ id: item.id }));
 }
 
 const configReady = new Promise((resolve) => {
   chrome.storage.sync.get(DEFAULT_CONFIG, (stored) => {
-    const normalized = { ...DEFAULT_CONFIG, ...stored };
-    normalized.externalLauncherName = 'AB DM';
-    config = normalized;
+    config = normalizeConfig({ ...DEFAULT_CONFIG, ...stored });
     applyLocaleFromConfig(config);
     refreshContextMenus();
     resolve(config);
@@ -317,7 +396,7 @@ const configReady = new Promise((resolve) => {
 
 chrome.storage.onChanged.addListener((changes) => {
   for (const key in changes) config[key] = changes[key].newValue;
-  config.externalLauncherName = 'AB DM';
+  config = normalizeConfig(config);
   applyLocaleFromConfig(config);
   if (changes.language) refreshContextMenus();
 });
@@ -485,7 +564,7 @@ chrome.webRequest.onSendHeaders.addListener(
     if (!config.autoCapture) return;
     const headers = {};
     for (const header of details.requestHeaders || []) headers[header.name.toLowerCase()] = header.value;
-    requestHeadersCache.set(details.url, { headers, tabId: details.tabId, expiresAt: Date.now() + 60000 });
+    requestHeadersCache.set(details.url, { headers, method: details.method, tabId: details.tabId, expiresAt: Date.now() + 60000 });
     cleanExpired(requestHeadersCache);
   },
   { urls: ['<all_urls>'] },
@@ -496,23 +575,38 @@ chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
     if (!config.autoCapture) return;
 
-    let contentDisposition = '';
-    let contentType = '';
-    for (const header of details.responseHeaders || []) {
-      const name = header.name.toLowerCase();
-      if (name === 'content-disposition') contentDisposition = header.value || '';
-      if (name === 'content-type') contentType = header.value || '';
-    }
+    const contentDisposition = getResponseHeaderValue(details.responseHeaders, 'content-disposition');
+    const contentType = getResponseHeaderValue(details.responseHeaders, 'content-type');
+    const redirectUrl = resolveRedirectUrl(details.url, getResponseHeaderValue(details.responseHeaders, 'location'));
+    const totalBytes = parseResponseSize(details.responseHeaders);
 
     if (contentDisposition || contentType) {
       responseHeadersCache.set(details.url, {
         contentDisposition,
         contentType,
+        totalBytes,
         tabId: details.tabId,
         expiresAt: Date.now() + 60000,
       });
       cleanExpired(responseHeadersCache);
     }
+
+    if (isRedirectStatus(details.statusCode) && redirectUrl) {
+      const existingIntent = getRedirectIntent(details.url);
+      if (existingIntent) {
+        redirectIntents.set(redirectUrl, {
+          ...existingIntent,
+          redirectUrl,
+          expiresAt: Date.now() + 30000,
+        });
+        deleteRedirectIntent(details.url);
+        return;
+      }
+      if (isPostRedirectIntentCandidate(details, redirectUrl)) rememberRedirectIntent(details.url, redirectUrl, details);
+      return;
+    }
+
+    if (details.statusCode && ![200, 206].includes(details.statusCode)) return;
 
     const classification = classifyDownloadCandidate(config, {
       url: details.url,
@@ -521,17 +615,59 @@ chrome.webRequest.onHeadersReceived.addListener(
       source: 'headers',
     });
     if (!classification.shouldCapture) return;
+    const redirectIntent = getRedirectIntent(details.url);
 
     markedUrls.set(details.url, {
       filename: classification.filename,
       mime: classification.mime,
       contentDisposition,
-      captureSource: classification.source,
+      captureSource: redirectIntent ? 'redirect' : classification.source,
       captureReason: classification.reason,
-      tabId: details.tabId,
+      tabId: typeof redirectIntent?.tabId === 'number' ? redirectIntent.tabId : details.tabId,
+      size: totalBytes,
       expiresAt: Date.now() + 30000,
     });
     cleanExpired(markedUrls);
+
+    if (!shouldSendFromResponseHeaders(details, classification, redirectIntent)) return;
+    if (shouldSkipSmallDownloadSize(totalBytes, config)) return;
+
+    if (typeof details.tabId === 'number' && details.tabId >= 0) {
+      const bypassItem = { url: details.url, finalUrl: details.url };
+      if (shouldBypassAutoCapture(bypassItem, details.url, { tabId: details.tabId })) return;
+    }
+
+    const existingClaim = getResponseCaptureClaim(details.url);
+    if (existingClaim) return;
+
+    const reqHeaders = requestHeadersCache.get(details.url)?.headers || redirectIntent?.headers || {};
+    const key = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const taskInfo = {
+      key,
+      url: details.url,
+      filename: decodeHttpFilename(preferredUrlFilename(filenameFromUrl(details.url)) || classification.filename || filenameFromUrl(details.url) || ''),
+      size: totalBytes,
+      mime: classification.mime,
+      contentDisposition,
+      captureSource: redirectIntent ? 'redirect' : classification.source,
+      captureReason: classification.reason,
+      headers: reqHeaders,
+      origin: reqHeaders.origin || deriveOrigin(details.url, reqHeaders.referer || redirectIntent?.sourceUrl || ''),
+      referrer: reqHeaders.referer || redirectIntent?.sourceUrl || '',
+      addedAt: Date.now(),
+    };
+
+    const claimPromise = (async () => {
+      const result = await queueOrSendCapturedDownload(taskInfo, { openPopupOnFailure: true });
+      return { handled: Boolean(result?.ok), result };
+    })().catch((error) => ({ handled: false, result: { ok: false, error: error?.message || String(error) } }));
+    const claimOptions = { cancelBrowserDownloadImmediately: shouldConfirmBeforeSend() };
+    rememberResponseCaptureClaim(details.url, claimPromise, claimOptions);
+    if (redirectIntent) {
+      rememberResponseCaptureClaim(redirectIntent.sourceUrl, claimPromise, claimOptions);
+      if (redirectIntent.redirectUrl && redirectIntent.redirectUrl !== details.url) rememberResponseCaptureClaim(redirectIntent.redirectUrl, claimPromise, claimOptions);
+      deleteRedirectIntent(details.url, redirectIntent.sourceUrl, redirectIntent.redirectUrl);
+    }
   },
   { urls: ['<all_urls>'] },
   ['responseHeaders']
@@ -543,17 +679,60 @@ chrome.webRequest.onHeadersReceived.addListener(
   ['responseHeaders']
 );
 
+chrome.downloads.onDeterminingFilename?.addListener(async (item, suggest) => {
+  if (!config.autoCapture || item.state === 'complete') {
+    suggest?.();
+    return;
+  }
+
+  const url = item.finalUrl || item.url;
+  const responseClaim = getResponseCaptureClaim(url, item.url, item.finalUrl);
+  if (responseClaim) {
+    if (responseClaim.cancelBrowserDownloadImmediately) {
+      cancelBrowserDownloadItem(item);
+      markedUrls.delete(url);
+      markedUrls.delete(item.url);
+      suggest?.();
+      return;
+    }
+    const claimResult = await responseClaim.promise;
+    if (!claimResult?.handled) {
+      suggest?.();
+      return;
+    }
+    cancelBrowserDownloadItem(item);
+    markedUrls.delete(url);
+    markedUrls.delete(item.url);
+  }
+
+  suggest?.();
+});
+
 chrome.downloads.onCreated.addListener(async (item) => {
   await configReady;
   if (!config.autoCapture || item.state === 'complete') return;
 
   const url = item.finalUrl || item.url;
+  const responseClaim = getResponseCaptureClaim(url, item.url, item.finalUrl);
+  if (responseClaim) {
+    const claimResult = await responseClaim.promise;
+    deleteResponseCaptureClaim(url, item.url, item.finalUrl);
+    if (claimResult?.handled) {
+      cancelBrowserDownloadItem(item);
+      markedUrls.delete(url);
+      markedUrls.delete(item.url);
+      return;
+    }
+  }
+
   const browserFilename = item.filename ? decodeHttpFilename(item.filename.split(/[\\/]/).pop()) : '';
   const urlFilename = filenameFromUrl(url);
   const urlPreferredFilename = preferredUrlFilename(urlFilename);
   const marked = markedUrls.get(url) || markedUrls.get(item.url);
   const cachedResponse = getCachedResponseHeaders(url, item.url);
   const headerFilename = filenameFromCD(marked?.contentDisposition || cachedResponse.contentDisposition || '');
+  const headerPreferredFilename = preferredUrlFilename(headerFilename);
+  const markedPreferredFilename = preferredUrlFilename(marked?.filename || '');
   if (shouldBypassAutoCapture(item, url, marked)) {
     if (marked) {
       markedUrls.delete(url);
@@ -563,16 +742,23 @@ chrome.downloads.onCreated.addListener(async (item) => {
   }
   const classification = classifyDownloadCandidate(config, {
     url,
-    filename: urlPreferredFilename || headerFilename || browserFilename,
+    filename: urlPreferredFilename || headerPreferredFilename || browserFilename || headerFilename,
     mime: item.mime || cachedResponse.contentType || '',
     contentDisposition: marked?.contentDisposition || cachedResponse.contentDisposition || '',
     source: 'browser-download',
   });
   if (!marked && !classification.shouldCapture) return;
+  if (shouldSkipSmallDownloadSize(item.totalBytes || cachedResponse.totalBytes, config)) {
+    if (marked) {
+      markedUrls.delete(url);
+      markedUrls.delete(item.url);
+    }
+    return;
+  }
 
-  chrome.downloads.cancel(item.id, () => chrome.downloads.erase({ id: item.id }));
+  cancelBrowserDownloadItem(item);
 
-  const filename = decodeHttpFilename(urlPreferredFilename || headerFilename || marked?.filename || classification.filename || browserFilename || urlFilename || '');
+  const filename = decodeHttpFilename(urlPreferredFilename || headerPreferredFilename || browserFilename || markedPreferredFilename || classification.filename || headerFilename || urlFilename || '');
   const reqHeaders = requestHeadersCache.get(url)?.headers || requestHeadersCache.get(item.url)?.headers || {};
 
   if (marked) {
@@ -585,7 +771,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
     key,
     url,
     filename,
-    size: item.totalBytes,
+    size: item.totalBytes || cachedResponse.totalBytes || 0,
     mime: marked?.mime || cachedResponse.contentType || '',
     contentDisposition: marked?.contentDisposition || cachedResponse.contentDisposition || '',
     captureSource: marked?.captureSource || classification.source,
@@ -621,38 +807,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }),
         });
         break;
-      case 'CAPTURE_LINK_DOWNLOAD': {
-        const url = msg.url || '';
-        const classification = classifyDownloadCandidate(config, {
-          url,
-          filename: msg.filename || '',
-          hasDownloadAttribute: Boolean(msg.hasDownloadAttribute),
-          source: 'click',
-        });
-        if (!config.autoCapture || !url || !classification.shouldCapture) {
-          sendResponse({ ok: false, captured: false, fallback: Boolean(url) });
-          break;
-        }
-
-        const taskInfo = buildManualLinkTask({
-          url,
-          filename: classification.filename,
-          referrer: msg.referrer || sender?.tab?.url || '',
-        });
-        taskInfo.captureSource = classification.source;
-        taskInfo.captureReason = classification.reason;
-
-        sendResponse(await queueOrSendCapturedLink(taskInfo));
-        break;
-      }
-      case 'PROBE_LINK_DOWNLOAD': {
-        sendResponse(await probeAndCaptureLink({
-          url: msg.url || '',
-          filename: msg.filename || '',
-          referrer: msg.referrer || sender?.tab?.url || '',
-        }));
-        break;
-      }
       case 'CONFIRM_DOWNLOAD': {
         const info = pendingDownloads[msg.key];
         if (!info) break;

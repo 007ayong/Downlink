@@ -2,7 +2,7 @@
 
 GitHub repository: [Downlink](https://github.com/007ayong/Downlink)
 
-Downlink is a browser extension that intercepts browser downloads and forwards them to the external downloader you choose.
+Downlink is a browser extension that takes over downloads after the browser confirms the download response and forwards the tasks to the external downloader you choose.
 
 It supports multiple downloader backends and is designed to stay flexible. You can switch downloaders in settings and keep using a single extension for download takeover, media capture, and basic task status viewing.
 
@@ -22,8 +22,9 @@ It supports multiple downloader backends and is designed to stay flexible. You c
 
 ## Main Features
 
-- Intercept browser downloads and send them to the currently configured downloader
-- Capture common file downloads by extension
+- Take over confirmed download responses and send them to the currently configured downloader
+- Identify common file downloads by extension and response type
+- Optionally keep known files below a size threshold in the browser to reduce downloader task noise
 - Capture audio and video resources based on response type
 - View task lists and pending confirmations in the popup
 - Preview captured media and send it to the downloader
@@ -63,7 +64,7 @@ The tag version must match the `version` field in `manifest.json`. For example, 
 1. Click the extension icon to open Downlink.
 2. Choose your target downloader in Settings.
 3. Fill in the connection details for the selected downloader.
-4. Enable automatic download interception to forward browser downloads according to the configured rules.
+4. Enable automatic download interception to forward confirmed download responses according to the configured rules.
 5. If you want to send manually, use the task panel, media panel, or context menu actions.
 
 ## Downloader Configuration

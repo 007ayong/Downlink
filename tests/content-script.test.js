@@ -140,12 +140,11 @@ function loadContentScript({ config = {}, sendMessage } = {}) {
   };
 }
 
-test('direct capture restores navigation when background declines interception', async () => {
+test('direct file clicks are left to browser download creation', async () => {
   const messages = [];
   const runtime = loadContentScript({
     sendMessage: async (message) => {
       messages.push(message);
-      if (message.type === 'CAPTURE_LINK_DOWNLOAD') return { ok: false, captured: false, fallback: true };
       return { ok: true };
     },
   });
@@ -153,41 +152,46 @@ test('direct capture restores navigation when background declines interception',
 
   const event = await runtime.dispatchClick(link);
 
-  assert.equal(event.defaultPrevented, true);
-  assert.equal(messages.some(message => message.type === 'CAPTURE_LINK_DOWNLOAD'), true);
-  assert.equal(runtime.locationHref, 'https://files.example/file.zip');
-});
-
-test('accepted direct capture failure does not fall back to browser download', async () => {
-  const runtime = loadContentScript({
-    sendMessage: async (message) => {
-      if (message.type === 'CAPTURE_LINK_DOWNLOAD') return { ok: false, captured: true, fallback: false, error: 'downloader offline' };
-      return { ok: true };
-    },
-  });
-  const link = createElement({ href: 'https://files.example/file.zip' });
-
-  const event = await runtime.dispatchClick(link);
-
-  assert.equal(event.defaultPrevented, true);
+  assert.equal(event.defaultPrevented, false);
+  assert.deepEqual(messages, []);
   assert.equal(runtime.locationHref, 'https://page.example/current');
 });
 
-test('direct capture restores navigation when message send fails', async () => {
+test('download attribute links are left to browser download creation', async () => {
+  const messages = [];
   const runtime = loadContentScript({
     sendMessage: async (message) => {
-      if (message.type === 'CAPTURE_LINK_DOWNLOAD') throw new Error('background unavailable');
+      messages.push(message);
       return { ok: true };
     },
   });
-  const link = createElement({ href: 'https://files.example/file.zip' });
+  const link = createElement({ href: 'https://files.example/generated', download: 'generated.zip' });
 
-  await runtime.dispatchClick(link);
+  const event = await runtime.dispatchClick(link);
 
-  assert.equal(runtime.locationHref, 'https://files.example/file.zip');
+  assert.equal(event.defaultPrevented, false);
+  assert.deepEqual(messages, []);
+  assert.equal(runtime.locationHref, 'https://page.example/current');
 });
 
-test('direct capture restores navigation when extension context is invalidated', async () => {
+test('suspicious download links are left to browser navigation and download creation', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+  const link = createElement({ href: 'https://files.example/download?id=1' });
+
+  const event = await runtime.dispatchClick(link);
+
+  assert.equal(event.defaultPrevented, false);
+  assert.deepEqual(messages, []);
+  assert.equal(runtime.locationHref, 'https://page.example/current');
+});
+
+test('normal clicks tolerate invalidated extension context', async () => {
   const runtime = loadContentScript({
     sendMessage() {
       throw new Error('Extension context invalidated.');
@@ -197,8 +201,8 @@ test('direct capture restores navigation when extension context is invalidated',
 
   const event = await runtime.dispatchClick(link);
 
-  assert.equal(event.defaultPrevented, true);
-  assert.equal(runtime.locationHref, 'https://files.example/file.zip');
+  assert.equal(event.defaultPrevented, false);
+  assert.equal(runtime.locationHref, 'https://page.example/current');
 });
 
 test('bypass gesture ignores invalidated extension context before click', async () => {
@@ -212,44 +216,26 @@ test('bypass gesture ignores invalidated extension context before click', async 
   await runtime.dispatchPointerdown(link, { altKey: true });
   await runtime.dispatchClick(link);
 
-  assert.equal(runtime.locationHref, 'https://files.example/file.zip');
-});
-
-test('probe candidates with new-window targets are not intercepted', async () => {
-  const messages = [];
-  const runtime = loadContentScript({
-    sendMessage: async (message) => {
-      messages.push(message);
-      return { ok: false };
-    },
-  });
-  const link = createElement({ href: 'https://files.example/download?id=1', target: '_blank' });
-
-  const event = await runtime.dispatchClick(link);
-
-  assert.equal(event.defaultPrevented, false);
-  assert.equal(messages.some(message => message.type === 'PROBE_LINK_DOWNLOAD'), false);
-  assert.deepEqual(runtime.openedWindows, []);
   assert.equal(runtime.locationHref, 'https://page.example/current');
 });
 
-test('path segments containing download are probed before same-window navigation', async () => {
+test('bypass gesture still marks next download for matching modifier', async () => {
   const messages = [];
   const runtime = loadContentScript({
     sendMessage: async (message) => {
       messages.push(message);
-      return { ok: false, captured: false, fallback: true };
+      return { ok: true };
     },
   });
-  const link = createElement({
-    href: 'https://github.com/WinApps-share/winapps/releases/download/v1.3.2/winapps-v1.3.2-linux-amd64',
-  });
+  const link = createElement({ href: 'https://files.example/file.zip' });
 
-  const event = await runtime.dispatchClick(link);
+  await runtime.dispatchPointerdown(link, { altKey: true });
 
-  assert.equal(event.defaultPrevented, true);
-  assert.equal(messages.some(message => message.type === 'PROBE_LINK_DOWNLOAD'), true);
-  assert.equal(runtime.locationHref, link.href);
+  assert.deepEqual(messages.map(message => ({ ...message })), [{
+    type: 'BYPASS_NEXT_DOWNLOAD',
+    url: 'https://files.example/file.zip',
+    modifier: 'alt',
+  }]);
 });
 
 test('direct file links with new-window targets are not intercepted', async () => {
@@ -265,7 +251,7 @@ test('direct file links with new-window targets are not intercepted', async () =
   const event = await runtime.dispatchClick(link);
 
   assert.equal(event.defaultPrevented, false);
-  assert.equal(messages.some(message => message.type === 'CAPTURE_LINK_DOWNLOAD'), false);
+  assert.deepEqual(messages, []);
   assert.deepEqual(runtime.openedWindows, []);
   assert.equal(runtime.locationHref, 'https://page.example/current');
 });

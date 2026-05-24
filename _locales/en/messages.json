@@ -3,6 +3,6 @@
     "message": "Downlink"
   },
   "extensionDescription": {
-    "message": "Intercept browser downloads and send them to your selected downloader"
+    "message": "Take over downloads after the browser confirms the response and send them to your selected downloader"
   }
 }

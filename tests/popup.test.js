@@ -494,6 +494,8 @@ test('aria2 test connection sends the current form config', () => {
     autoCapture: false,
     captureBypassModifier: 'alt',
     captureExtensions: '',
+    skipSmallDownloads: false,
+    smallDownloadThresholdBytes: 1048576,
   });
 });
 
@@ -526,6 +528,8 @@ test('AB DM test connection sends the current form config', () => {
     autoCapture: false,
     captureBypassModifier: 'alt',
     captureExtensions: '',
+    skipSmallDownloads: false,
+    smallDownloadThresholdBytes: 1048576,
   });
 });
 
@@ -671,6 +675,8 @@ test('settings controller collects every visible config field from the form', ()
   context.document.getElementById('cfgAutoCapture').checked = true;
   context.document.getElementById('cfgCaptureBypassModifier').value = 'Control + Option';
   context.document.getElementById('cfgExts').value = 'zip,mp4';
+  context.document.getElementById('cfgSkipSmallDownloads').checked = true;
+  context.document.getElementById('cfgSmallDownloadThresholdMb').value = '2.5';
 
   assert.deepEqual(JSON.parse(JSON.stringify(controller.collectSettingsFromForm())), {
     downloaderType: 'abdownload',
@@ -690,6 +696,8 @@ test('settings controller collects every visible config field from the form', ()
     autoCapture: true,
     captureBypassModifier: 'ctrl+alt',
     captureExtensions: 'zip,mp4',
+    skipSmallDownloads: true,
+    smallDownloadThresholdBytes: 2.5 * 1024 * 1024,
   });
 });
 
@@ -781,7 +789,9 @@ test('all editable settings fields trigger autosave on change', async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(sentMessages.at(-1).config.captureBypassModifier, 'cmd');
   assert.equal((await applyChange('cfgExts', 'zip,mp4')).config.captureExtensions, 'zip,mp4');
+  assert.equal((await applyChange('cfgSmallDownloadThresholdMb', '2')).config.smallDownloadThresholdBytes, 2 * 1024 * 1024);
   assert.equal((await applyChange('cfgAutoCapture', true, 'checked')).config.autoCapture, true);
+  assert.equal((await applyChange('cfgSkipSmallDownloads', true, 'checked')).config.skipSmallDownloads, true);
   assert.equal((await applyChange('cfgUseMotrixNext', true, 'checked')).config.useMotrixNext, true);
   assert.equal((await applyChange('cfgMotrixBridgeAutoClose', true, 'checked')).config.motrixBridgeAutoClose, true);
   assert.equal((await applyChange('cfgAbDownloadSilent', true, 'checked')).config.abDownloadSilent, true);

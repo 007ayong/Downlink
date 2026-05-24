@@ -881,7 +881,7 @@
   <div class="settings-group">
     <div class="settings-group-title" data-i18n="settingsCaptureGroup">拦截规则</div>
     <div class="settings-row">
-      <label><span data-i18n="settingsAutoCapture">自动拦截下载</span> <span class="settings-sub" data-i18n="settingsAutoCaptureSub">接管浏览器下载并转交给当前下载器</span></label>
+      <label><span data-i18n="settingsAutoCapture">自动拦截下载</span> <span class="settings-sub" data-i18n="settingsAutoCaptureSub">浏览器确认下载响应后接管并转交给当前下载器</span></label>
       <label class="toggle"><input type="checkbox" id="cfgAutoCapture"><div class="toggle-track"></div></label>
     </div>
     <div class="settings-row col">
@@ -891,6 +891,14 @@
     <div class="settings-row col">
       <label><span data-i18n="settingsCaptureExtensions">拦截文件类型</span> <span class="settings-sub" data-i18n="settingsCaptureExtensionsSub">逗号分隔，留空拦截所有</span></label>
       <input class="settings-input wide" id="cfgExts" type="text" placeholder="zip,rar,mp4,exe..." data-i18n-placeholder="settingsCaptureExtensionsPlaceholder"/>
+    </div>
+    <div class="settings-row">
+      <label><span data-i18n="settingsSkipSmallDownloads">小文件不接管</span> <span class="settings-sub" data-i18n="settingsSkipSmallDownloadsSub">已知大小低于阈值时保留浏览器下载，减少小文件进入下载器；未知大小仍按规则接管</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgSkipSmallDownloads"><div class="toggle-track"></div></label>
+    </div>
+    <div class="settings-row col">
+      <label><span data-i18n="settingsSmallDownloadThreshold">小文件阈值 MB</span> <span class="settings-sub" data-i18n="settingsSmallDownloadThresholdSub">默认 1 MB。只使用浏览器已提供的大小，不额外请求文件信息</span></label>
+      <input class="settings-input wide" id="cfgSmallDownloadThresholdMb" type="number" min="0.1" step="0.1" value="1"/>
     </div>
   </div>
 

@@ -3,6 +3,6 @@
     "message": "Downlink"
   },
   "extensionDescription": {
-    "message": "接管浏览器下载，并发送到你选择的下载器"
+    "message": "在浏览器确认下载响应后接管，并发送到你选择的下载器"
   }
 }
