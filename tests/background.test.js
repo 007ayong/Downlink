@@ -1662,6 +1662,8 @@ test('automatic send failures reuse one fallback task popup window', async () =>
   assert.equal(background.chrome._actionCalls.openPopup, 1);
   assert.equal(background.chrome._windowsCalls.create.length, 1);
   assert.equal(background.chrome._tabsCalls.create.length, 0);
+  assert.equal(background.chrome._notificationCalls.length, 1);
+  assert.equal(background.chrome._notificationCalls[0].title, '与 AB DM 连接失败');
 });
 
 test('Aria2 silent intercepted downloads send immediately', async () => {
