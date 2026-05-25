@@ -116,6 +116,15 @@
       display: flex; align-items: center; gap: 5px;
       white-space: nowrap;
     }
+    .tab-icon {
+      width: 16px;
+      height: 16px;
+      display: block;
+      flex-shrink: 0;
+    }
+    .tab[data-tab="settings"] .tab-icon {
+      transform: translateY(1px);
+    }
     .tab:hover { color: var(--text-2); }
     .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
     .tab-badge {
@@ -151,18 +160,26 @@
       color: var(--text-3); text-align: center;
     }
     .empty-icon {
-      width: 44px;
-      height: 44px;
+      width: 72px;
+      height: 72px;
       display: flex;
       align-items: center;
       justify-content: center;
-      opacity: 0.7;
+      opacity: 0.86;
     }
     .empty-icon img {
       width: 100%;
       height: 100%;
       display: block;
       object-fit: contain;
+    }
+    #tasksEmpty .empty-icon {
+      width: 88px;
+      height: 88px;
+    }
+    #mediaEmpty .empty-icon {
+      width: 132px;
+      height: 88px;
     }
     .empty-icon.emoji {
       font-size: 32px;
@@ -328,6 +345,11 @@
       padding: 0;
       font-size: 13px;
       line-height: 1;
+    }
+    .control-icon {
+      width: 14px;
+      height: 14px;
+      display: block;
     }
     .btn-danger {
       background: var(--red-bg);
@@ -731,14 +753,19 @@
 <!-- Tabs -->
 <div class="tabs">
   <div class="tab active" data-tab="tasks">
+    <img class="tab-icon" src="assets/file-icons/task-bar.svg" alt="" aria-hidden="true"/>
     <span data-i18n="tabTasks">任务</span>
     <span class="tab-badge" id="pendingBadge" style="display:none">0</span>
   </div>
   <div class="tab" data-tab="media">
-    <span data-i18n="tabMedia">🎞 媒体</span>
+    <img class="tab-icon" src="assets/file-icons/media-bar.svg" alt="" aria-hidden="true"/>
+    <span data-i18n="tabMedia">媒体</span>
     <span class="tab-badge" id="mediaBadge" style="display:none">0</span>
   </div>
-  <div class="tab" data-tab="settings"><span data-i18n="tabSettings">⚙ 设置</span></div>
+  <div class="tab" data-tab="settings">
+    <img class="tab-icon" src="assets/file-icons/settings-bar.svg" alt="" aria-hidden="true"/>
+    <span data-i18n="tabSettings">设置</span>
+  </div>
 </div>
 
 <!-- Panel: Tasks -->
@@ -746,7 +773,7 @@
   <div class="task-alert" id="taskAlert"></div>
   <div class="empty" id="tasksEmpty">
     <div class="empty-icon">
-      <img src="assets/null.png" alt="暂无下载任务" data-i18n-alt="tasksEmptyAlt"/>
+      <img src="assets/empty-downloads.png" alt="暂无下载任务" data-i18n-alt="tasksEmptyAlt"/>
     </div>
     <div class="empty-title" data-i18n="tasksEmptyTitle">暂无下载任务</div>
     <div class="empty-sub" data-i18n="tasksEmptySub">拦截到下载链接后将显示在此处</div>
@@ -761,7 +788,11 @@
     <div class="media-toolbar-top">
       <div class="media-toolbar-title" data-i18n="mediaToolbarTitle">当前页面媒体资源</div>
       <div style="display:flex;gap:5px">
-        <button class="btn btn-ghost compact-icon" id="toggleSniffingBtn" title="暂停/恢复嗅探">⏸</button>
+        <button class="btn btn-ghost compact-icon" id="toggleSniffingBtn" title="暂停/恢复嗅探" aria-label="暂停嗅探">
+          <svg class="control-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="M5.25 3.25h1.5c.55 0 1 .45 1 1v7.5c0 .55-.45 1-1 1h-1.5c-.55 0-1-.45-1-1v-7.5c0-.55.45-1 1-1Zm5 0h1.5c.55 0 1 .45 1 1v7.5c0 .55-.45 1-1 1h-1.5c-.55 0-1-.45-1-1v-7.5c0-.55.45-1 1-1Z" fill="currentColor"/>
+          </svg>
+        </button>
         <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 12px" id="clearMediaBtn" data-i18n="clear">清空</button>
       </div>
     </div>
@@ -770,7 +801,7 @@
   <div class="task-alert" id="mediaAlert"></div>
   <div class="empty" id="mediaEmpty">
     <div class="empty-icon">
-      <img src="assets/file-icons/video.svg" alt="" loading="lazy"/>
+      <img src="assets/empty-media.png" alt="" loading="lazy"/>
     </div>
     <div class="empty-title" data-i18n="mediaEmptyTitle">暂无直链媒体</div>
     <div class="empty-sub" data-i18n="mediaEmptySub">打开页面中的音频或视频后会显示在这里</div>
@@ -908,7 +939,7 @@
 <!-- Footer -->
 <div class="footer" id="footerBar" style="display:none">
   <div id="footerStatsLabel">活跃 0 · 完成 0</div>
-  <div>↓ <span id="fSpeed">—</span></div>
+  <div><span data-i18n="footerSpeed">速度</span> <span id="fSpeed">—</span></div>
 </div>
 
   <script src="filename-logic.js"></script>

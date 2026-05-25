@@ -36,7 +36,7 @@ function buildPendingConfirmRenderKey(pendingVals) {
     + `|${popupAppT('pendingDownload', undefined, '待确认下载')}`
     + `|${popupAppT('fileName', undefined, '文件名')}`
     + `|${popupAppT('aria2SingleThread', undefined, '单线程不分片下载')}`
-    + `|${popupAppT('ignore', undefined, '✕ 忽略')}`
+    + `|${popupAppT('ignore', undefined, '忽略')}`
     + `|${getSendLabel(currentConfig)}`
     + `|${currentConfig.downloaderType || ''}`;
 }
@@ -82,8 +82,15 @@ function updateDynamicLabels(cfg = currentConfig) {
   if (title) title.textContent = popupAppT('appTitle', undefined, 'Downlink');
   updateHeaderLogo(cfg);
   document.querySelectorAll('.confirm-btn, .media-send-btn').forEach((btn) => {
-    if (!btn.disabled) btn.textContent = `⚡ ${getSendLabel(cfg)}`;
+    if (!btn.disabled) btn.textContent = getSendLabel(cfg);
   });
+}
+
+function getSniffingToggleIcon(isPaused) {
+  const path = isPaused
+    ? 'M5.4 3.5c0-.7.76-1.13 1.36-.76l5.6 3.5c.56.35.56 1.17 0 1.52l-5.6 3.5c-.6.37-1.36-.06-1.36-.76v-7Z'
+    : 'M5.25 3.25h1.5c.55 0 1 .45 1 1v7.5c0 .55-.45 1-1 1h-1.5c-.55 0-1-.45-1-1v-7.5c0-.55.45-1 1-1Zm5 0h1.5c.55 0 1 .45 1 1v7.5c0 .55-.45 1-1 1h-1.5c-.55 0-1-.45-1-1v-7.5c0-.55.45-1 1-1Z';
+  return `<svg class="control-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="${path}" fill="currentColor"/></svg>`;
 }
 
 function renderHeaderStatus({ cfg = currentConfig, state = 'checking', stat = null, message = '' } = {}) {
@@ -96,7 +103,7 @@ function renderHeaderStatus({ cfg = currentConfig, state = 'checking', stat = nu
   if (state === 'online') {
     const downloadSpeed = parseInt(stat?.downloadSpeed, 10) || 0;
     txt.textContent = cfg?.downloaderType === 'aria2' && downloadSpeed > 0
-      ? popupAppT('connectedWithSpeed', [fmtSpeed(downloadSpeed)], `已连接 · ↓${fmtSpeed(downloadSpeed)}`)
+      ? popupAppT('connectedWithSpeed', [fmtSpeed(downloadSpeed)], `已连接 · ${fmtSpeed(downloadSpeed)}`)
       : popupAppT('downloaderReady', [getDownloaderName(cfg)], `${getDownloaderName(cfg)} 已就绪`);
     return;
   }
@@ -268,8 +275,8 @@ function renderTasks(tasks, pending) {
         </div>
         ${aria2SingleThreadOption}
         <div class="pending-actions">
-          <button class="btn btn-primary confirm-btn" data-key="${item.key}">⚡ ${getSendLabel(currentConfig)}</button>
-          <button class="btn btn-ghost reject-btn" data-key="${item.key}">${popupAppT('ignore', undefined, '✕ 忽略')}</button>
+          <button class="btn btn-primary confirm-btn" data-key="${item.key}">${getSendLabel(currentConfig)}</button>
+          <button class="btn btn-ghost reject-btn" data-key="${item.key}">${popupAppT('ignore', undefined, '忽略')}</button>
         </div>
       `;
       pendingList.appendChild(card);
@@ -347,10 +354,10 @@ function renderTasks(tasks, pending) {
             <div class="task-name" title="${escHtml(name)}">${escHtml(name)}</div>
             <div class="task-meta">
               ${task.totalLength ? `<span>${fmt(task.completedLength)} / ${fmt(task.totalLength)}</span>` : ''}
-              ${task.targetName ? `<span>⇢ ${escHtml(task.targetName)}</span>` : ''}
-              ${stateKey === 'active' && task.downloadSpeed ? `<span>↓ ${fmtSpeed(task.downloadSpeed)}</span>` : ''}
-              ${stateKey === 'active' && eta ? `<span>⏱ ${eta}</span>` : ''}
-              ${task.connections ? `<span>${popupAppT('connectionsCount', [task.connections], `🔗 ${task.connections}线`)}</span>` : ''}
+              ${task.targetName ? `<span>${popupAppT('targetLabel', undefined, '目标')} ${escHtml(task.targetName)}</span>` : ''}
+              ${stateKey === 'active' && task.downloadSpeed ? `<span>${popupAppT('speedLabel', undefined, '速度')} ${fmtSpeed(task.downloadSpeed)}</span>` : ''}
+              ${stateKey === 'active' && eta ? `<span>${popupAppT('etaLabel', undefined, '剩余')} ${eta}</span>` : ''}
+              ${task.connections ? `<span>${popupAppT('connectionsCount', [task.connections], `${task.connections}线`)}</span>` : ''}
             </div>
           </div>
           <span class="state-pill state-${stateKey}">${getStateLabel(stateKey)}</span>
@@ -367,12 +374,12 @@ function renderTasks(tasks, pending) {
         </div>` : ''}
         <div class="task-actions">
           ${canViewInMotrix ? `<button class="task-btn" data-action="motrix-view">${popupAppT('motrixView', undefined, 'MotrixNext中查看')}</button>` : ''}
-          ${stateKey === 'active' ? `<button class="task-btn" data-action="pause" data-gid="${task.gid}">${popupAppT('pauseTask', undefined, '⏸ 暂停')}</button>` : ''}
-          ${stateKey === 'paused' ? `<button class="task-btn" data-action="resume" data-gid="${task.gid}">${popupAppT('resumeTask', undefined, '▶ 继续')}</button>` : ''}
-          ${stateKey === 'complete' ? `<button class="task-btn" data-action="remove" data-gid="${task.gid}">${popupAppT('clearTask', undefined, '✕ 清除')}</button>` : ''}
-          ${['active', 'paused', 'waiting'].includes(stateKey) ? `<button class="task-btn danger" data-action="remove" data-gid="${task.gid}">${popupAppT('cancelTask', undefined, '✕ 取消')}</button>` : ''}
-          ${stateKey === 'sent' ? `<button class="task-btn" data-action="remove" data-gid="${task.gid}">${popupAppT('clearTask', undefined, '✕ 清除')}</button>` : ''}
-          ${stateKey === 'error' ? `<button class="task-btn danger" data-action="remove" data-gid="${task.gid}">${popupAppT('clearTask', undefined, '✕ 清除')}</button>` : ''}
+          ${stateKey === 'active' ? `<button class="task-btn" data-action="pause" data-gid="${task.gid}">${popupAppT('pauseTask', undefined, '暂停')}</button>` : ''}
+          ${stateKey === 'paused' ? `<button class="task-btn" data-action="resume" data-gid="${task.gid}">${popupAppT('resumeTask', undefined, '继续')}</button>` : ''}
+          ${stateKey === 'complete' ? `<button class="task-btn" data-action="remove" data-gid="${task.gid}">${popupAppT('clearTask', undefined, '清除')}</button>` : ''}
+          ${['active', 'paused', 'waiting'].includes(stateKey) ? `<button class="task-btn danger" data-action="remove" data-gid="${task.gid}">${popupAppT('cancelTask', undefined, '取消')}</button>` : ''}
+          ${stateKey === 'sent' ? `<button class="task-btn" data-action="remove" data-gid="${task.gid}">${popupAppT('clearTask', undefined, '清除')}</button>` : ''}
+          ${stateKey === 'error' ? `<button class="task-btn danger" data-action="remove" data-gid="${task.gid}">${popupAppT('clearTask', undefined, '清除')}</button>` : ''}
         </div>
       `;
       taskList.appendChild(card);
@@ -454,7 +461,7 @@ function renderMedia(mediaByTab, pausedTabs = []) {
 
   emptyEl.style.display = media.length ? 'none' : 'flex';
   if (isPaused) {
-    summaryEl.textContent = popupAppT('sniffingPaused', undefined, '⏸ 已暂停嗅探，直播资源不再刷新');
+    summaryEl.textContent = popupAppT('sniffingPaused', undefined, '已暂停嗅探，直播资源不再刷新');
   } else {
     summaryEl.textContent = media.length
       ? popupAppT('currentTabMediaFound', [media.length], `当前标签页已发现 ${media.length} 个直链媒体资源`)
@@ -468,10 +475,16 @@ function renderMedia(mediaByTab, pausedTabs = []) {
   }
 
   if (toggleSniffingBtn) {
-    toggleSniffingBtn.textContent = isPaused ? '▶' : '⏸';
-    toggleSniffingBtn.title = isPaused
+    const label = isPaused
       ? popupAppT('resumeSniffing', undefined, '恢复嗅探')
       : popupAppT('pauseSniffing', undefined, '暂停嗅探');
+    toggleSniffingBtn.innerHTML = getSniffingToggleIcon(isPaused);
+    toggleSniffingBtn.title = label;
+    if (typeof toggleSniffingBtn.setAttribute === 'function') {
+      toggleSniffingBtn.setAttribute('aria-label', label);
+    } else {
+      toggleSniffingBtn.ariaLabel = label;
+    }
     toggleSniffingBtn.classList.toggle('btn-primary', isPaused);
     toggleSniffingBtn.classList.toggle('btn-ghost', !isPaused);
   }
@@ -516,9 +529,9 @@ function renderMedia(mediaByTab, pausedTabs = []) {
         </div>
       </div>
       <div class="media-actions">
-        <button class="task-btn media-preview-toggle" data-id="${item.id}">${popupAppT('previewMedia', undefined, '▶ 预览')}</button>
-        <button class="task-btn" data-copy-url="${escHtml(item.resourceUrl)}">${popupAppT('copyLink', undefined, '⧉ 复制链接')}</button>
-        <button class="task-btn media-send-btn" data-send-id="${item.id}">⚡ ${getSendLabel(currentConfig)}</button>
+        <button class="task-btn media-preview-toggle" data-id="${item.id}">${popupAppT('previewMedia', undefined, '预览')}</button>
+        <button class="task-btn" data-copy-url="${escHtml(item.resourceUrl)}">${popupAppT('copyLink', undefined, '复制链接')}</button>
+        <button class="task-btn media-send-btn" data-send-id="${item.id}">${getSendLabel(currentConfig)}</button>
       </div>
     `;
     listEl.appendChild(card);
@@ -542,18 +555,18 @@ function renderMedia(mediaByTab, pausedTabs = []) {
       btn.textContent = popupAppT('sending', undefined, '发送中…');
       chrome.runtime.sendMessage({ type: 'ADD_MEDIA_TASK', id: btn.dataset.sendId }, (res) => {
         if (res?.ok) {
-          btn.textContent = popupAppT('sent', undefined, '✓ 已发送');
+          btn.textContent = popupAppT('sent', undefined, '已发送');
           showToast(popupAppT('mediaSentToDownloader', undefined, '媒体已发送到下载器'));
           setTimeout(() => {
             btn.disabled = false;
-            btn.textContent = `⚡ ${getSendLabel(currentConfig)}`;
+            btn.textContent = getSendLabel(currentConfig);
           }, 1200);
           if (currentConfig.downloaderType !== 'motrixnext') {
             setTimeout(() => { document.querySelector('[data-tab="tasks"]').click(); }, 300);
           }
         } else {
           btn.disabled = false;
-          btn.textContent = `⚡ ${getSendLabel(currentConfig)}`;
+          btn.textContent = getSendLabel(currentConfig);
           const message = res?.error || popupAppT('downloaderConnectionFailed', undefined, '与下载器连接失败，检查下载器是否正在运行');
           currentState.uiAlert = { type: 'connection-failure', message };
           renderInlineAlert('mediaAlert', message, { shake: true });
@@ -678,11 +691,11 @@ document.getElementById('testConnBtn').addEventListener('click', () => {
     if (res?.ok) {
       const stat = res.stat;
       resultEl.className = 'conn-result ok';
-      resultEl.textContent = popupAppT('connectionSuccessStats', [stat?.numActive || 0, stat?.numWaiting || 0, stat?.numStopped || 0], `✓ 连接成功 — 活跃 ${stat?.numActive || 0} · 等待 ${stat?.numWaiting || 0} · 完成 ${stat?.numStopped || 0}`);
+      resultEl.textContent = popupAppT('connectionSuccessStats', [stat?.numActive || 0, stat?.numWaiting || 0, stat?.numStopped || 0], `连接成功 — 活跃 ${stat?.numActive || 0} · 等待 ${stat?.numWaiting || 0} · 完成 ${stat?.numStopped || 0}`);
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `✗ ${res?.error || popupAppT('connectionFailedWithLabel', ['Aria2'], '与 Aria2 连接失败，检查 Aria2 是否正在运行')}`;
+    resultEl.textContent = `${popupAppT('connectionFailedTitle', ['Aria2'], '与 Aria2 连接失败')}：${res?.error || popupAppT('connectionFailedWithLabel', ['Aria2'], '检查 Aria2 是否正在运行')}`;
   });
 });
 
@@ -694,11 +707,11 @@ document.getElementById('testLauncherBtn').addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
-      resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('interfaceConfigured', undefined, '接口已配置')], `✓ ${res.message || '接口已配置'}`);
+      resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('interfaceConfigured', undefined, '接口已配置')], `${res.message || '接口已配置'}`);
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `✗ ${res?.error || popupAppT('connectionFailedWithLabel', ['AB DM'], '与 AB DM 连接失败，检查 AB DM 是否正在运行')}`;
+    resultEl.textContent = `${popupAppT('connectionFailedTitle', ['AB DM'], '与 AB DM 连接失败')}：${res?.error || popupAppT('connectionFailedWithLabel', ['AB DM'], '检查 AB DM 是否正在运行')}`;
   });
 });
 
@@ -710,11 +723,11 @@ document.getElementById('testMotrixNextBtn').addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
-      resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('motrixNextReady', undefined, 'MotrixNext 已就绪')], `✓ ${res.message || 'MotrixNext 已就绪'}`);
+      resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('motrixNextReady', undefined, 'MotrixNext 已就绪')], `${res.message || 'MotrixNext 已就绪'}`);
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `✗ ${res?.error || popupAppT('connectionFailedWithLabel', ['MotrixNext'], '与 MotrixNext 连接失败，检查 MotrixNext 是否正在运行')}`;
+    resultEl.textContent = `${popupAppT('connectionFailedTitle', ['MotrixNext'], '与 MotrixNext 连接失败')}：${res?.error || popupAppT('connectionFailedWithLabel', ['MotrixNext'], '检查 MotrixNext 是否正在运行')}`;
   });
 });
 
@@ -726,11 +739,11 @@ document.getElementById('testNeatdmBtn').addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
-      resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('neatdmReady', undefined, 'NeatDM 已就绪')], `✓ ${res.message || 'NeatDM 已就绪'}`);
+      resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('neatdmReady', undefined, 'NeatDM 已就绪')], `${res.message || 'NeatDM 已就绪'}`);
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `✗ ${res?.error || popupAppT('connectionFailedWithLabel', ['NeatDM'], '与 NeatDM 连接失败，检查 NeatDM 是否正在运行')}`;
+    resultEl.textContent = `${popupAppT('connectionFailedTitle', ['NeatDM'], '与 NeatDM 连接失败')}：${res?.error || popupAppT('connectionFailedWithLabel', ['NeatDM'], '检查 NeatDM 是否正在运行')}`;
   });
 });
 

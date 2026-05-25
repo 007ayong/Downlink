@@ -1,0 +1,14 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="任务">
+  <defs>
+    <linearGradient id="g_task" x1="5" y1="3" x2="19" y2="21" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4FC3FF"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <filter id="s_task" x="3" y="2" width="18" height="20" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#2563EB" flood-opacity=".20"/>
+    </filter>
+  </defs>
+  <path d="M7.2 4.5h9.6c1 0 1.8.8 1.8 1.8v11.4c0 1-.8 1.8-1.8 1.8H7.2c-1 0-1.8-.8-1.8-1.8V6.3c0-1 .8-1.8 1.8-1.8Z" fill="url(#g_task)" filter="url(#s_task)"/>
+  <path d="M8.25 7.5h7.5M8.25 16.5h3.75" stroke="white" stroke-width="1.7" stroke-linecap="round" opacity=".86"/>
+  <path d="M12 7.8v5.35m0 0 2.25-2.25M12 13.15 9.75 10.9" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,14 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="设置">
+  <defs>
+    <linearGradient id="g_set" x1="5" y1="4" x2="19" y2="20" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A7B5C8"/>
+      <stop offset="1" stop-color="#475569"/>
+    </linearGradient>
+    <filter id="s_set" x="2.8" y="2.8" width="18.4" height="18.4" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="1" stdDeviation="0.85" flood-color="#475569" flood-opacity=".18"/>
+    </filter>
+  </defs>
+  <path fill-rule="evenodd" clip-rule="evenodd" d="M13.28 3.85c-.32-1.07-1.7-1.07-2.02 0l-.26.86a7.7 7.7 0 0 0-1.35.56l-.8-.43c-.97-.54-1.95.44-1.41 1.41l.43.8c-.24.43-.43.89-.56 1.35l-.86.26c-1.07.32-1.07 1.7 0 2.02l.86.26c.13.46.32.92.56 1.35l-.43.8c-.54.97.44 1.95 1.41 1.41l.8-.43c.43.24.89.43 1.35.56l.26.86c.32 1.07 1.7 1.07 2.02 0l.26-.86c.46-.13.92-.32 1.35-.56l.8.43c.97.54 1.95-.44 1.41-1.41l-.43-.8c.24-.43.43-.89.56-1.35l.86-.26c1.07-.32 1.07-1.7 0-2.02l-.86-.26a7.7 7.7 0 0 0-.56-1.35l.43-.8c.54-.97-.44-1.95-1.41-1.41l-.8.43a7.7 7.7 0 0 0-1.35-.56l-.26-.86Z" fill="url(#g_set)" filter="url(#s_set)"/>
+  <circle cx="12.27" cy="9.67" r="2.75" fill="white"/>
+  <circle cx="12.27" cy="9.67" r="1.08" fill="#64748B"/>
+</svg>
