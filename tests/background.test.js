@@ -625,7 +625,7 @@ test('direct response capture cancels before browser filename prompt after send 
   assert.deepEqual(background.chrome._downloadCalls.erase.map(item => ({ ...item })), [{ id: 25 }]);
 });
 
-test('failed response capture does not cancel browser filename prompt', async () => {
+test('failed response capture still cancels browser filename prompt', async () => {
   const background = loadBackgroundRuntime(
     {
       downloaderType: 'motrixnext',
@@ -659,8 +659,95 @@ test('failed response capture does not cancel browser filename prompt', async ()
   });
 
   assert.equal(suggested, true);
-  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
-  assert.deepEqual(background.chrome._downloadCalls.erase, []);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [26]);
+  assert.deepEqual(background.chrome._downloadCalls.erase.map(item => ({ ...item })), [{ id: 26 }]);
+});
+
+test('failed response capture cancels browser download without retrying browser fallback', async () => {
+  let fetchCount = 0;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'motrixnext',
+      autoCapture: true,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async () => {
+        fetchCount += 1;
+        return { ok: false, status: 500 };
+      },
+    }
+  );
+
+  const url = 'https://example.com/fallback-created.zip';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="fallback-created.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+    ],
+  });
+
+  await invokeDownloadCreated(background, {
+    id: 27,
+    url,
+    finalUrl: url,
+    filename: 'fallback-created.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.equal(fetchCount, 1);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [27]);
+  assert.deepEqual(background.chrome._downloadCalls.erase.map(item => ({ ...item })), [{ id: 27 }]);
+});
+
+test('AB DM response capture cancels browser filename prompt before connection result', async () => {
+  let resolveFetch;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      autoCapture: true,
+      captureExtensions: 'zip',
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+    },
+    {
+      fetch: async () => new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+    }
+  );
+
+  const url = 'https://example.com/ab-offline.zip';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="ab-offline.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+    ],
+  });
+
+  const suggested = await invokeDeterminingFilename(background, {
+    id: 28,
+    url,
+    finalUrl: url,
+    filename: 'ab-offline.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.equal(suggested, true);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [28]);
+  assert.deepEqual(background.chrome._downloadCalls.erase.map(item => ({ ...item })), [{ id: 28 }]);
+
+  resolveFetch?.({ ok: false, status: 500 });
 });
 
 test('POST redirect intent waits for redirected response headers before entering pending queue', async () => {
@@ -1442,6 +1529,289 @@ test('configured modifier click bypasses the next matching intercepted download'
 
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('modifier bypass survives response-header precheck until browser download is created', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureBypassModifier: 'alt',
+    captureExtensions: 'zip',
+    captureMime: true,
+  });
+  const url = 'https://example.com/file.zip';
+
+  const bypass = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'BYPASS_NEXT_DOWNLOAD',
+      url,
+      modifier: 'alt',
+    },
+    { tab: { id: 12 } }
+  );
+
+  assert.equal(bypass.ok, true);
+
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 12,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="file.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url,
+    finalUrl: url,
+    filename: 'file.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('modifier bypass wins before downloader connection failure handling', async () => {
+  let fetchCalled = false;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      autoCapture: true,
+      captureBypassModifier: 'alt',
+      captureExtensions: 'zip',
+      captureMime: true,
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+    },
+    {
+      fetch: async () => {
+        fetchCalled = true;
+        throw new Error('connection refused');
+      },
+    }
+  );
+  const url = 'https://example.com/file.zip';
+
+  const bypass = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'BYPASS_NEXT_DOWNLOAD',
+      url,
+      modifier: 'alt',
+    },
+    { tab: { id: 12 } }
+  );
+
+  assert.equal(bypass.ok, true);
+
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: -1,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="file.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
+
+  assert.equal(fetchCalled, false);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+  assert.equal(background.chrome._windowsCalls.create.length, 0);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.uiAlert, null);
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('modifier bypass wins over existing response claim during browser download creation', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureBypassModifier: 'alt',
+    captureExtensions: 'zip',
+    captureMime: true,
+  });
+  const url = 'https://example.com/file.zip';
+
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 12,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="file.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
+
+  const bypass = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'BYPASS_NEXT_DOWNLOAD',
+      url,
+      modifier: 'alt',
+    },
+    { tab: { id: 12 } }
+  );
+
+  assert.equal(bypass.ok, true);
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url,
+    finalUrl: url,
+    filename: 'file.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('modifier bypass does not wait for an in-flight response claim', async () => {
+  let resolveFetch;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      autoCapture: true,
+      captureBypassModifier: 'alt',
+      captureExtensions: 'zip',
+      captureMime: true,
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+    },
+    {
+      fetch: async () => new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+    }
+  );
+  const url = 'https://example.com/file.zip';
+
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 12,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="file.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
+  const bypass = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'BYPASS_NEXT_DOWNLOAD',
+      url,
+      modifier: 'alt',
+    },
+    { tab: { id: 12 } }
+  );
+
+  assert.equal(bypass.ok, true);
+
+  const suggested = await invokeDeterminingFilename(background, {
+    id: 1,
+    url,
+    finalUrl: url,
+    filename: 'file.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.equal(suggested, true);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+
+  resolveFetch?.({ ok: false, status: 500 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.uiAlert, null);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+  assert.equal(background.chrome._windowsCalls.create.length, 0);
+});
+
+test('modifier bypass on small response does not leak to the next download', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureBypassModifier: 'alt',
+    captureExtensions: 'zip',
+    captureMime: true,
+    skipSmallDownloads: true,
+    smallDownloadThresholdBytes: 1024 * 1024,
+  });
+  const smallUrl = 'https://example.com/small.zip';
+
+  const bypass = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'BYPASS_NEXT_DOWNLOAD',
+      url: smallUrl,
+      modifier: 'alt',
+    },
+    { tab: { id: 12 } }
+  );
+
+  assert.equal(bypass.ok, true);
+
+  await invokeResponseHeaders(background, {
+    url: smallUrl,
+    tabId: 12,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="small.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: smallUrl,
+    finalUrl: smallUrl,
+    filename: 'small.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+
+  const largeUrl = 'https://example.com/large.zip';
+  await invokeDownloadCreated(background, {
+    id: 2,
+    url: largeUrl,
+    finalUrl: largeUrl,
+    filename: 'large.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 2 * 1024 * 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [2]);
 });
 
 test('non-matching bypass modifier does not disable interception', async () => {
