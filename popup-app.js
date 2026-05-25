@@ -11,6 +11,7 @@ const popupAppT = popupAppI18n.t || ((key, substitutions, fallback = key) => {
   return fallback || key;
 });
 const pendingFilenameDrafts = new Map();
+const mediaFilenameDrafts = new Map();
 let lastRenderedPendingKey = '';
 
 function getAria2SingleThreadOptions() {
@@ -25,6 +26,16 @@ function getPendingFilenameValue(item) {
   return pendingFilenameDrafts.has(item.key)
     ? pendingFilenameDrafts.get(item.key)
     : decodeDisplayFilename(item.filename || item.url.split('?')[0].split('/').pop() || '');
+}
+
+function getMediaFilenameValue(item) {
+  return mediaFilenameDrafts.has(item.id)
+    ? mediaFilenameDrafts.get(item.id)
+    : (item.filename || popupAppT('untitledMedia', undefined, '未命名媒体'));
+}
+
+function mediaEditIcon() {
+  return '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M10.9 2.4a1.6 1.6 0 0 1 2.3 2.3l-7.1 7.1-3 .7.7-3 7.1-7.1Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M9.8 3.5l2.7 2.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
 }
 
 function mediaFactIcon(name) {
@@ -542,12 +553,15 @@ function renderMedia(mediaByTab, pausedTabs = []) {
     const iconSrc = getFileIcon({ name: item.filename, mime: item.mime, kind: item.kind });
     const durationText = mediaDurationLabel(item.duration);
     const resolutionText = item.kind === 'video' || item.kind === 'media' ? mediaResolutionLabel(item) : '';
+    const displayFilename = getMediaFilenameValue(item);
     card.innerHTML = `
       <div class="media-top">
         <div class="media-icon"><img src="${escHtml(iconSrc)}" alt="" loading="lazy"></div>
         <div class="media-info">
           <div class="media-title-row">
-            <div class="media-name" title="${escHtml(item.filename || popupAppT('untitledMedia', undefined, '未命名媒体'))}">${escHtml(item.filename || popupAppT('untitledMedia', undefined, '未命名媒体'))}</div>
+            <div class="media-name" title="${escHtml(displayFilename)}">${escHtml(displayFilename)}</div>
+            <input class="media-name-input" type="text" value="${escHtml(displayFilename)}" autocomplete="off" spellcheck="false" hidden/>
+            <button class="media-name-edit" type="button" title="${escHtml(popupAppT('editFileName', undefined, '编辑文件名'))}" aria-label="${escHtml(popupAppT('editFileName', undefined, '编辑文件名'))}">${mediaEditIcon()}</button>
             <span class="media-chip media-kind kind-${escHtml(item.kind || 'video')}">${mediaKindLabel(item.kind)}</span>
           </div>
           <div class="media-url">${escHtml(item.resourceUrl)}</div>
@@ -575,6 +589,50 @@ function renderMedia(mediaByTab, pausedTabs = []) {
       setTimeout(() => loadMediaMetadata(item, card), 300);
     }
 
+    const nameEl = card.querySelector('.media-name');
+    const nameInput = card.querySelector('.media-name-input');
+    const editNameBtn = card.querySelector('.media-name-edit');
+    let editingOriginalName = displayFilename;
+    const commitMediaName = ({ cancel = false } = {}) => {
+      if (!nameEl || !nameInput) return getMediaFilenameValue(item);
+      const fallbackName = item.filename || popupAppT('untitledMedia', undefined, '未命名媒体');
+      const nextName = cancel ? editingOriginalName : (nameInput.value.trim() || fallbackName);
+      mediaFilenameDrafts.set(item.id, nextName);
+      nameEl.textContent = nextName;
+      nameEl.title = nextName;
+      nameInput.value = nextName;
+      nameInput.hidden = true;
+      nameEl.hidden = false;
+      return nextName;
+    };
+    const openMediaNameEditor = () => {
+      if (!nameEl || !nameInput) return;
+      editingOriginalName = getMediaFilenameValue(item);
+      nameInput.value = editingOriginalName;
+      nameEl.hidden = true;
+      nameInput.hidden = false;
+      nameInput.focus();
+      nameInput.select();
+    };
+    if (editNameBtn) {
+      editNameBtn.addEventListener('click', () => {
+        if (nameInput?.hidden === false) commitMediaName();
+        else openMediaNameEditor();
+      });
+    }
+    if (nameInput) {
+      nameInput.addEventListener('blur', () => commitMediaName());
+      nameInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          nameInput.blur();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          commitMediaName({ cancel: true });
+        }
+      });
+    }
+
     card.querySelector('[data-copy-url]').addEventListener('click', async (event) => {
       const copied = await copyText(event.currentTarget.dataset.copyUrl);
       showToast(copied ? popupAppT('copySuccess', undefined, '已复制媒体链接') : popupAppT('copyFailed', undefined, '复制失败'));
@@ -582,9 +640,10 @@ function renderMedia(mediaByTab, pausedTabs = []) {
 
     card.querySelector('[data-send-id]').addEventListener('click', (event) => {
       const btn = event.currentTarget;
+      const filename = commitMediaName();
       btn.disabled = true;
       btn.textContent = popupAppT('sending', undefined, '发送中…');
-      chrome.runtime.sendMessage({ type: 'ADD_MEDIA_TASK', id: btn.dataset.sendId }, (res) => {
+      chrome.runtime.sendMessage({ type: 'ADD_MEDIA_TASK', id: btn.dataset.sendId, filename }, (res) => {
         if (res?.ok) {
           btn.textContent = popupAppT('sent', undefined, '已发送');
           showToast(popupAppT('mediaSentToDownloader', undefined, '媒体已发送到下载器'));
