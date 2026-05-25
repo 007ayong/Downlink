@@ -27,6 +27,15 @@ function getPendingFilenameValue(item) {
     : decodeDisplayFilename(item.filename || item.url.split('?')[0].split('/').pop() || '');
 }
 
+function mediaFactIcon(name) {
+  const icons = {
+    size: '<svg class="media-fact-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2.5" y="3.5" width="11" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.75 10.25h6.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="5" cy="6.25" r=".75" fill="currentColor"/></svg>',
+    resolution: '<svg class="media-fact-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2.5" y="4" width="11" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6.25 13.25h3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+    duration: '<svg class="media-fact-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.25" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 5.25V8l2 1.25" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  };
+  return icons[name] || '';
+}
+
 function buildPendingConfirmRenderKey(pendingVals) {
   return pendingVals.map((item) => [
     item.key,
@@ -420,17 +429,29 @@ function renderTasks(tasks, pending) {
 function loadMediaMetadata(item, card) {
   const tagName = item.kind === 'audio' ? 'audio' : 'video';
   const mediaEl = document.createElement(tagName);
+  let cleanupTimer = null;
+  let cleanedUp = false;
+  const clearMetadataRule = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (cleanupTimer) clearTimeout(cleanupTimer);
+    chrome.runtime.sendMessage({ type: 'CLEAR_MEDIA_METADATA', id: item.id }, () => {});
+  };
+  const removeMediaEl = () => {
+    clearMetadataRule();
+    mediaEl.remove();
+  };
   mediaEl.preload = 'metadata';
-  mediaEl.src = item.resourceUrl;
   mediaEl.style.position = 'absolute';
   mediaEl.style.width = '1px';
   mediaEl.style.height = '1px';
   mediaEl.style.opacity = '0';
   mediaEl.muted = true;
   mediaEl.addEventListener('loadedmetadata', () => {
-    if (item.kind === 'video') {
+    if (item.kind === 'video' || item.kind === 'media') {
       const width = mediaEl.videoWidth || 0;
       const height = mediaEl.videoHeight || 0;
+      const inferredKind = inferMediaKindFromMetadata(item, { loaded: true, width, height });
       const resolutionEl = card.querySelector('.media-resolution');
       if (resolutionEl && width && height) resolutionEl.textContent = `${width}×${height}`;
       chrome.runtime.sendMessage({
@@ -438,13 +459,18 @@ function loadMediaMetadata(item, card) {
         id: item.id,
         width,
         height,
+        kind: inferredKind,
         duration: Number.isFinite(mediaEl.duration) ? mediaEl.duration : 0,
       });
     }
-    mediaEl.remove();
+    removeMediaEl();
   }, { once: true });
-  mediaEl.addEventListener('error', () => mediaEl.remove(), { once: true });
+  mediaEl.addEventListener('error', removeMediaEl, { once: true });
   card.appendChild(mediaEl);
+  chrome.runtime.sendMessage({ type: 'PREPARE_MEDIA_METADATA', id: item.id }, () => {
+    mediaEl.src = item.resourceUrl;
+    cleanupTimer = setTimeout(removeMediaEl, 15000);
+  });
 }
 
 function renderMedia(mediaByTab, pausedTabs = []) {
@@ -511,21 +537,26 @@ function renderMedia(mediaByTab, pausedTabs = []) {
   listEl.innerHTML = '';
   media.forEach((item) => {
     const card = document.createElement('div');
-    card.className = 'media-card';
+    card.className = `media-card media-card-${item.kind || 'media'}`;
     card.dataset.mediaId = item.id;
     const iconSrc = getFileIcon({ name: item.filename, mime: item.mime, kind: item.kind });
+    const durationText = mediaDurationLabel(item.duration);
+    const resolutionText = item.kind === 'video' || item.kind === 'media' ? mediaResolutionLabel(item) : '';
     card.innerHTML = `
       <div class="media-top">
         <div class="media-icon"><img src="${escHtml(iconSrc)}" alt="" loading="lazy"></div>
         <div class="media-info">
-          <div class="media-name" title="${escHtml(item.filename || popupAppT('untitledMedia', undefined, '未命名媒体'))}">${escHtml(item.filename || popupAppT('untitledMedia', undefined, '未命名媒体'))}</div>
+          <div class="media-title-row">
+            <div class="media-name" title="${escHtml(item.filename || popupAppT('untitledMedia', undefined, '未命名媒体'))}">${escHtml(item.filename || popupAppT('untitledMedia', undefined, '未命名媒体'))}</div>
+            <span class="media-chip media-kind kind-${escHtml(item.kind || 'video')}">${mediaKindLabel(item.kind)}</span>
+          </div>
           <div class="media-url">${escHtml(item.resourceUrl)}</div>
           <div class="media-meta">
-            <span class="media-chip kind-${escHtml(item.kind || 'video')}">${mediaKindLabel(item.kind)}</span>
-            <span class="media-chip">${item.size ? fmt(item.size) : popupAppT('unknownSize', undefined, '大小未知')}</span>
-            ${item.kind === 'video' ? `<span class="media-chip media-resolution">${escHtml(mediaResolutionLabel(item))}</span>` : ''}
-            ${item.mime ? `<span class="media-chip">${escHtml(item.mime)}</span>` : ''}
+            <span class="media-fact">${mediaFactIcon('size')}<span>${item.size ? fmt(item.size) : popupAppT('unknownSize', undefined, '大小未知')}</span></span>
+            ${resolutionText ? `<span class="media-fact media-resolution">${mediaFactIcon('resolution')}<span>${escHtml(resolutionText)}</span></span>` : ''}
+            ${durationText ? `<span class="media-fact">${mediaFactIcon('duration')}<span>${escHtml(durationText)}</span></span>` : ''}
           </div>
+          ${item.mime ? `<div class="media-mime">${escHtml(item.mime)}</div>` : ''}
         </div>
       </div>
       <div class="media-actions">
@@ -538,7 +569,7 @@ function renderMedia(mediaByTab, pausedTabs = []) {
     const icon = card.querySelector('.media-icon img');
     if (icon) icon.addEventListener('error', handleTaskIconError);
 
-    if (item.kind === 'video' && (!item.width || !item.height)) {
+    if ((item.kind === 'video' || item.kind === 'media') && (!item.width || !item.height)) {
       // Defer metadata loading slightly to allow initial UI paint and avoid
       // triggering many network requests during popup open.
       setTimeout(() => loadMediaMetadata(item, card), 300);

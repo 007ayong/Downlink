@@ -43,6 +43,8 @@ const {
   getSendLabel,
   getStateLabel,
   handleTaskIconError,
+  inferMediaKindFromMetadata,
+  mediaDurationLabel,
   mediaKindLabel,
   mediaResolutionLabel,
   shouldAutoSwitchToMediaPanel,
@@ -151,6 +153,8 @@ globalThis.getHeaderLogoSrc = getHeaderLogoSrc;
 globalThis.getSendLabel = getSendLabel;
 globalThis.getStateLabel = getStateLabel;
 globalThis.handleTaskIconError = handleTaskIconError;
+globalThis.inferMediaKindFromMetadata = inferMediaKindFromMetadata;
+globalThis.mediaDurationLabel = mediaDurationLabel;
 globalThis.mediaKindLabel = mediaKindLabel;
 globalThis.mediaResolutionLabel = mediaResolutionLabel;
 globalThis.openPreviewTab = openPreviewTab;

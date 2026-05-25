@@ -127,6 +127,26 @@ function renderHeaders(headers = {}) {
   });
 }
 
+function mountPlayer(media) {
+  const playerWrap = document.getElementById('playerWrap');
+  const tagName = media.kind === 'audio' ? 'audio' : 'video';
+  playerWrap.innerHTML = '';
+  const player = document.createElement(tagName);
+  player.controls = true;
+  player.preload = 'metadata';
+  if (tagName === 'video') player.playsInline = true;
+  playerWrap.appendChild(player);
+
+  player.addEventListener('loadedmetadata', () => {
+    setStatus(t('mediaLoaded', undefined, '媒体已加载，可以开始预览。'), 'ok');
+  }, { once: true });
+  player.addEventListener('error', () => {
+    setStatus(t('previewFailedDetail', undefined, '预览失败。该资源可能依赖额外请求头、Cookie 或防盗链校验。'), 'fail');
+  }, { once: true });
+
+  player.src = media.resourceUrl;
+}
+
 function renderMedia(media) {
   document.title = t('previewDocumentTitle', [media.filename || t('previewTitle', undefined, '媒体预览')], `${media.filename || '媒体预览'} - Downlink`);
   document.getElementById('title').textContent = media.filename || t('previewTitle', undefined, '媒体预览');
@@ -142,23 +162,6 @@ function renderMedia(media) {
     ${media.mime ? `<span class="chip">${esc(media.mime)}</span>` : ''}
     ${media.kind === 'video' && media.width && media.height ? `<span class="chip">${esc(`${media.width}×${media.height}`)}</span>` : ''}
   `;
-
-  const playerWrap = document.getElementById('playerWrap');
-  const tagName = media.kind === 'audio' ? 'audio' : 'video';
-  playerWrap.innerHTML = '';
-  const player = document.createElement(tagName);
-  player.controls = true;
-  player.preload = 'metadata';
-  player.src = media.resourceUrl;
-  if (tagName === 'video') player.playsInline = true;
-  playerWrap.appendChild(player);
-
-  player.addEventListener('loadedmetadata', () => {
-    setStatus(t('mediaLoaded', undefined, '媒体已加载，可以开始预览。'), 'ok');
-  }, { once: true });
-  player.addEventListener('error', () => {
-    setStatus(t('previewFailedDetail', undefined, '预览失败。该资源可能依赖额外请求头、Cookie 或防盗链校验。'), 'fail');
-  }, { once: true });
 
   renderHeaders(media.headers || {});
 
@@ -203,7 +206,6 @@ function renderMedia(media) {
     setStatus(result.error || t('mediaExpired', undefined, '媒体资源不存在或已过期。'), 'fail');
     return;
   }
-  renderMedia(result.media);
   const tabId = await getCurrentTabId();
   const prepared = await preparePreview(id, tabId);
   const appliedHeadersEl = document.getElementById('appliedHeaders');
@@ -214,5 +216,7 @@ function renderMedia(media) {
   } else {
     appliedHeadersEl.textContent = prepared.error || t('previewPatchFailed', undefined, '预览请求补头失败');
   }
+  renderMedia(result.media);
+  mountPlayer(result.media);
   window.addEventListener('beforeunload', () => clearPreview(tabId), { once: true });
 })();

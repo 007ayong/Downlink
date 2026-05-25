@@ -929,15 +929,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         break;
       }
+      case 'PREPARE_MEDIA_METADATA': {
+        const media = mediaManager.findMediaResourceById(msg.id);
+        if (!media) {
+          sendResponse({ ok: false, error: t('mediaExpired', undefined, '媒体资源不存在或已过期。') });
+          break;
+        }
+        try {
+          const result = await mediaManager.prepareMetadataRule(media);
+          sendResponse({ ok: true, ...result });
+        } catch (error) {
+          sendResponse({ ok: false, error: error?.message || t('previewPatchFailed', undefined, '预览请求补头失败') });
+        }
+        break;
+      }
       case 'CLEAR_MEDIA_PREVIEW':
         await mediaManager.clearPreviewRule(msg.tabId);
         sendResponse({ ok: true });
         break;
+      case 'CLEAR_MEDIA_METADATA': {
+        await mediaManager.clearMetadataRule(msg.id);
+        sendResponse({ ok: true });
+        break;
+      }
       case 'UPDATE_MEDIA_METADATA': {
         const updated = mediaManager.updateMediaMetadata(msg.id, {
           duration: typeof msg.duration === 'number' ? msg.duration : undefined,
           width: typeof msg.width === 'number' ? msg.width : undefined,
           height: typeof msg.height === 'number' ? msg.height : undefined,
+          kind: ['audio', 'video', 'media'].includes(msg.kind) ? msg.kind : undefined,
         });
         if (!updated) {
           sendResponse({ ok: false });

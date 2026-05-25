@@ -399,6 +399,39 @@ test('video resolution label shows Chinese placeholder before metadata arrives',
   );
 });
 
+test('media metadata can refine audio-only mp4 resources', () => {
+  const popup = loadPopupRuntime();
+  assert.equal(
+    popup.inferMediaKindFromMetadata({ kind: 'video', mime: 'video/mp4' }, { loaded: true, width: 0, height: 0 }),
+    'audio'
+  );
+  assert.equal(
+    popup.inferMediaKindFromMetadata({ kind: 'media', mime: 'application/octet-stream' }, { loaded: true, width: 0, height: 0 }),
+    'audio'
+  );
+  assert.equal(
+    popup.inferMediaKindFromMetadata({ kind: 'video', mime: 'video/mp4' }, { loaded: true, width: 1920, height: 1080 }),
+    'video'
+  );
+  assert.equal(
+    popup.inferMediaKindFromMetadata({ kind: 'media', mime: 'application/octet-stream' }, { loaded: true, width: 1920, height: 1080 }),
+    'video'
+  );
+});
+
+test('ambiguous media kind is not mislabeled as video before metadata arrives', () => {
+  const popup = loadPopupRuntime();
+  assert.equal(popup.mediaKindLabel('media'), '待识别');
+});
+
+test('media duration label formats finite positive durations', () => {
+  const popup = loadPopupRuntime();
+  assert.equal(popup.mediaDurationLabel(65.4), '1:05');
+  assert.equal(popup.mediaDurationLabel(3661), '1:01:01');
+  assert.equal(popup.mediaDurationLabel(0), '');
+  assert.equal(popup.mediaDurationLabel(Infinity), '');
+});
+
 test('media render key changes when filename changes', () => {
   const popup = loadPopupRuntime();
   const before = popup.buildMediaRenderKey([{ id: '1', resourceUrl: 'u', filename: 'a.mp4', size: 1, kind: 'video', mime: 'video/mp4', width: 0, height: 0 }]);
@@ -406,9 +439,17 @@ test('media render key changes when filename changes', () => {
   assert.notEqual(before, after);
 });
 
+test('media render key changes when duration changes', () => {
+  const popup = loadPopupRuntime();
+  const before = popup.buildMediaRenderKey([{ id: '1', resourceUrl: 'u', filename: 'a.mp4', size: 1, kind: 'audio', mime: 'audio/mp4', width: 0, height: 0, duration: 0 }]);
+  const after = popup.buildMediaRenderKey([{ id: '1', resourceUrl: 'u', filename: 'a.mp4', size: 1, kind: 'audio', mime: 'audio/mp4', width: 0, height: 0, duration: 65 }]);
+  assert.notEqual(before, after);
+});
+
 test('task icon category prefers media kind and mime', () => {
   const popup = loadPopupRuntime();
   assert.equal(popup.getFileCategory({ name: 'unknown.bin', kind: 'audio', mime: '' }), 'audio');
+  assert.equal(popup.getFileCategory({ name: 'audio-only.mp4', kind: 'audio', mime: 'video/mp4' }), 'audio');
   assert.equal(popup.getFileCategory({ name: 'unknown.bin', kind: '', mime: 'image/webp' }), 'image');
   assert.equal(popup.getFileCategory({ name: 'installer', kind: '', mime: 'application/x-msdownload' }), 'executable');
 });
@@ -424,7 +465,7 @@ test('task icon path resolves to packaged svg asset', () => {
   const popup = loadPopupRuntime();
   assert.equal(
     popup.getFileIcon({ name: 'movie.mp4', mime: 'video/mp4', kind: '' }),
-    'assets/file-icons/video.svg'
+    'assets/file-icons/media-list-video.png'
   );
 });
 

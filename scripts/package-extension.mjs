@@ -55,6 +55,8 @@ const archivePaths = [
   'lib',
   'assets/empty-downloads.png',
   'assets/empty-media.png',
+  'assets/media-card-audio.png',
+  'assets/media-card-video.png',
   'assets/file-icons',
   'assets/provider-icons',
   'icons',

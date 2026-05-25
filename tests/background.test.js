@@ -29,6 +29,7 @@ function createChromeStub(storedConfig = {}) {
     cancel: [],
     erase: [],
   };
+  const dnrCalls = [];
 
   return {
     _listeners: listeners,
@@ -37,6 +38,7 @@ function createChromeStub(storedConfig = {}) {
     _windowsCalls: windowsCalls,
     _notificationCalls: notificationCalls,
     _downloadCalls: downloadCalls,
+    _dnrCalls: dnrCalls,
     storage: {
       sync: {
         get(defaults, callback) {
@@ -144,7 +146,9 @@ function createChromeStub(storedConfig = {}) {
       },
     },
     declarativeNetRequest: {
-      updateSessionRules: async () => {},
+      updateSessionRules: async (options) => {
+        dnrCalls.push(options);
+      },
     },
     notifications: {
       create(payload) {
@@ -163,8 +167,8 @@ function loadBackgroundRuntime(storedConfig = {}, options = {}) {
     TextDecoder,
     URL,
     URLSearchParams,
-    setTimeout,
-    clearTimeout,
+    setTimeout: options.setTimeout || setTimeout,
+    clearTimeout: options.clearTimeout || clearTimeout,
     setInterval() {
       return 1;
     },
@@ -272,6 +276,61 @@ test('media sniffing still keeps normal direct media resources', () => {
     background.isDirectMediaResource('https://cdn.example.com/video.mp4', 'video/mp4', 'video.mp4'),
     true
   );
+});
+
+test('metadata header rule is cleaned up by the background when popup closes early', async () => {
+  const timers = [];
+  const background = loadBackgroundRuntime({}, {
+    setTimeout(callback, delay) {
+      const timer = { callback, delay, cleared: false };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout(timer) {
+      if (timer) timer.cleared = true;
+    },
+  });
+  const url = 'https://cdn.example.com/video.mp4';
+
+  await invokeSendHeaders(background, {
+    url,
+    tabId: 3,
+    method: 'GET',
+    requestHeaders: [
+      { name: 'Referer', value: 'https://example.com/watch' },
+      { name: 'Cookie', value: 'sid=1' },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 3,
+    frameId: 0,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'video/mp4' },
+      { name: 'content-length', value: '1024' },
+    ],
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const media = state.media[3][0];
+  const result = await invokeBackgroundMessage(background, { type: 'PREPARE_MEDIA_METADATA', id: media.id });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(Array.from(result.headersApplied), ['referer', 'cookie']);
+  const addCall = background.chrome._dnrCalls.find((call) => call.addRules?.length);
+  assert.ok(addCall);
+  assert.equal(addCall.addRules[0].condition.tabIds, undefined);
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].delay, 15000);
+
+  timers[0].callback();
+  await Promise.resolve();
+
+  const removeCall = background.chrome._dnrCalls.find((call) =>
+    call.removeRuleIds?.includes(addCall.addRules[0].id) && !call.addRules
+  );
+  assert.ok(removeCall);
 });
 
 test('motrixnext view action opens extension bridge page', async () => {
