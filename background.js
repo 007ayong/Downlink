@@ -79,6 +79,8 @@ const responseHeadersCache = new Map();
 const redirectIntents = new Map();
 const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
 let contextMenuRefreshVersion = 0;
+const backgroundSessionStartedAt = Date.now();
+const RESTORED_DOWNLOAD_GRACE_MS = 5000;
 
 function normalizeCaptureExtensionsConfig(value) {
   const normalized = String(value || '').replace(/\s+/g, '').toLowerCase();
@@ -431,6 +433,13 @@ function cancelBrowserDownloadItem(item = {}) {
   chrome.downloads.cancel(item.id, () => chrome.downloads.erase({ id: item.id }));
 }
 
+function isRestoredBrowserDownloadItem(item = {}) {
+  if (!item.startTime) return false;
+  const startTime = Date.parse(item.startTime);
+  if (!Number.isFinite(startTime)) return false;
+  return startTime < backgroundSessionStartedAt - RESTORED_DOWNLOAD_GRACE_MS;
+}
+
 const configReady = new Promise((resolve) => {
   chrome.storage.sync.get(DEFAULT_CONFIG, (stored) => {
     config = normalizeConfig({ ...DEFAULT_CONFIG, ...stored });
@@ -768,6 +777,7 @@ chrome.downloads.onDeterminingFilename?.addListener(async (item, suggest) => {
 chrome.downloads.onCreated.addListener(async (item) => {
   await configReady;
   if (!config.autoCapture || item.state === 'complete') return;
+  if (isRestoredBrowserDownloadItem(item)) return;
 
   const url = item.finalUrl || item.url;
   const marked = markedUrls.get(url) || markedUrls.get(item.url);

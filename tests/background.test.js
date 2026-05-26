@@ -416,6 +416,30 @@ test('Aria2 intercepted downloads enter pending queue by default', async () => {
   assert.equal(pending[0].filename, 'file.zip');
 });
 
+test('restored browser downloads from a previous session are not captured on startup', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  await invokeDownloadCreated(background, {
+    id: 77,
+    url: 'https://example.com/old-file.zip',
+    filename: 'old-file.zip',
+    state: 'in_progress',
+    startTime: new Date(Date.now() - 60000).toISOString(),
+    totalBytes: 1024,
+  });
+
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
 test('browser download interception prefers URL filename when Chrome converts plus signs to spaces', async () => {
   const background = loadBackgroundRuntime({
     downloaderType: 'aria2',
