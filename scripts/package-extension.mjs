@@ -53,16 +53,19 @@ const archivePaths = [
   'LICENSE',
   '_locales',
   'lib',
-  'assets/empty-downloads.png',
-  'assets/empty-media.png',
-  'assets/media-card-audio.png',
-  'assets/media-card-video.png',
-  'assets/file-icons',
-  'assets/provider-icons',
+  'assets',
   'icons',
 ];
 
 rmSync(outputPath, { force: true });
-runZip(['-qr', outputPath, ...archivePaths, '-x', '*.DS_Store']);
+runZip([
+  '-qr',
+  outputPath,
+  ...archivePaths,
+  '-x',
+  '*.DS_Store',
+  'assets/chrome-support.png',
+  'assets/edge-support.png',
+]);
 
 console.log(relative(repoRoot, outputPath));

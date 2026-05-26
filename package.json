@@ -1,7 +1,7 @@
 {
   "name": "downlink",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "license": "GPL-3.0-only",
   "scripts": {
     "test": "node --test",
