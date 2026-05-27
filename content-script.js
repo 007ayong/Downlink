@@ -56,6 +56,58 @@
     }
   }
 
+  function looksLikeDownloadLink(link) {
+    if (!link) return false;
+    const href = link.href || '';
+    const downloadAttr = link.getAttribute?.('download');
+    const label = [
+      downloadAttr || '',
+      link.getAttribute?.('aria-label') || '',
+      link.textContent || '',
+      href,
+    ].join(' ');
+    return Boolean(
+      downloadAttr !== undefined && downloadAttr !== null ||
+      /\.(zip|rar|7z|tar|gz|bz2|xz|iso|dmg|exe|msi|deb|pkg|apk|mp4|mkv|avi|mov|webm|mp3|flac|wav|pdf|torrent)(?:[?#]|$)/i.test(href) ||
+      /\b(download|artifact)\b/i.test(label)
+    );
+  }
+
+  function cleanLinkFilename(value = '') {
+    return String(value || '')
+      .replace(/\s+/g, ' ')
+      .replace(/\s*\([^)]*(?:new tab|opens)[^)]*\)\s*$/i, '')
+      .replace(/^\s*download\s+/i, '')
+      .trim();
+  }
+
+  function inferLinkFilename(link) {
+    if (!link) return '';
+    const downloadName = cleanLinkFilename(link.getAttribute?.('download') || '');
+    if (downloadName) return downloadName;
+    const ariaName = cleanLinkFilename(link.getAttribute?.('aria-label') || '');
+    if (ariaName) return ariaName;
+    const textName = cleanLinkFilename(link.textContent || '');
+    if (textName) return textName;
+    try {
+      return cleanLinkFilename(new URL(link.href || '').pathname.split('/').pop() || '');
+    } catch {
+      return cleanLinkFilename(String(link.href || '').split('?')[0].split('/').pop() || '');
+    }
+  }
+
+  function trackDownloadClickIntent(event) {
+    const link = findLink(event.target);
+    if (!looksLikeDownloadLink(link)) return;
+    const message = {
+      type: 'TRACK_DOWNLOAD_CLICK',
+      url: link.href || '',
+    };
+    const filename = inferLinkFilename(link);
+    if (filename) message.filename = filename;
+    sendRuntimeMessage(message).catch(() => {});
+  }
+
   function handleBypassGesture(event) {
     const expectedModifier = normalizeShortcut(config.captureBypassModifier || DEFAULT_CONFIG.captureBypassModifier);
     if (expectedModifier === 'none' || shortcutFromEvent(event) !== expectedModifier) return;
@@ -81,8 +133,12 @@
     applyConfig(nextConfig);
   });
 
-  document.addEventListener('pointerdown', handleBypassGesture, true);
+  document.addEventListener('pointerdown', (event) => {
+    trackDownloadClickIntent(event);
+    handleBypassGesture(event);
+  }, true);
   document.addEventListener('click', (event) => {
+    if (event.detail === 0) trackDownloadClickIntent(event);
     if (event.detail !== 0) return;
     handleBypassGesture(event);
   }, true);

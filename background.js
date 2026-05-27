@@ -61,6 +61,8 @@ const {
   filenameFromCD,
   filenameFromUrl,
   isDirectMediaResource,
+  isLowQualityFilename,
+  sanitizeFilenamePart,
 } = shared;
 
 let config = { ...DEFAULT_CONFIG };
@@ -68,10 +70,10 @@ let tasks = {};
 let pendingDownloads = {};
 let hiddenTaskGids = {};
 let uiAlert = null;
-let taskSurfaceWindowId = null;
 let taskSurfaceOpenPromise = null;
 
 const markedUrls = new Map();
+const downloadClickIntents = new Map();
 const responseCaptureClaims = new Map();
 const bypassCaptureClicks = new Map();
 const requestHeadersCache = new Map();
@@ -168,6 +170,77 @@ function markBypassCaptureClick({ url, modifier, tabId } = {}) {
   return true;
 }
 
+function normalizeSourceFilename(filename = '') {
+  return sanitizeFilenamePart(decodeHttpFilename(filename));
+}
+
+function extensionFromDownloadMime(mime = '') {
+  const normalized = String(mime || '').split(';')[0].trim().toLowerCase();
+  const map = {
+    'application/zip': 'zip',
+    'application/x-zip-compressed': 'zip',
+    'application/x-rar': 'rar',
+    'application/vnd.rar': 'rar',
+    'application/x-7z-compressed': '7z',
+    'application/x-tar': 'tar',
+    'application/gzip': 'gz',
+    'application/x-bzip2': 'bz2',
+    'application/x-xz': 'xz',
+    'application/x-iso9660-image': 'iso',
+    'application/x-msdownload': 'exe',
+    'application/vnd.microsoft.portable-executable': 'exe',
+    'application/vnd.android.package-archive': 'apk',
+    'application/x-apple-diskimage': 'dmg',
+    'application/x-deb': 'deb',
+    'application/pdf': 'pdf',
+    'application/x-bittorrent': 'torrent',
+  };
+  return map[normalized] || '';
+}
+
+function addExtensionFromCandidates(filename = '', { mime = '', candidates = [] } = {}) {
+  const cleanName = normalizeSourceFilename(filename);
+  if (!cleanName || extOf(cleanName)) return cleanName;
+  const ext = candidates.map((item) => extOf(item)).find(Boolean) || extensionFromDownloadMime(mime);
+  return ext ? `${cleanName}.${ext}` : cleanName;
+}
+
+function resolveCapturedFilename(primaryFilename = '', { sourceFilename = '', mime = '', candidates = [] } = {}) {
+  const primary = decodeHttpFilename(primaryFilename);
+  const source = normalizeSourceFilename(sourceFilename);
+  if (source && !isLowQualityFilename(source) && (!primary || isLowQualityFilename(primary))) {
+    return addExtensionFromCandidates(source, { mime, candidates: [primary, ...candidates] });
+  }
+  return primary;
+}
+
+function rememberDownloadClickIntent({ url, tabId, windowId, filename } = {}) {
+  const normalizedUrl = normalizeBypassUrl(url);
+  if (!normalizedUrl || typeof tabId !== 'number' || tabId < 0) return false;
+  downloadClickIntents.set(normalizedUrl, {
+    tabId,
+    windowId: typeof windowId === 'number' ? windowId : undefined,
+    filename: normalizeSourceFilename(filename),
+    expiresAt: Date.now() + 30000,
+  });
+  cleanExpired(downloadClickIntents);
+  return true;
+}
+
+function getDownloadClickIntent(...urls) {
+  cleanExpired(downloadClickIntents);
+  for (const url of urls) {
+    const normalizedUrl = normalizeBypassUrl(url);
+    if (!normalizedUrl) continue;
+    const intent = downloadClickIntents.get(normalizedUrl);
+    if (intent) {
+      downloadClickIntents.delete(normalizedUrl);
+      return intent;
+    }
+  }
+  return null;
+}
+
 function shouldBypassAutoCapture(item, url, marked, { consume = true } = {}) {
   cleanBypassCaptureClicks();
   const requestMeta = requestHeadersCache.get(url) || requestHeadersCache.get(item?.url) || requestHeadersCache.get(item?.finalUrl);
@@ -212,41 +285,11 @@ async function openTaskSurface() {
   if (taskSurfaceOpenPromise) return taskSurfaceOpenPromise;
 
   taskSurfaceOpenPromise = (async () => {
-    if (taskSurfaceWindowId !== null) {
-      try {
-        if (chrome.windows?.update) await chrome.windows.update(taskSurfaceWindowId, { focused: true });
-        return true;
-      } catch {
-        taskSurfaceWindowId = null;
-      }
-    }
-
     try {
       await chrome.action.openPopup();
       return true;
     } catch {
-      try {
-        if (taskSurfaceWindowId !== null) {
-          if (chrome.windows?.update) await chrome.windows.update(taskSurfaceWindowId, { focused: true });
-          return true;
-        }
-        if (chrome.windows?.create) {
-          const win = await chrome.windows.create({
-            url: chrome.runtime.getURL('popup.html'),
-            type: 'popup',
-            width: 420,
-            height: 720,
-          });
-          if (typeof win?.id === 'number') taskSurfaceWindowId = win.id;
-          return true;
-        }
-      } catch {}
-      try {
-        await chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
-        return true;
-      } catch {
-        return false;
-      }
+      return false;
     }
   })();
 
@@ -257,11 +300,46 @@ async function openTaskSurface() {
   }
 }
 
+function getTab(tabId) {
+  return new Promise((resolve) => {
+    if (typeof tabId !== 'number' || tabId < 0 || !chrome.tabs?.get) {
+      resolve(null);
+      return;
+    }
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError || !tab) {
+        resolve(null);
+        return;
+      }
+      resolve(tab);
+    });
+  });
+}
+
+async function focusPopupTarget({ tabId, windowId } = {}) {
+  const tab = await getTab(tabId);
+  const targetWindowId = typeof windowId === 'number' ? windowId : tab?.windowId;
+  try {
+    if (typeof targetWindowId === 'number') await chrome.windows?.update?.(targetWindowId, { focused: true });
+  } catch {}
+  try {
+    if (typeof tab?.id === 'number') await chrome.tabs?.update?.(tab.id, { active: true });
+  } catch {}
+}
+
+async function openTaskSurfaceForTask(taskInfo = {}) {
+  await focusPopupTarget({
+    tabId: taskInfo.sourceTabId,
+    windowId: taskInfo.sourceWindowId,
+  });
+  return openTaskSurface();
+}
+
 async function enqueuePendingDownload(taskInfo, { openSurface = true } = {}) {
   const key = taskInfo?.key || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
   pendingDownloads[key] = { ...taskInfo, key };
   broadcastUpdate();
-  if (openSurface) await openTaskSurface();
+  if (openSurface) await openTaskSurfaceForTask(taskInfo);
   return key;
 }
 
@@ -366,6 +444,9 @@ function rememberRedirectIntent(sourceUrl = '', redirectUrl = '', details = {}) 
     method: details.method || requestMeta.method || '',
     headers: requestMeta.headers || {},
     tabId: details.tabId,
+    sourceTabId: requestMeta.sourceTabId,
+    sourceWindowId: requestMeta.sourceWindowId,
+    sourceFilename: requestMeta.sourceFilename,
     expiresAt: Date.now() + 30000,
   };
   redirectIntents.set(redirectUrl, intent);
@@ -428,9 +509,50 @@ function isPostRedirectIntentCandidate(details = {}, redirectUrl = '') {
   return true;
 }
 
+function isDownloadInProgress(item = {}) {
+  return !item.state || item.state === 'in_progress';
+}
+
+function eraseBrowserDownloadItem(downloadId) {
+  chrome.downloads.erase({ id: downloadId }, () => {
+    const ignoredError = chrome.runtime.lastError;
+    void ignoredError;
+  });
+}
+
 function cancelBrowserDownloadItem(item = {}) {
   if (typeof item.id !== 'number') return;
-  chrome.downloads.cancel(item.id, () => chrome.downloads.erase({ id: item.id }));
+  if (!isDownloadInProgress(item)) {
+    eraseBrowserDownloadItem(item.id);
+    return;
+  }
+
+  const cancel = () => {
+    chrome.downloads.cancel(item.id, () => {
+      const ignoredError = chrome.runtime.lastError;
+      void ignoredError;
+      eraseBrowserDownloadItem(item.id);
+    });
+  };
+
+  if (!chrome.downloads.search) {
+    cancel();
+    return;
+  }
+
+  chrome.downloads.search({ id: item.id }, (items = []) => {
+    const searchError = chrome.runtime.lastError;
+    if (searchError) {
+      cancel();
+      return;
+    }
+    const current = items?.[0];
+    if (!current || !isDownloadInProgress(current)) {
+      eraseBrowserDownloadItem(item.id);
+      return;
+    }
+    cancel();
+  });
 }
 
 function isRestoredBrowserDownloadItem(item = {}) {
@@ -549,7 +671,7 @@ async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false, 
   const message = result?.error || buildConnectionFailureText(getDownloaderLabel(config.downloaderType));
   if (shouldReportFailure()) {
     setUiAlert({ type: 'connection-failure', message });
-    if (openPopupOnFailure) await openTaskSurface();
+    if (openPopupOnFailure) await openTaskSurfaceForTask(taskInfo);
   }
   return { ...result, error: message };
 }
@@ -621,7 +743,16 @@ chrome.webRequest.onSendHeaders.addListener(
     if (!config.autoCapture) return;
     const headers = {};
     for (const header of details.requestHeaders || []) headers[header.name.toLowerCase()] = header.value;
-    requestHeadersCache.set(details.url, { headers, method: details.method, tabId: details.tabId, expiresAt: Date.now() + 60000 });
+    const clickIntent = getDownloadClickIntent(details.url);
+    requestHeadersCache.set(details.url, {
+      headers,
+      method: details.method,
+      tabId: details.tabId,
+      sourceTabId: clickIntent?.tabId,
+      sourceWindowId: clickIntent?.windowId,
+      sourceFilename: clickIntent?.filename,
+      expiresAt: Date.now() + 60000,
+    });
     cleanExpired(requestHeadersCache);
   },
   { urls: ['<all_urls>'] },
@@ -643,6 +774,9 @@ chrome.webRequest.onHeadersReceived.addListener(
         contentType,
         totalBytes,
         tabId: details.tabId,
+        sourceTabId: requestHeadersCache.get(details.url)?.sourceTabId,
+        sourceWindowId: requestHeadersCache.get(details.url)?.sourceWindowId,
+        sourceFilename: requestHeadersCache.get(details.url)?.sourceFilename,
         expiresAt: Date.now() + 60000,
       });
       cleanExpired(responseHeadersCache);
@@ -657,6 +791,10 @@ chrome.webRequest.onHeadersReceived.addListener(
           expiresAt: Date.now() + 30000,
         });
         deleteRedirectIntent(details.url);
+        return;
+      }
+      if (typeof requestHeadersCache.get(details.url)?.sourceTabId === 'number') {
+        rememberRedirectIntent(details.url, redirectUrl, details);
         return;
       }
       if (isPostRedirectIntentCandidate(details, redirectUrl)) rememberRedirectIntent(details.url, redirectUrl, details);
@@ -681,6 +819,9 @@ chrome.webRequest.onHeadersReceived.addListener(
       captureSource: redirectIntent ? 'redirect' : classification.source,
       captureReason: classification.reason,
       tabId: typeof redirectIntent?.tabId === 'number' ? redirectIntent.tabId : details.tabId,
+      sourceTabId: typeof redirectIntent?.sourceTabId === 'number' ? redirectIntent.sourceTabId : requestHeadersCache.get(details.url)?.sourceTabId,
+      sourceWindowId: typeof redirectIntent?.sourceWindowId === 'number' ? redirectIntent.sourceWindowId : requestHeadersCache.get(details.url)?.sourceWindowId,
+      sourceFilename: redirectIntent?.sourceFilename || requestHeadersCache.get(details.url)?.sourceFilename,
       size: totalBytes,
       expiresAt: Date.now() + 30000,
     });
@@ -697,10 +838,17 @@ chrome.webRequest.onHeadersReceived.addListener(
 
     const reqHeaders = requestHeadersCache.get(details.url)?.headers || redirectIntent?.headers || {};
     const key = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const responseSourceFilename = redirectIntent?.sourceFilename || requestHeadersCache.get(details.url)?.sourceFilename;
+    const responseUrlFilename = filenameFromUrl(details.url);
+    const responsePrimaryFilename = preferredUrlFilename(responseUrlFilename) || classification.filename || responseUrlFilename || '';
     const taskInfo = {
       key,
       url: details.url,
-      filename: decodeHttpFilename(preferredUrlFilename(filenameFromUrl(details.url)) || classification.filename || filenameFromUrl(details.url) || ''),
+      filename: resolveCapturedFilename(responsePrimaryFilename, {
+        sourceFilename: responseSourceFilename,
+        mime: classification.mime,
+        candidates: [classification.filename, responseUrlFilename],
+      }),
       size: totalBytes,
       mime: classification.mime,
       contentDisposition,
@@ -709,6 +857,9 @@ chrome.webRequest.onHeadersReceived.addListener(
       headers: reqHeaders,
       origin: reqHeaders.origin || deriveOrigin(details.url, reqHeaders.referer || redirectIntent?.sourceUrl || ''),
       referrer: reqHeaders.referer || redirectIntent?.sourceUrl || '',
+      sourceTabId: typeof redirectIntent?.sourceTabId === 'number' ? redirectIntent.sourceTabId : requestHeadersCache.get(details.url)?.sourceTabId,
+      sourceWindowId: typeof redirectIntent?.sourceWindowId === 'number' ? redirectIntent.sourceWindowId : requestHeadersCache.get(details.url)?.sourceWindowId,
+      sourceFilename: responseSourceFilename,
       addedAt: Date.now(),
     };
 
@@ -739,7 +890,7 @@ chrome.webRequest.onHeadersReceived.addListener(
 );
 
 chrome.downloads.onDeterminingFilename?.addListener(async (item, suggest) => {
-  if (!config.autoCapture || item.state === 'complete') {
+  if (!config.autoCapture || !isDownloadInProgress(item)) {
     suggest?.();
     return;
   }
@@ -776,7 +927,7 @@ chrome.downloads.onDeterminingFilename?.addListener(async (item, suggest) => {
 
 chrome.downloads.onCreated.addListener(async (item) => {
   await configReady;
-  if (!config.autoCapture || item.state === 'complete') return;
+  if (!config.autoCapture || !isDownloadInProgress(item)) return;
   if (isRestoredBrowserDownloadItem(item)) return;
 
   const url = item.finalUrl || item.url;
@@ -807,6 +958,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
   const headerFilename = filenameFromCD(marked?.contentDisposition || cachedResponse.contentDisposition || '');
   const headerPreferredFilename = preferredUrlFilename(headerFilename);
   const markedPreferredFilename = preferredUrlFilename(marked?.filename || '');
+  const sourceFilename = marked?.sourceFilename || requestHeadersCache.get(url)?.sourceFilename || requestHeadersCache.get(item.url)?.sourceFilename || cachedResponse.sourceFilename || '';
   const classification = classifyDownloadCandidate(config, {
     url,
     filename: urlPreferredFilename || headerPreferredFilename || browserFilename || headerFilename,
@@ -825,8 +977,16 @@ chrome.downloads.onCreated.addListener(async (item) => {
 
   cancelBrowserDownloadItem(item);
 
-  const filename = decodeHttpFilename(urlPreferredFilename || headerPreferredFilename || browserFilename || markedPreferredFilename || classification.filename || headerFilename || urlFilename || '');
-  const reqHeaders = requestHeadersCache.get(url)?.headers || requestHeadersCache.get(item.url)?.headers || {};
+  const requestMeta = requestHeadersCache.get(url) || requestHeadersCache.get(item.url) || {};
+  const reqHeaders = requestMeta.headers || {};
+  const filename = resolveCapturedFilename(
+    urlPreferredFilename || headerPreferredFilename || browserFilename || markedPreferredFilename || classification.filename || headerFilename || urlFilename || '',
+    {
+      sourceFilename,
+      mime: marked?.mime || cachedResponse.contentType || item.mime || classification.mime || '',
+      candidates: [urlPreferredFilename, headerPreferredFilename, browserFilename, markedPreferredFilename, classification.filename, headerFilename, urlFilename],
+    }
+  );
 
   if (marked) {
     markedUrls.delete(url);
@@ -846,6 +1006,9 @@ chrome.downloads.onCreated.addListener(async (item) => {
     headers: reqHeaders,
     origin: reqHeaders.origin || deriveOrigin(url, reqHeaders.referer || ''),
     referrer: reqHeaders.referer || '',
+    sourceTabId: typeof marked?.sourceTabId === 'number' ? marked.sourceTabId : requestMeta.sourceTabId || cachedResponse.sourceTabId,
+    sourceWindowId: typeof marked?.sourceWindowId === 'number' ? marked.sourceWindowId : requestMeta.sourceWindowId || cachedResponse.sourceWindowId,
+    sourceFilename,
     addedAt: Date.now(),
   };
 
@@ -871,6 +1034,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             url: msg.url,
             modifier: msg.modifier,
             tabId: sender?.tab?.id,
+          }),
+        });
+        break;
+      case 'TRACK_DOWNLOAD_CLICK':
+        sendResponse({
+          ok: rememberDownloadClickIntent({
+            url: msg.url,
+            filename: msg.filename,
+            tabId: sender?.tab?.id,
+            windowId: sender?.tab?.windowId,
           }),
         });
         break;
@@ -1088,6 +1261,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     filename: url.split('?')[0].split('/').pop() || '',
     headers: reqHeaders,
     referrer: reqHeaders.referer || tab?.url || '',
+    sourceTabId: tab?.id,
+    sourceWindowId: tab?.windowId,
     addedAt: Date.now(),
   };
   if (config.downloaderType === 'motrixnext') {
@@ -1100,10 +1275,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   mediaManager.clearTabState(tabId);
   mediaManager.clearPreviewRule(tabId);
-});
-
-chrome.windows?.onRemoved?.addListener((windowId) => {
-  if (windowId === taskSurfaceWindowId) taskSurfaceWindowId = null;
 });
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {

@@ -20,14 +20,17 @@ function createChromeStub(storedConfig = {}) {
   };
   const tabsCalls = {
     create: [],
+    update: [],
   };
   const windowsCalls = {
     create: [],
+    update: [],
   };
   const notificationCalls = [];
   const downloadCalls = {
     cancel: [],
     erase: [],
+    lastErrorReads: 0,
   };
   const dnrCalls = [];
 
@@ -86,8 +89,12 @@ function createChromeStub(storedConfig = {}) {
         downloadCalls.cancel.push(_id);
         callback?.();
       },
-      erase(query) {
+      search(query, callback) {
+        callback?.([{ id: query.id, state: 'in_progress' }]);
+      },
+      erase(query, callback) {
         downloadCalls.erase.push(query);
+        callback?.();
       },
     },
     runtime: {
@@ -102,7 +109,14 @@ function createChromeStub(storedConfig = {}) {
       onStartup: {
         addListener() {},
       },
-      lastError: null,
+      _lastError: null,
+      get lastError() {
+        downloadCalls.lastErrorReads += 1;
+        return this._lastError;
+      },
+      set lastError(value) {
+        this._lastError = value;
+      },
       sendMessage() {
         return Promise.resolve();
       },
@@ -127,7 +141,11 @@ function createChromeStub(storedConfig = {}) {
         return { id: 1 };
       },
       get(_tabId, callback) {
-        callback?.({ title: '', url: '' });
+        callback?.({ id: _tabId, windowId: 3, title: '', url: '' });
+      },
+      update: async (tabId, opts) => {
+        tabsCalls.update.push({ tabId, opts });
+        return { id: tabId };
       },
       onRemoved: {
         addListener() {},
@@ -143,6 +161,10 @@ function createChromeStub(storedConfig = {}) {
       create: async (opts) => {
         windowsCalls.create.push(opts);
         return { id: 2 };
+      },
+      update: async (windowId, opts) => {
+        windowsCalls.update.push({ windowId, opts });
+        return { id: windowId };
       },
     },
     declarativeNetRequest: {
@@ -414,6 +436,78 @@ test('Aria2 intercepted downloads enter pending queue by default', async () => {
   assert.equal(pending.length, 1);
   assert.equal(pending[0].url, 'https://example.com/file.zip');
   assert.equal(pending[0].filename, 'file.zip');
+});
+
+test('browser download cancel reads expected lastError when item is no longer in progress', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+  background.chrome.downloads.cancel = (_id, callback) => {
+    background.chrome._downloadCalls.cancel.push(_id);
+    background.chrome.runtime.lastError = { message: 'Download must be in progress' };
+    callback?.();
+    background.chrome.runtime.lastError = null;
+  };
+  background.chrome._downloadCalls.lastErrorReads = 0;
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [1]);
+  assert.equal(background.chrome._downloadCalls.lastErrorReads > 0, true);
+});
+
+test('browser download cancel skips cancel when current download already completed', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+  background.chrome.downloads.search = (_query, callback) => {
+    callback?.([{ id: 1, state: 'complete' }]);
+  };
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  assert.equal(JSON.stringify(background.chrome._downloadCalls.erase), JSON.stringify([{ id: 1 }]));
+});
+
+test('interrupted browser downloads are ignored by auto capture', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'interrupted',
+    totalBytes: 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  assert.deepEqual(background.chrome._downloadCalls.erase, []);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.values(state.pending || {}).length, 0);
 });
 
 test('restored browser downloads from a previous session are not captured on startup', async () => {
@@ -2050,7 +2144,7 @@ test('tab-scoped bypass does not release another tab download', async () => {
   assert.deepEqual(background.chrome._downloadCalls.cancel, [1]);
 });
 
-test('Aria2 pending confirmation falls back to popup window when action popup is blocked', async () => {
+test('Aria2 pending confirmation does not open a fallback window when action popup is blocked', async () => {
   const background = loadBackgroundRuntime(
     {
       downloaderType: 'aria2',
@@ -2060,6 +2154,7 @@ test('Aria2 pending confirmation falls back to popup window when action popup is
     }
   );
   background.chrome.action.openPopup = async () => {
+    background.chrome._actionCalls.openPopup += 1;
     throw new Error('openPopup requires user gesture');
   };
 
@@ -2071,13 +2166,191 @@ test('Aria2 pending confirmation falls back to popup window when action popup is
     totalBytes: 1024,
   });
 
-  assert.equal(background.chrome._windowsCalls.create.length, 1);
-  assert.equal(background.chrome._windowsCalls.create[0].type, 'popup');
-  assert.equal(background.chrome._windowsCalls.create[0].url, 'chrome-extension://test/popup.html');
+  assert.equal(background.chrome._actionCalls.openPopup, 1);
+  assert.equal(background.chrome._windowsCalls.create.length, 0);
   assert.equal(background.chrome._tabsCalls.create.length, 0);
 });
 
-test('automatic send failures reuse one fallback task popup window', async () => {
+test('new-tab download confirmations focus the original clicked tab before opening popup', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      autoCapture: true,
+      aria2Silent: false,
+      captureExtensions: 'zip',
+      captureMime: true,
+    }
+  );
+  const artifactUrl = 'https://github.com/oceandrift7/YTLocalQueue/actions/runs/26190396891/artifacts/7121736843';
+  const downloadUrl = 'https://objects.githubusercontent.com/github-production-release-asset/file.zip';
+
+  const tracked = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'TRACK_DOWNLOAD_CLICK',
+      url: artifactUrl,
+      filename: 'YTLocalQueue-deb',
+    },
+    { tab: { id: 12, windowId: 34 } }
+  );
+  assert.equal(tracked.ok, true);
+
+  await invokeSendHeaders(background, {
+    url: artifactUrl,
+    tabId: 44,
+    method: 'GET',
+    requestHeaders: [],
+  });
+  await invokeResponseHeaders(background, {
+    url: artifactUrl,
+    tabId: 44,
+    type: 'main_frame',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: downloadUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: downloadUrl,
+    tabId: 44,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="file.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '1024' },
+    ],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(JSON.stringify(background.chrome._windowsCalls.update), JSON.stringify([{ windowId: 34, opts: { focused: true } }]));
+  assert.equal(JSON.stringify(background.chrome._tabsCalls.update), JSON.stringify([{ tabId: 12, opts: { active: true } }]));
+  assert.equal(background.chrome._actionCalls.openPopup, 1);
+  assert.equal(background.chrome._windowsCalls.create.length, 0);
+  assert.equal(background.chrome._tabsCalls.create.length, 0);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.values(state.pending || {})[0]?.filename, 'YTLocalQueue-deb.zip');
+});
+
+test('low-quality clicked filenames do not replace generic server filenames', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      autoCapture: true,
+      aria2Silent: false,
+      captureExtensions: 'zip',
+      captureMime: true,
+    }
+  );
+  const artifactUrl = 'https://github.com/example/project/actions/runs/1/artifacts/2';
+  const downloadUrl = 'https://objects.githubusercontent.com/github-production-release-asset/file.zip';
+
+  const tracked = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'TRACK_DOWNLOAD_CLICK',
+      url: artifactUrl,
+      filename: 'Download',
+    },
+    { tab: { id: 12, windowId: 34 } }
+  );
+  assert.equal(tracked.ok, true);
+
+  await invokeSendHeaders(background, {
+    url: artifactUrl,
+    tabId: 44,
+    method: 'GET',
+    requestHeaders: [],
+  });
+  await invokeResponseHeaders(background, {
+    url: artifactUrl,
+    tabId: 44,
+    type: 'main_frame',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: downloadUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: downloadUrl,
+    tabId: 44,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="file.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '1024' },
+    ],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.values(state.pending || {})[0]?.filename, 'file.zip');
+});
+
+test('download click intent is consumed by the first matching request', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      autoCapture: true,
+      aria2Silent: false,
+      captureExtensions: 'zip',
+      captureMime: true,
+    }
+  );
+  const artifactUrl = 'https://github.com/example/project/actions/runs/1/artifacts/2';
+  const downloadUrl = 'https://objects.githubusercontent.com/github-production-release-asset/file.zip';
+
+  const tracked = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'TRACK_DOWNLOAD_CLICK',
+      url: artifactUrl,
+      filename: 'SourceArtifact',
+    },
+    { tab: { id: 12, windowId: 34 } }
+  );
+  assert.equal(tracked.ok, true);
+
+  await invokeSendHeaders(background, {
+    url: artifactUrl,
+    tabId: 44,
+    method: 'GET',
+    requestHeaders: [],
+  });
+  await invokeSendHeaders(background, {
+    url: artifactUrl,
+    tabId: 45,
+    method: 'GET',
+    requestHeaders: [],
+  });
+  await invokeResponseHeaders(background, {
+    url: artifactUrl,
+    tabId: 45,
+    type: 'main_frame',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: downloadUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: downloadUrl,
+    tabId: 45,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="file.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '1024' },
+    ],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.values(state.pending || {})[0]?.filename, 'file.zip');
+});
+
+test('automatic send failures do not open fallback task windows', async () => {
   const background = loadBackgroundRuntime(
     {
       downloaderType: 'abdownload',
@@ -2112,8 +2385,8 @@ test('automatic send failures reuse one fallback task popup window', async () =>
     totalBytes: 1024,
   });
 
-  assert.equal(background.chrome._actionCalls.openPopup, 1);
-  assert.equal(background.chrome._windowsCalls.create.length, 1);
+  assert.equal(background.chrome._actionCalls.openPopup, 2);
+  assert.equal(background.chrome._windowsCalls.create.length, 0);
   assert.equal(background.chrome._tabsCalls.create.length, 0);
   assert.equal(background.chrome._notificationCalls.length, 1);
   assert.equal(background.chrome._notificationCalls[0].title, '与 AB DM 连接失败');

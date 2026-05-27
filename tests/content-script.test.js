@@ -4,15 +4,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function createElement({ href, target = '', download = undefined } = {}) {
+function createElement({ href, target = '', download = undefined, ariaLabel = '', textContent = '' } = {}) {
   const attrs = {};
   if (download !== undefined) attrs.download = download;
+  if (ariaLabel) attrs['aria-label'] = ariaLabel;
   return {
     href,
     target,
+    textContent,
     parentElement: null,
     getAttribute(name) {
       if (name === 'download') return Object.prototype.hasOwnProperty.call(attrs, name) ? attrs[name] : null;
+      if (name === 'aria-label') return Object.prototype.hasOwnProperty.call(attrs, name) ? attrs[name] : null;
       return null;
     },
     closest(selector) {
@@ -45,6 +48,7 @@ function loadContentScript({ config = {}, sendMessage } = {}) {
   const listeners = {};
   const openedWindows = [];
   let assignedLocation = 'https://page.example/current';
+
   const context = {
     URL,
     setTimeout,
@@ -231,11 +235,18 @@ test('bypass gesture still marks next download for matching modifier', async () 
 
   await runtime.dispatchPointerdown(link, { altKey: true });
 
-  assert.deepEqual(messages.map(message => ({ ...message })), [{
-    type: 'BYPASS_NEXT_DOWNLOAD',
-    url: 'https://files.example/file.zip',
-    modifier: 'alt',
-  }]);
+  assert.deepEqual(messages.map(message => ({ ...message })), [
+    {
+      type: 'TRACK_DOWNLOAD_CLICK',
+      url: 'https://files.example/file.zip',
+      filename: 'file.zip',
+    },
+    {
+      type: 'BYPASS_NEXT_DOWNLOAD',
+      url: 'https://files.example/file.zip',
+      modifier: 'alt',
+    },
+  ]);
 });
 
 test('direct file links with new-window targets are not intercepted', async () => {
@@ -252,6 +263,33 @@ test('direct file links with new-window targets are not intercepted', async () =
 
   assert.equal(event.defaultPrevented, false);
   assert.deepEqual(messages, []);
+  assert.deepEqual(runtime.openedWindows, []);
+  assert.equal(runtime.locationHref, 'https://page.example/current');
+});
+
+test('new-window artifact links report their source tab without intercepting navigation', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+  const link = createElement({
+    href: 'https://github.com/oceandrift7/YTLocalQueue/actions/runs/26190396891/artifacts/7121736843',
+    target: '_blank',
+    ariaLabel: 'Download YTLocalQueue-deb (opens in a new tab)',
+    textContent: 'YTLocalQueue-deb',
+  });
+
+  const event = await runtime.dispatchPointerdown(link);
+
+  assert.equal(event.defaultPrevented, false);
+  assert.deepEqual(messages.map(message => ({ ...message })), [{
+    type: 'TRACK_DOWNLOAD_CLICK',
+    url: 'https://github.com/oceandrift7/YTLocalQueue/actions/runs/26190396891/artifacts/7121736843',
+    filename: 'YTLocalQueue-deb',
+  }]);
   assert.deepEqual(runtime.openedWindows, []);
   assert.equal(runtime.locationHref, 'https://page.example/current');
 });
