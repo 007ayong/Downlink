@@ -97,7 +97,7 @@ Required fields:
 - API URL, default `http://127.0.0.1:9999`
 - Token, optional
 
-Downlink sends tasks through the Gopeed HTTP API with `POST /api/v1/tasks`. Intercepted normal downloads enter the confirmation panel first. `opt.extra.connections = 1` is sent only when "Single thread, no splitting" is checked in the confirmation panel; otherwise connection options are omitted. The extension does not pass a save path to Gopeed, so the downloader controls the download location.
+Downlink sends tasks through the Gopeed HTTP API with `POST /api/v1/tasks`. Intercepted normal downloads enter the confirmation panel first. `opts.extra.connections = 1` is sent only when "Single thread, no splitting" is checked in the confirmation panel; otherwise connection options are omitted. The extension does not pass a save path to Gopeed, so the downloader controls the download location.
 
 ### AB DM
 

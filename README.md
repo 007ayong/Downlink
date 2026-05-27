@@ -97,7 +97,7 @@ Downlink 会直接向本机 MotrixNext HTTP 接收服务发送 `POST /add`，请
 - API 地址，默认 `http://127.0.0.1:9999`
 - Token，可留空
 
-Downlink 会通过 Gopeed HTTP API 发送 `POST /api/v1/tasks`。浏览器拦截到的普通下载会先进入确认面板；只有在确认面板勾选“单线程不分片下载”时才会传递 `opt.extra.connections = 1`，否则不传递连接数参数。扩展不会向 Gopeed 指定保存路径，由 Gopeed 端控制下载位置。
+Downlink 会通过 Gopeed HTTP API 发送 `POST /api/v1/tasks`。浏览器拦截到的普通下载会先进入确认面板；只有在确认面板勾选“单线程不分片下载”时才会传递 `opts.extra.connections = 1`，否则不传递连接数参数。扩展不会向 Gopeed 指定保存路径，由 Gopeed 端控制下载位置。
 
 ### AB DM
 
