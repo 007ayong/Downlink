@@ -923,6 +923,7 @@
       <select class="settings-input wide" id="cfgDownloaderType">
         <option value="aria2">Aria2 RPC</option>
         <option value="motrixnext">MotrixNext</option>
+        <option value="gopeed">Gopeed</option>
         <option value="abdownload">AB DM</option>
         <option value="neatdm">NeatDM</option>
       </select>
@@ -1003,6 +1004,21 @@
         <div class="conn-result" id="connResultMotrixNext"></div>
       </label>
       <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="testMotrixNextBtn" data-i18n="test">测试</button>
+    </div>
+    <div class="settings-row col gopeed-only settings-hidden">
+      <label><span data-i18n="settingsGopeedApi">Gopeed API 地址</span> <span class="settings-sub" data-i18n="settingsGopeedApiSub">默认 http://127.0.0.1:9999</span></label>
+      <input class="settings-input wide" id="cfgGopeedApi" type="text" placeholder="http://127.0.0.1:9999"/>
+    </div>
+    <div class="settings-row col gopeed-only settings-hidden">
+      <label><span data-i18n="settingsGopeedToken">Gopeed Token</span> <span class="settings-sub" data-i18n="settingsGopeedTokenSub">对应 Gopeed API Token；留空则不使用</span></label>
+      <input class="settings-input wide" id="cfgGopeedToken" type="password" placeholder="留空则不使用" data-i18n-placeholder="settingsRpcSecretPlaceholder"/>
+    </div>
+    <div class="settings-row gopeed-only settings-hidden">
+      <label style="flex:1">
+        <div style="margin-bottom:4px" data-i18n="settingsTestConnection">测试连接</div>
+        <div class="conn-result" id="connResultGopeed"></div>
+      </label>
+      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="testGopeedBtn" data-i18n="test">测试</button>
     </div>
     <div class="settings-row neatdm-only settings-hidden">
       <label style="flex:1">

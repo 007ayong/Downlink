@@ -22,6 +22,17 @@ function getAria2SingleThreadOptions() {
   };
 }
 
+function getGopeedSingleThreadOptions() {
+  return {
+    gopeedSingleThread: true,
+  };
+}
+
+function getSingleThreadOptions(cfg = currentConfig) {
+  if (cfg.downloaderType === 'gopeed') return getGopeedSingleThreadOptions();
+  return getAria2SingleThreadOptions();
+}
+
 function getPendingFilenameValue(item) {
   return pendingFilenameDrafts.has(item.key)
     ? pendingFilenameDrafts.get(item.key)
@@ -187,6 +198,13 @@ function getConnectionCheckSignature(cfg = currentConfig) {
       cfg.motrixNextSecret || '',
     ].join('|');
   }
+  if (cfg.downloaderType === 'gopeed') {
+    return [
+      'gopeed',
+      cfg.gopeedApi || 'http://127.0.0.1:9999',
+      cfg.gopeedToken || '',
+    ].join('|');
+  }
   if (cfg.downloaderType === 'neatdm') return 'neatdm';
   return '';
 }
@@ -224,11 +242,13 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
   const isAria2 = type === 'aria2';
   const isAbDownload = type === 'abdownload';
   const isMotrixNext = type === 'motrixnext';
+  const isGopeed = type === 'gopeed';
   const isNeatdm = type === 'neatdm';
   const motrixAutoCloseEnabled = !!currentConfig.motrixBridgeAutoClose;
   document.querySelectorAll('.aria2-only').forEach((el) => el.classList.toggle('settings-hidden', !isAria2));
   document.querySelectorAll('.launcher-only').forEach((el) => el.classList.toggle('settings-hidden', !isAbDownload));
   document.querySelectorAll('.motrixnext-only').forEach((el) => el.classList.toggle('settings-hidden', !isMotrixNext));
+  document.querySelectorAll('.gopeed-only').forEach((el) => el.classList.toggle('settings-hidden', !isGopeed));
   document.querySelectorAll('.neatdm-only').forEach((el) => el.classList.toggle('settings-hidden', !isNeatdm));
   document.querySelectorAll('.motrix-autoclose-only').forEach((el) => {
     const toggle = el.querySelector('#cfgMotrixBridgeAutoClose');
@@ -277,10 +297,10 @@ function renderTasks(tasks, pending) {
     pendingList.innerHTML = '';
     pendingVals.forEach((item) => {
       const filename = getPendingFilenameValue(item);
-      const isAria2Pending = currentConfig.downloaderType === 'aria2';
-      const aria2SingleThreadOption = isAria2Pending ? `
+      const canForceSingleThread = ['aria2', 'gopeed'].includes(currentConfig.downloaderType);
+      const singleThreadOption = canForceSingleThread ? `
         <label class="pending-option">
-          <input type="checkbox" class="aria2-single-thread"/>
+          <input type="checkbox" class="force-single-thread aria2-single-thread"/>
           <span>${popupAppT('aria2SingleThread', undefined, '单线程不分片下载')}</span>
         </label>
       ` : '';
@@ -293,7 +313,7 @@ function renderTasks(tasks, pending) {
           <label>${popupAppT('fileName', undefined, '文件名')}</label>
           <input type="text" class="pending-fname" value="${escHtml(filename)}" placeholder="${escHtml(popupAppT('autoDetect', undefined, '自动识别'))}" autocomplete="off" spellcheck="false"/>
         </div>
-        ${aria2SingleThreadOption}
+        ${singleThreadOption}
         <div class="pending-actions">
           <button class="btn btn-primary confirm-btn" data-key="${item.key}">${getSendLabel(currentConfig)}</button>
           <button class="btn btn-ghost reject-btn" data-key="${item.key}">${popupAppT('ignore', undefined, '忽略')}</button>
@@ -306,8 +326,8 @@ function renderTasks(tasks, pending) {
       });
       card.querySelector('.confirm-btn').addEventListener('click', () => {
         const fname = card.querySelector('.pending-fname').value.trim();
-        const opts = isAria2Pending && card.querySelector('.aria2-single-thread')?.checked
-          ? getAria2SingleThreadOptions()
+        const opts = canForceSingleThread && card.querySelector('.aria2-single-thread')?.checked
+          ? getSingleThreadOptions(currentConfig)
           : {};
         chrome.runtime.sendMessage({ type: 'CONFIRM_DOWNLOAD', key: item.key, filename: fname, opts }, (res) => {
           if (res?.ok) {
@@ -356,6 +376,7 @@ function renderTasks(tasks, pending) {
       const card = document.createElement('div');
       card.className = `task-card ${stateKey}`;
       const canViewInMotrix = currentConfig.downloaderType === 'aria2' && !!currentConfig.useMotrixNext;
+      const canViewInGopeed = task.provider === 'gopeed';
 
       const showProgress = ['active', 'paused', 'waiting', 'complete'].includes(stateKey);
       const eta = (() => {
@@ -394,6 +415,7 @@ function renderTasks(tasks, pending) {
         </div>` : ''}
         <div class="task-actions">
           ${canViewInMotrix ? `<button class="task-btn" data-action="motrix-view">${popupAppT('motrixView', undefined, 'MotrixNext中查看')}</button>` : ''}
+          ${canViewInGopeed ? `<button class="task-btn" data-action="gopeed-view">${popupAppT('gopeedView', undefined, 'Gopeed中查看')}</button>` : ''}
           ${stateKey === 'active' ? `<button class="task-btn" data-action="pause" data-gid="${task.gid}">${popupAppT('pauseTask', undefined, '暂停')}</button>` : ''}
           ${stateKey === 'paused' ? `<button class="task-btn" data-action="resume" data-gid="${task.gid}">${popupAppT('resumeTask', undefined, '继续')}</button>` : ''}
           ${stateKey === 'complete' ? `<button class="task-btn" data-action="remove" data-gid="${task.gid}">${popupAppT('clearTask', undefined, '清除')}</button>` : ''}
@@ -417,6 +439,25 @@ function renderTasks(tasks, pending) {
                   'openFailed',
                   [res?.error || popupAppT('cannotLaunchMotrix', undefined, '无法唤起 MotrixNext')],
                   `打开失败：${res?.error || '无法唤起 MotrixNext'}`
+                ));
+              }
+              setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = originalText;
+              }, 500);
+            });
+            return;
+          }
+          if (btn.dataset.action === 'gopeed-view') {
+            btn.disabled = true;
+            const originalText = btn.textContent;
+            btn.textContent = popupAppT('opening', undefined, '打开中…');
+            chrome.runtime.sendMessage({ type: 'OPEN_GOPEED_VIEW' }, (res) => {
+              if (!res?.ok) {
+                showToast(popupAppT(
+                  'openFailed',
+                  [res?.error || popupAppT('cannotLaunchGopeed', undefined, '无法唤起 Gopeed')],
+                  `打开失败：${res?.error || '无法唤起 Gopeed'}`
                 ));
               }
               setTimeout(() => {
@@ -818,6 +859,22 @@ document.getElementById('testMotrixNextBtn').addEventListener('click', () => {
     }
     resultEl.className = 'conn-result fail';
     resultEl.textContent = `${popupAppT('connectionFailedTitle', ['MotrixNext'], '与 MotrixNext 连接失败')}：${res?.error || popupAppT('connectionFailedWithLabel', ['MotrixNext'], '检查 MotrixNext 是否正在运行')}`;
+  });
+});
+
+document.getElementById('testGopeedBtn').addEventListener('click', () => {
+  const resultEl = document.getElementById('connResultGopeed');
+  resultEl.className = 'conn-result';
+  resultEl.textContent = popupAppT('downloaderConnecting', ['Gopeed'], 'Gopeed 连接中…');
+  resultEl.style.display = 'block';
+  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
+    if (res?.ok) {
+      resultEl.className = 'conn-result ok';
+      resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('gopeedReady', undefined, 'Gopeed 已就绪')], `${res.message || 'Gopeed 已就绪'}`);
+      return;
+    }
+    resultEl.className = 'conn-result fail';
+    resultEl.textContent = `${popupAppT('connectionFailedTitle', ['Gopeed'], '与 Gopeed 连接失败')}：${res?.error || popupAppT('connectionFailedWithLabel', ['Gopeed'], '检查 Gopeed 是否正在运行')}`;
   });
 });
 

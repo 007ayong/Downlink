@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Launch Gopeed</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --card-radius: 14px;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: Canvas;
+      color: CanvasText;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    main {
+      width: min(580px, 100%);
+      border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+      border-radius: var(--card-radius);
+      padding: 22px 22px 18px;
+      box-sizing: border-box;
+      background: color-mix(in srgb, Canvas 95%, CanvasText 5%);
+      box-shadow:
+        0 10px 24px color-mix(in srgb, CanvasText 10%, transparent),
+        0 1px 2px color-mix(in srgb, CanvasText 18%, transparent);
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+      background: color-mix(in srgb, CanvasText 6%, transparent);
+      margin-bottom: 10px;
+      user-select: none;
+    }
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 0 4px color-mix(in srgb, #22c55e 20%, transparent);
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 21px;
+      letter-spacing: 0;
+    }
+    p {
+      margin: 8px 0;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+    #desc {
+      opacity: 0.95;
+    }
+    #targetLabel {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px dashed color-mix(in srgb, CanvasText 20%, transparent);
+      border-radius: 10px;
+      background: color-mix(in srgb, CanvasText 4%, transparent);
+    }
+    .actions {
+      margin-top: 14px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .options {
+      margin-top: 14px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: color-mix(in srgb, #22c55e 12%, Canvas);
+      border: 1px solid color-mix(in srgb, #22c55e 34%, CanvasText);
+    }
+    .options input {
+      margin: 0;
+      accent-color: #16a34a;
+    }
+    #autoCloseLabel {
+      font-weight: 700;
+      color: #15803d;
+    }
+    button {
+      border: 1px solid color-mix(in srgb, CanvasText 24%, transparent);
+      border-radius: 10px;
+      padding: 9px 14px;
+      background: ButtonFace;
+      color: ButtonText;
+      cursor: pointer;
+      font-size: 14px;
+      transition: transform .12s ease, box-shadow .12s ease, background-color .12s ease;
+    }
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 10px color-mix(in srgb, CanvasText 14%, transparent);
+    }
+    button:active {
+      transform: translateY(0);
+    }
+    #launchBtn {
+      background: #16a34a;
+      color: #fff;
+      border-color: transparent;
+    }
+    #closeBtn {
+      background: color-mix(in srgb, Canvas 90%, CanvasText 10%);
+    }
+    code {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: color-mix(in srgb, CanvasText 11%, transparent);
+      font-size: 12px;
+      word-break: break-all;
+    }
+    .hint {
+      margin-top: 12px;
+      opacity: 0.82;
+      font-size: 12px;
+    }
+    @media (max-width: 480px) {
+      main {
+        padding: 18px 16px 14px;
+      }
+      .actions {
+        flex-direction: column;
+      }
+      .actions button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="tag"><span class="dot"></span><span>Gopeed</span></div>
+    <h1 id="title"></h1>
+    <p id="desc"></p>
+    <p id="targetLabel"></p>
+    <div class="actions">
+      <button id="launchBtn" type="button"></button>
+      <button id="closeBtn" type="button"></button>
+    </div>
+    <label class="options" for="autoCloseNext">
+      <input id="autoCloseNext" type="checkbox">
+      <span id="autoCloseLabel"></span>
+    </label>
+    <p class="hint" id="hint"></p>
+  </main>
+  <script src="gopeed-open.js"></script>
+</body>
+</html>

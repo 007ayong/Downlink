@@ -48,6 +48,8 @@ const archivePaths = [
   'popup-app.js',
   'motrix-open.html',
   'motrix-open.js',
+  'gopeed-open.html',
+  'gopeed-open.js',
   'preview.html',
   'preview.js',
   'LICENSE',

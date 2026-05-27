@@ -506,6 +506,14 @@ test('MotrixNext header logo uses packaged provider icon', () => {
   );
 });
 
+test('Gopeed header logo uses packaged provider icon', () => {
+  const popup = loadPopupRuntime();
+  assert.equal(
+    popup.getHeaderLogoSrc({ downloaderType: 'gopeed' }),
+    'assets/provider-icons/gopeed.png'
+  );
+});
+
 test('aria2 test connection sends the current form config', () => {
   const popup = loadPopupRuntime();
 
@@ -528,6 +536,8 @@ test('aria2 test connection sends the current form config', () => {
     motrixBridgeAutoClose: false,
     motrixNextPort: '16801',
     motrixNextSecret: '',
+    gopeedApi: 'http://127.0.0.1:9999',
+    gopeedToken: '',
     externalLauncherName: 'AB DM',
     externalLauncherHost: 'localhost',
     externalLauncherPort: '15151',
@@ -562,6 +572,8 @@ test('AB DM test connection sends the current form config', () => {
     motrixBridgeAutoClose: false,
     motrixNextPort: '16801',
     motrixNextSecret: '',
+    gopeedApi: 'http://127.0.0.1:9999',
+    gopeedToken: '',
     externalLauncherName: 'AB DM',
     externalLauncherHost: '10.0.0.8',
     externalLauncherPort: '17000',
@@ -730,6 +742,8 @@ test('settings controller collects every visible config field from the form', ()
     motrixBridgeAutoClose: true,
     motrixNextPort: '16888',
     motrixNextSecret: 'motrix-secret',
+    gopeedApi: 'http://127.0.0.1:9999',
+    gopeedToken: '',
     externalLauncherName: 'AB DM',
     externalLauncherHost: '10.0.0.8',
     externalLauncherPort: '17000',

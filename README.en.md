@@ -17,6 +17,7 @@ It supports multiple downloader backends and is designed to stay flexible. You c
 - [Aria2](https://github.com/aria2/aria2)
 - [Motrix](https://github.com/agalwood/motrix)
 - [MotrixNext](https://github.com/AnInsomniacy/motrix-next)
+- [Gopeed](https://github.com/GopeedLab/gopeed)
 - [AB DM](https://github.com/amir1376/ab-download-manager)
 - [Neat Download Manager](https://www.neatdownloadmanager.com/index.php/en/)
 
@@ -88,6 +89,15 @@ Required fields:
 - Secret, optional. Leaving it empty means MotrixNext `extensionApiSecret` is not configured; in that state the HTTP API disables authentication and connection checks still succeed.
 
 Downlink sends directly to the local MotrixNext HTTP receiver with `POST /add`, using a request body like `{ "url": "...", "filename": "...", "referer": "...", "cookie": "..." }`. `filename` is included when the browser captures it or the media panel detects it, and `referer` and `cookie` are included when the browser captured those request headers. MotrixNext mode does not use extension-side confirmation, pause/resume, or progress controls.
+
+### Gopeed
+
+Required fields:
+
+- API URL, default `http://127.0.0.1:9999`
+- Token, optional
+
+Downlink sends tasks through the Gopeed HTTP API with `POST /api/v1/tasks`. Intercepted normal downloads enter the confirmation panel first. `opt.extra.connections = 1` is sent only when "Single thread, no splitting" is checked in the confirmation panel; otherwise connection options are omitted. The extension does not pass a save path to Gopeed, so the downloader controls the download location.
 
 ### AB DM
 

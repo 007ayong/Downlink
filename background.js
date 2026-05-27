@@ -24,6 +24,8 @@ const DEFAULT_CONFIG = {
   motrixBridgeAutoClose: false,
   motrixNextPort: '16801',
   motrixNextSecret: '',
+  gopeedApi: 'http://127.0.0.1:9999',
+  gopeedToken: '',
   externalLauncherName: 'AB DM',
   externalLauncherHost: 'localhost',
   externalLauncherPort: '15151',
@@ -125,7 +127,7 @@ function buildConnectionFailureText(label) {
 }
 
 function shouldConfirmBeforeSend() {
-  return config.downloaderType === 'aria2' && !config.aria2Silent;
+  return (config.downloaderType === 'aria2' && !config.aria2Silent) || config.downloaderType === 'gopeed';
 }
 
 function normalizeBypassUrl(url) {
@@ -595,6 +597,14 @@ function buildMotrixNextBridgeUrl() {
   return chrome.runtime.getURL('motrix-open.html');
 }
 
+function buildGopeedDeepLink() {
+  return 'gopeed://';
+}
+
+function buildGopeedBridgeUrl() {
+  return chrome.runtime.getURL('gopeed-open.html');
+}
+
 async function openMotrixNextView() {
   const deepLink = buildMotrixNextDeepLink();
   try {
@@ -608,6 +618,24 @@ async function openMotrixNextView() {
     } catch (fallbackError) {
       const errorMessage = fallbackError?.message || error?.message || t('cannotLaunchMotrix', undefined, '无法唤起 MotrixNext');
       notify(t('motrixOpenFailed', undefined, 'MotrixNext 打开失败'), errorMessage);
+      return { ok: false, error: errorMessage };
+    }
+  }
+}
+
+async function openGopeedView() {
+  const deepLink = buildGopeedDeepLink();
+  try {
+    const bridgeUrl = buildGopeedBridgeUrl();
+    await chrome.tabs.create({ url: bridgeUrl });
+    return { ok: true, url: bridgeUrl, target: deepLink, mode: 'bridge' };
+  } catch (error) {
+    try {
+      await chrome.tabs.create({ url: deepLink });
+      return { ok: true, url: deepLink, target: deepLink, mode: 'direct-fallback' };
+    } catch (fallbackError) {
+      const errorMessage = fallbackError?.message || error?.message || t('cannotLaunchGopeed', undefined, '无法唤起 Gopeed');
+      notify(t('gopeedOpenFailed', undefined, 'Gopeed 打开失败'), errorMessage);
       return { ok: false, error: errorMessage };
     }
   }
@@ -648,6 +676,19 @@ const downloaderClients = downloaders.createClients({
     delete hiddenTaskGids[gid];
     broadcastUpdate();
   },
+  onGopeedTaskQueued: (gid, taskInfo) => {
+    clearUiAlert();
+    tasks[gid] = {
+      gid,
+      url: taskInfo.url,
+      filename: taskInfo.filename,
+      addedAt: taskInfo.addedAt || Date.now(),
+      status: 'sent',
+      provider: 'gopeed',
+    };
+    delete hiddenTaskGids[gid];
+    broadcastUpdate();
+  },
 });
 
 const {
@@ -655,10 +696,12 @@ const {
   buildExternalEndpoint,
   getAria2GlobalStat,
   getAria2Status,
+  getGopeedTasks,
   getDownloaderLabel,
   sendTask: sendTaskToDownloader,
   testNeatdmConnection,
   testMotrixNextConnection,
+  testGopeedConnection,
 } = downloaderClients;
 
 async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false, shouldReportFailure = () => true } = {}) {
@@ -716,7 +759,44 @@ const mediaManager = mediaModule.createMediaManager({
 
 async function pollTasks() {
   await configReady;
+  let gopeedTasksById = null;
+  if (Object.values(tasks).some((task) => task?.provider === 'gopeed')) {
+    try {
+      const gopeedTasks = await getGopeedTasks();
+      if (Array.isArray(gopeedTasks)) {
+        gopeedTasksById = new Map(gopeedTasks.map((task) => [task.id, task]));
+      }
+    } catch {}
+  }
   for (const gid of Object.keys(tasks)) {
+    if (tasks[gid]?.provider === 'gopeed') {
+      const status = gopeedTasksById?.get(gid);
+      if (!status) continue;
+      const taskOpts = status.meta?.opts || status.meta?.opt || {};
+      const optName = taskOpts.name || '';
+      const fileName = optName || status.meta?.res?.files?.[0]?.name || '';
+      const filePath = status.meta?.res?.files?.[0]?.path || '';
+      const mappedStatus = {
+        ready: 'waiting',
+        wait: 'waiting',
+        running: 'active',
+        pause: 'paused',
+        done: 'complete',
+        error: 'error',
+      }[status.status] || status.status || tasks[gid].status;
+      tasks[gid] = {
+        ...tasks[gid],
+        status: mappedStatus,
+        totalLength: Number(status.size || status.meta?.res?.size) || 0,
+        completedLength: Number(status.progress?.downloaded) || 0,
+        downloadSpeed: Number(status.progress?.speed) || 0,
+        connections: Number(taskOpts.extra?.connections) || 0,
+        filePath: filePath || tasks[gid].filePath || '',
+        dirPath: dirname(filePath || tasks[gid].filePath || ''),
+        filename: fileName || tasks[gid].filename,
+      };
+      continue;
+    }
     if (tasks[gid]?.provider && tasks[gid].provider !== 'aria2') continue;
     try {
       const status = await getAria2Status(gid);
@@ -855,6 +935,7 @@ chrome.webRequest.onHeadersReceived.addListener(
       captureSource: redirectIntent ? 'redirect' : classification.source,
       captureReason: classification.reason,
       headers: reqHeaders,
+      method: redirectIntent?.method || requestHeadersCache.get(details.url)?.method || 'GET',
       origin: reqHeaders.origin || deriveOrigin(details.url, reqHeaders.referer || redirectIntent?.sourceUrl || ''),
       referrer: reqHeaders.referer || redirectIntent?.sourceUrl || '',
       sourceTabId: typeof redirectIntent?.sourceTabId === 'number' ? redirectIntent.sourceTabId : requestHeadersCache.get(details.url)?.sourceTabId,
@@ -1004,6 +1085,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
     captureSource: marked?.captureSource || classification.source,
     captureReason: marked?.captureReason || classification.reason,
     headers: reqHeaders,
+    method: requestMeta.method || 'GET',
     origin: reqHeaders.origin || deriveOrigin(url, reqHeaders.referer || ''),
     referrer: reqHeaders.referer || '',
     sourceTabId: typeof marked?.sourceTabId === 'number' ? marked.sourceTabId : requestMeta.sourceTabId || cachedResponse.sourceTabId,
@@ -1066,6 +1148,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           url: msg.url,
           filename: msg.filename || '',
           headers: msg.headers || {},
+          method: msg.method || 'GET',
+          body: typeof msg.body === 'string' ? msg.body : undefined,
+          labels: msg.labels || undefined,
           referrer: msg.referrer || '',
           addedAt: Date.now(),
         }, msg.opts || {}, { openPopupOnFailure: false }));
@@ -1080,6 +1165,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           url: media.resourceUrl,
           filename: msg.filename || media.filename || '',
           headers: media.headers || {},
+          method: 'GET',
           mime: media.mime || '',
           contentDisposition: media.contentDisposition || '',
           referrer: media.referrer || media.headers?.referer || media.pageUrl || '',
@@ -1224,6 +1310,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse(result);
           break;
         }
+        if (testConfig.downloaderType === 'gopeed') {
+          const result = await testGopeedConnection(testConfig);
+          if (result?.ok) clearUiAlert();
+          sendResponse(result);
+          break;
+        }
         try {
           const stat = await getAria2GlobalStat(testConfig);
           clearUiAlert();
@@ -1240,6 +1332,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       case 'OPEN_MOTRIXNEXT_VIEW':
         sendResponse(await openMotrixNextView());
+        break;
+      case 'OPEN_GOPEED_VIEW':
+        sendResponse(await openGopeedView());
         break;
     }
   })();
@@ -1260,6 +1355,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     url,
     filename: url.split('?')[0].split('/').pop() || '',
     headers: reqHeaders,
+    method: requestHeadersCache.get(url)?.method || 'GET',
     referrer: reqHeaders.referer || tab?.url || '',
     sourceTabId: tab?.id,
     sourceWindowId: tab?.windowId,
@@ -1311,10 +1407,12 @@ chrome.runtime.onStartup.addListener(async () => {
 
 globalThis.isDirectMediaResource = isDirectMediaResource;
 globalThis.openMotrixNextView = openMotrixNextView;
+globalThis.openGopeedView = openGopeedView;
 globalThis.getBackgroundConfig = () => config;
 globalThis.__backgroundTestHooks = {
   setUiAlert,
   clearUiAlert,
+  pollTasks,
   openTaskSurface,
   mediaManager,
 };

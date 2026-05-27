@@ -17,6 +17,7 @@ Downlink 是一个浏览器扩展，用来在浏览器确认下载响应后接�
 - [Aria2](https://github.com/aria2/aria2)
 - [Motrix](https://github.com/agalwood/motrix)
 - [MotrixNext](https://github.com/AnInsomniacy/motrix-next)
+- [Gopeed](https://github.com/GopeedLab/gopeed)
 - [AB DM](https://github.com/amir1376/ab-download-manager)
 - [Neat Download Manager](https://www.neatdownloadmanager.com/index.php/en/)
 
@@ -88,6 +89,15 @@ tag 版本需要和 `manifest.json` 里的 `version` 保持一致，例如 `v1.0
 - 密钥，可留空。留空表示 MotrixNext 的 `extensionApiSecret` 未配置，此时 HTTP API 不启用鉴权，连接检测仍会成功。
 
 Downlink 会直接向本机 MotrixNext HTTP 接收服务发送 `POST /add`，请求体格式为 `{ "url": "...", "filename": "...", "referer": "...", "cookie": "..." }`。`filename` 会在浏览器捕获或媒体面板识别到文件名时附带，`referer` 和 `cookie` 会在浏览器捕获到相关请求头时附带。MotrixNext 模式不使用扩展侧的二次确认、暂停/继续或进度控制。
+
+### Gopeed
+
+需要填写：
+
+- API 地址，默认 `http://127.0.0.1:9999`
+- Token，可留空
+
+Downlink 会通过 Gopeed HTTP API 发送 `POST /api/v1/tasks`。浏览器拦截到的普通下载会先进入确认面板；只有在确认面板勾选“单线程不分片下载”时才会传递 `opt.extra.connections = 1`，否则不传递连接数参数。扩展不会向 Gopeed 指定保存路径，由 Gopeed 端控制下载位置。
 
 ### AB DM
 

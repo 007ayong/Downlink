@@ -396,6 +396,19 @@ test('motrixnext view returns error and notifies when both bridge and direct ope
   assert.equal(background.chrome._notificationCalls[0].message, 'cannot open');
 });
 
+test('gopeed view action opens extension bridge page', async () => {
+  const background = loadBackgroundRuntime();
+  let openedUrl = '';
+  background.chrome.tabs.create = async ({ url }) => {
+    openedUrl = url;
+  };
+
+  const result = await background.openGopeedView();
+  assert.equal(result.ok, true);
+  assert.equal(openedUrl, 'chrome-extension://test/gopeed-open.html');
+  assert.equal(result.target, 'gopeed://');
+});
+
 test('motrixnext config remains an independent downloader type', () => {
   const background = loadBackgroundRuntime({ downloaderType: 'motrixnext' });
   const cfg = background.getBackgroundConfig();
@@ -420,6 +433,26 @@ test('Aria2 intercepted downloads enter pending queue by default', async () => {
     }
   );
 
+  await invokeSendHeaders(background, {
+    url: 'https://example.com/file.zip',
+    tabId: 1,
+    method: 'GET',
+    requestHeaders: [
+      { name: 'Cookie', value: 'sid=abc123' },
+      { name: 'Referer', value: 'https://example.com/downloads' },
+      { name: 'Range', value: 'bytes=0-' },
+      { name: 'User-Agent', value: 'Browser UA' },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: 'https://example.com/file.zip',
+    tabId: 1,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'Content-Type', value: 'application/zip' },
+      { name: 'Content-Disposition', value: 'attachment; filename="server-file.zip"' },
+    ],
+  });
   await invokeDownloadCreated(background, {
     id: 1,
     url: 'https://example.com/file.zip',
@@ -2488,6 +2521,200 @@ test('Aria2 pending confirmation forwards single threaded override options', asy
   });
 });
 
+test('Gopeed intercepted downloads use pending confirmation and do not pass save path', async () => {
+  let requestUrl = '';
+  let requestHeaders = null;
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'gopeed',
+      gopeedApi: 'http://127.0.0.1:9999',
+      gopeedToken: 'secret-token',
+      saveDir: '/browser/should-not-send',
+      autoCapture: true,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async (url, options) => {
+        requestUrl = url;
+        requestHeaders = options.headers;
+        requestBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            return { code: 0, data: { id: 'gopeed-task-1' } };
+          },
+        };
+      },
+    }
+  );
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'CONFIRM_DOWNLOAD',
+    key: pending[0].key,
+    filename: 'file.zip',
+    opts: {},
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requestUrl, 'http://127.0.0.1:9999/api/v1/tasks');
+  assert.equal(requestHeaders['X-Api-Token'], 'secret-token');
+  assert.deepEqual(requestBody, {
+    req: {
+      url: 'https://example.com/file.zip',
+      extra: {
+        header: {
+          'accept-encoding': 'identity',
+        },
+      },
+    },
+    opts: {
+      name: 'file.zip',
+    },
+  });
+  assert.equal(Object.hasOwn(requestBody.opts, 'path'), false);
+  assert.equal(Object.hasOwn(requestBody.req.extra.header, 'range'), false);
+
+  const nextState = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(nextState.tasks['gopeed-task-1']?.provider, 'gopeed');
+  assert.equal(nextState.tasks['gopeed-task-1']?.status, 'sent');
+});
+
+test('Gopeed single-thread confirmation passes connections only when requested', async () => {
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'gopeed',
+      gopeedApi: 'http://127.0.0.1:9999',
+      autoCapture: true,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async (_url, options) => {
+        requestBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            return { code: 0, data: 'gopeed-task-1' };
+          },
+        };
+      },
+    }
+  );
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+
+  await invokeBackgroundMessage(background, {
+    type: 'CONFIRM_DOWNLOAD',
+    key: pending[0].key,
+    filename: 'file.zip',
+    opts: { gopeedSingleThread: true },
+  });
+
+  assert.deepEqual(requestBody.opts.extra, { connections: 1 });
+});
+
+test('Gopeed task polling updates progress and status', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'gopeed',
+      gopeedApi: 'http://127.0.0.1:9999',
+      autoCapture: true,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async (url, options = {}) => {
+        if (url === 'http://127.0.0.1:9999/api/v1/tasks' && options.method === 'POST') {
+          return {
+            ok: true,
+            async json() {
+              return { code: 0, data: { id: 'gopeed-task-1' } };
+            },
+          };
+        }
+        if (url === 'http://127.0.0.1:9999/api/v1/tasks' && options.method === 'GET') {
+          return {
+            ok: true,
+            async json() {
+              return {
+                code: 0,
+                data: [{
+                  id: 'gopeed-task-1',
+                  status: 'running',
+                  size: 2048,
+                  progress: {
+                    downloaded: 1024,
+                    speed: 512,
+                  },
+                  meta: {
+                    req: { url: 'https://example.com/file.zip' },
+                    res: {
+                      size: 2048,
+                      files: [{ name: 'server-file.zip', path: 'folder' }],
+                    },
+                    opts: {
+                      name: 'file.zip',
+                      extra: { connections: 1 },
+                    },
+                  },
+                }],
+              };
+            },
+          };
+        }
+        throw new Error(`unexpected fetch ${url}`);
+      },
+    }
+  );
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  await invokeBackgroundMessage(background, {
+    type: 'CONFIRM_DOWNLOAD',
+    key: pending[0].key,
+    filename: 'file.zip',
+    opts: { gopeedSingleThread: true },
+  });
+
+  await background.__backgroundTestHooks.pollTasks();
+
+  const nextState = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(nextState.tasks['gopeed-task-1']?.status, 'active');
+  assert.equal(nextState.tasks['gopeed-task-1']?.totalLength, 2048);
+  assert.equal(nextState.tasks['gopeed-task-1']?.completedLength, 1024);
+  assert.equal(nextState.tasks['gopeed-task-1']?.downloadSpeed, 512);
+  assert.equal(nextState.tasks['gopeed-task-1']?.connections, 1);
+  assert.equal(nextState.tasks['gopeed-task-1']?.filename, 'file.zip');
+});
+
 test('AB DM downloader label is fixed', () => {
   const background = loadBackgroundRuntime();
   const clients = background.BackgroundDownloaders.createClients({
@@ -2682,6 +2909,163 @@ test('MotrixNext media send includes captured cookie', async () => {
     filename: 'video-title.mp4',
     referer: 'https://example.com/player',
     cookie: 'sid=abc123',
+  });
+});
+
+test('Gopeed media send includes edited filename and required media headers', async () => {
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'gopeed',
+      gopeedApi: 'http://127.0.0.1:9999',
+    },
+    {
+      fetch: async (_url, options) => {
+        requestBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            return { code: 0, data: 'gopeed-media-1' };
+          },
+        };
+      },
+    }
+  );
+
+  background.__backgroundTestHooks.mediaManager.clearMediaResources();
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_1',
+    tabId: 1,
+    resourceUrl: 'https://cdn.example.com/video.mp4',
+    pageUrl: 'https://example.com/watch/123',
+    filename: 'video-title.mp4',
+    headers: {
+      cookie: 'sid=abc123',
+      referer: 'https://example.com/player',
+      range: 'bytes=0-',
+      'user-agent': 'Browser UA',
+    },
+    mime: 'video/mp4',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_MEDIA_TASK',
+    id: 'media_1',
+    filename: 'edited-name.mp4',
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(requestBody, {
+    req: {
+      url: 'https://cdn.example.com/video.mp4',
+      extra: {
+        header: {
+          cookie: 'sid=abc123',
+          referer: 'https://example.com/player',
+          'user-agent': 'Browser UA',
+          'content-type': 'video/mp4',
+          'accept-encoding': 'identity',
+        },
+      },
+    },
+    opts: {
+      name: 'edited-name.mp4',
+    },
+  });
+  assert.equal(Object.hasOwn(requestBody.req.extra.header, 'range'), false);
+});
+
+test('Gopeed media send falls back to page URL as referer', async () => {
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'gopeed',
+      gopeedApi: 'http://127.0.0.1:9999',
+    },
+    {
+      fetch: async (_url, options) => {
+        requestBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            return { code: 0, data: 'gopeed-media-1' };
+          },
+        };
+      },
+    }
+  );
+
+  background.__backgroundTestHooks.mediaManager.clearMediaResources();
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_1',
+    tabId: 1,
+    resourceUrl: 'https://cdn.example.com/video.mp4',
+    pageUrl: 'https://example.com/watch/123',
+    filename: 'video-title.mp4',
+    headers: {},
+    mime: 'video/mp4',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_MEDIA_TASK',
+    id: 'media_1',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requestBody.req.extra.header.referer, 'https://example.com/watch/123');
+});
+
+test('Gopeed manual URL send forwards method body and labels', async () => {
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'gopeed',
+      gopeedApi: 'http://127.0.0.1:9999',
+    },
+    {
+      fetch: async (_url, options) => {
+        requestBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            return { code: 0, data: 'gopeed-manual-1' };
+          },
+        };
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_URL',
+    url: 'https://example.com/export',
+    filename: 'export.bin',
+    method: 'POST',
+    body: 'token=abc',
+    labels: { source: 'downlink' },
+    headers: {
+      Referer: 'https://example.com/form',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(requestBody, {
+    req: {
+      url: 'https://example.com/export',
+      extra: {
+        header: {
+          referer: 'https://example.com/form',
+          'content-type': 'application/x-www-form-urlencoded',
+          'accept-encoding': 'identity',
+        },
+        method: 'POST',
+        body: 'token=abc',
+      },
+      labels: { source: 'downlink' },
+    },
+    opts: {
+      name: 'export.bin',
+    },
   });
 });
 
@@ -3094,4 +3478,42 @@ test('MotrixNext connection test fails when incoming secret is rejected', async 
   assert.equal(result.ok, false);
   assert.equal(result.mode, 'motrixnext');
   assert.equal(result.error, '与 MotrixNext 连接失败，检查 MotrixNext 是否正在运行');
+});
+
+test('Gopeed connection test uses incoming API and token', async () => {
+  let requestUrl = '';
+  let requestHeaders = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'gopeed',
+      gopeedApi: 'http://127.0.0.1:9999',
+      gopeedToken: 'saved-token',
+    },
+    {
+      fetch: async (url, options = {}) => {
+        requestUrl = url;
+        requestHeaders = options.headers || {};
+        return {
+          ok: true,
+          async json() {
+            return { code: 0, data: { version: '1.6.8' } };
+          },
+        };
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'TEST_CONNECTION',
+    config: {
+      downloaderType: 'gopeed',
+      gopeedApi: 'http://10.0.0.5:9999/',
+      gopeedToken: 'live-token',
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.mode, 'gopeed');
+  assert.equal(requestUrl, 'http://10.0.0.5:9999/api/v1/info');
+  assert.equal(requestHeaders['X-Api-Token'], 'live-token');
 });
