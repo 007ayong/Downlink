@@ -27,18 +27,39 @@ jobs:
         id: package
         run: |
           chromium_zip="$(node scripts/package-extension.mjs chromium)"
-          firefox_zip="$(node scripts/package-extension.mjs firefox)"
+          firefox_source_dir="$(node scripts/package-extension.mjs firefox --no-zip)"
           {
             echo "chromium_zip=${chromium_zip}"
-            echo "firefox_zip=${firefox_zip}"
+            echo "firefox_source_dir=${firefox_source_dir}"
           } >> "$GITHUB_OUTPUT"
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+
+      - name: Sign Firefox self-distributed XPI
+        run: |
+          mkdir -p dist/firefox-signed
+          npx --yes web-ext@8 sign \
+            --source-dir "${FIREFOX_SOURCE_DIR}" \
+            --artifacts-dir dist/firefox-signed \
+            --channel unlisted \
+            --timeout 900000 \
+            --approval-timeout 1800000
+          firefox_xpi="$(find dist/firefox-signed -maxdepth 1 -name '*.xpi' -type f | head -n 1)"
+          if [ -z "${firefox_xpi}" ]; then
+            echo "Signed Firefox XPI was not created" >&2
+            exit 1
+          fi
+          echo "firefox_xpi=${firefox_xpi}" >> "$GITHUB_OUTPUT"
+        id: sign-firefox
+        env:
+          FIREFOX_SOURCE_DIR: ${{ steps.package.outputs.firefox_source_dir }}
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             ${{ steps.package.outputs.chromium_zip }}
-            ${{ steps.package.outputs.firefox_zip }}
+            ${{ steps.sign-firefox.outputs.firefox_xpi }}
           generate_release_notes: true
