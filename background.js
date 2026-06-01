@@ -85,6 +85,109 @@ const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
 let contextMenuRefreshVersion = 0;
 const backgroundSessionStartedAt = Date.now();
 const RESTORED_DOWNLOAD_GRACE_MS = 5000;
+const FIREFOX_BYPASS_GRACE_MS = 120;
+
+function getRuntimeLastErrorMessage() {
+  try {
+    return chrome.runtime?.lastError?.message || '';
+  } catch {
+    return '';
+  }
+}
+
+function storageGet(area, defaults) {
+  return new Promise((resolve, reject) => {
+    if (!area?.get) {
+      reject(new Error('storage area unavailable'));
+      return;
+    }
+    try {
+      const result = area.get(defaults, (stored) => {
+        const error = getRuntimeLastErrorMessage();
+        if (error) reject(new Error(error));
+        else resolve(stored || {});
+      });
+      if (result && typeof result.then === 'function') {
+        result.then((stored) => resolve(stored || {})).catch(reject);
+      }
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+function storageSet(area, values) {
+  return new Promise((resolve, reject) => {
+    if (!area?.set) {
+      reject(new Error('storage area unavailable'));
+      return;
+    }
+    try {
+      const result = area.set(values, () => {
+        const error = getRuntimeLastErrorMessage();
+        if (error) reject(new Error(error));
+        else resolve();
+      });
+      if (result && typeof result.then === 'function') {
+        result.then(resolve).catch(reject);
+      }
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+async function loadStoredConfig() {
+  try {
+    return await storageGet(chrome.storage.sync, DEFAULT_CONFIG);
+  } catch {
+    return storageGet(chrome.storage.local, DEFAULT_CONFIG).catch(() => DEFAULT_CONFIG);
+  }
+}
+
+function loadStoredConfigCallback(callback) {
+  let settled = false;
+  const finish = (stored) => {
+    if (settled) return;
+    settled = true;
+    callback(stored || DEFAULT_CONFIG);
+  };
+  const fallbackToLocal = () => {
+    try {
+      const localResult = chrome.storage.local?.get?.(DEFAULT_CONFIG, (stored) => finish(stored));
+      if (localResult && typeof localResult.then === 'function') {
+        localResult.then((stored) => finish(stored)).catch(() => finish(DEFAULT_CONFIG));
+      }
+      if (!chrome.storage.local?.get) finish(DEFAULT_CONFIG);
+    } catch {
+      finish(DEFAULT_CONFIG);
+    }
+  };
+
+  try {
+    const syncResult = chrome.storage.sync?.get?.(DEFAULT_CONFIG, (stored) => {
+      const error = getRuntimeLastErrorMessage();
+      if (error) fallbackToLocal();
+      else finish(stored);
+    });
+    if (syncResult && typeof syncResult.then === 'function') {
+      syncResult.then((stored) => finish(stored)).catch(fallbackToLocal);
+    }
+    if (!chrome.storage.sync?.get) fallbackToLocal();
+  } catch {
+    fallbackToLocal();
+  }
+}
+
+async function saveStoredConfig(nextConfig) {
+  try {
+    await storageSet(chrome.storage.sync, nextConfig);
+    return 'sync';
+  } catch {
+    await storageSet(chrome.storage.local, nextConfig);
+    return 'local';
+  }
+}
 
 function normalizeCaptureExtensionsConfig(value) {
   const normalized = String(value || '').replace(/\s+/g, '').toLowerCase();
@@ -162,12 +265,21 @@ function markBypassCaptureClick({ url, modifier, tabId } = {}) {
   const expectedModifier = normalizeBypassShortcut(config.captureBypassModifier || DEFAULT_CONFIG.captureBypassModifier);
   if (expectedModifier === 'none' || normalizeBypassShortcut(modifier) !== expectedModifier) return false;
   const scopedTabId = typeof tabId === 'number' ? tabId : 'global';
-  const key = normalizeBypassUrl(url) || `__next__:${scopedTabId}:${expectedModifier}`;
-  bypassCaptureClicks.set(key, {
+  const normalizedUrl = normalizeBypassUrl(url);
+  const marker = {
     modifier,
     tabId: typeof tabId === 'number' ? tabId : undefined,
+    url: normalizedUrl,
     expiresAt: Date.now() + 10000,
-  });
+  };
+  if (normalizedUrl) {
+    bypassCaptureClicks.set(normalizedUrl, marker);
+    if (downloadClickIntents.has(normalizedUrl)) {
+      bypassCaptureClicks.set(`__chain__:${scopedTabId}:${expectedModifier}:${normalizedUrl}`, marker);
+    }
+  } else {
+    bypassCaptureClicks.set(`__next__:${scopedTabId}:${expectedModifier}`, marker);
+  }
   cleanBypassCaptureClicks();
   return true;
 }
@@ -247,25 +359,47 @@ function shouldBypassAutoCapture(item, url, marked, { consume = true } = {}) {
   cleanBypassCaptureClicks();
   const requestMeta = requestHeadersCache.get(url) || requestHeadersCache.get(item?.url) || requestHeadersCache.get(item?.finalUrl);
   const markedTabId = typeof marked?.tabId === 'number' && marked.tabId >= 0 ? marked.tabId : undefined;
+  const markedSourceTabId = typeof marked?.sourceTabId === 'number' && marked.sourceTabId >= 0 ? marked.sourceTabId : undefined;
   const requestTabId = typeof requestMeta?.tabId === 'number' && requestMeta.tabId >= 0 ? requestMeta.tabId : undefined;
-  const sourceTabId = markedTabId ?? requestTabId;
+  const requestSourceTabId = typeof requestMeta?.sourceTabId === 'number' && requestMeta.sourceTabId >= 0 ? requestMeta.sourceTabId : undefined;
+  const sourceTabId = markedTabId ?? markedSourceTabId ?? requestTabId ?? requestSourceTabId;
   const candidates = [url, item?.url, item?.finalUrl].map(normalizeBypassUrl).filter(Boolean);
   for (const candidate of candidates) {
     const marker = bypassCaptureClicks.get(candidate);
     if (!marker) continue;
     if (typeof marker.tabId === 'number' && typeof sourceTabId === 'number' && marker.tabId !== sourceTabId) continue;
-    if (consume) bypassCaptureClicks.delete(candidate);
+    if (consume) {
+      bypassCaptureClicks.delete(candidate);
+      deletePairedBypassMarkers(marker);
+    }
     return true;
   }
   for (const [key] of bypassCaptureClicks) {
-    if (!String(key).startsWith('__next__:')) continue;
+    if (!String(key).startsWith('__next__:') && !String(key).startsWith('__chain__:')) continue;
     const marker = bypassCaptureClicks.get(key);
     if (typeof marker?.tabId === 'number' && typeof sourceTabId === 'number' && marker.tabId !== sourceTabId) continue;
     if (typeof marker?.tabId === 'number' && typeof sourceTabId !== 'number') continue;
-    if (consume) bypassCaptureClicks.delete(key);
+    if (consume) {
+      bypassCaptureClicks.delete(key);
+      deletePairedBypassMarkers(marker);
+    }
     return true;
   }
   return false;
+}
+
+function deletePairedBypassMarkers(marker = {}) {
+  for (const [key, value] of bypassCaptureClicks) {
+    if (value === marker) bypassCaptureClicks.delete(key);
+  }
+}
+
+function waitForFirefoxBypassSignal(item, url, marked) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve(shouldBypassAutoCapture(item, url, marked, { consume: false }));
+    }, FIREFOX_BYPASS_GRACE_MS);
+  });
 }
 
 function getEffectiveConfig(override = {}) {
@@ -383,6 +517,14 @@ function shouldSkipSmallDownloadSize(totalBytes, cfg = config) {
   const size = Number(totalBytes);
   if (!Number.isFinite(size) || size <= 0) return false;
   return size < getSmallDownloadThresholdBytes(cfg);
+}
+
+function firstKnownSize(...values) {
+  for (const value of values) {
+    const size = Number(value);
+    if (Number.isFinite(size) && size > 0) return size;
+  }
+  return 0;
 }
 
 function getResponseCaptureClaim(...urls) {
@@ -565,7 +707,7 @@ function isRestoredBrowserDownloadItem(item = {}) {
 }
 
 const configReady = new Promise((resolve) => {
-  chrome.storage.sync.get(DEFAULT_CONFIG, (stored) => {
+  loadStoredConfigCallback((stored) => {
     config = normalizeConfig({ ...DEFAULT_CONFIG, ...stored });
     applyLocaleFromConfig(config);
     refreshContextMenus();
@@ -573,7 +715,8 @@ const configReady = new Promise((resolve) => {
   });
 });
 
-chrome.storage.onChanged.addListener((changes) => {
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName && !['sync', 'local'].includes(areaName)) return;
   for (const key in changes) config[key] = changes[key].newValue;
   config = normalizeConfig(config);
   applyLocaleFromConfig(config);
@@ -818,6 +961,14 @@ async function pollTasks() {
 
 setInterval(pollTasks, 1200);
 
+const isFirefoxRuntime = Boolean(chrome.runtime.getBrowserInfo || globalThis.browser?.runtime?.getBrowserInfo);
+const requestHeaderExtraInfoSpec = isFirefoxRuntime
+  ? ['requestHeaders']
+  : ['requestHeaders', 'extraHeaders'];
+const responseHeaderExtraInfoSpec = isFirefoxRuntime
+  ? ['responseHeaders', 'blocking']
+  : ['responseHeaders'];
+
 chrome.webRequest.onSendHeaders.addListener(
   (details) => {
     if (!config.autoCapture) return;
@@ -836,7 +987,7 @@ chrome.webRequest.onSendHeaders.addListener(
     cleanExpired(requestHeadersCache);
   },
   { urls: ['<all_urls>'] },
-  ['requestHeaders', 'extraHeaders']
+  requestHeaderExtraInfoSpec
 );
 
 chrome.webRequest.onHeadersReceived.addListener(
@@ -892,7 +1043,7 @@ chrome.webRequest.onHeadersReceived.addListener(
     if (!classification.shouldCapture) return;
     const redirectIntent = getRedirectIntent(details.url);
 
-    markedUrls.set(details.url, {
+    const markedInfo = {
       filename: classification.filename,
       mime: classification.mime,
       contentDisposition,
@@ -904,64 +1055,74 @@ chrome.webRequest.onHeadersReceived.addListener(
       sourceFilename: redirectIntent?.sourceFilename || requestHeadersCache.get(details.url)?.sourceFilename,
       size: totalBytes,
       expiresAt: Date.now() + 30000,
-    });
+    };
+    markedUrls.set(details.url, markedInfo);
     cleanExpired(markedUrls);
 
     const bypassItem = { url: details.url, finalUrl: details.url };
-    if (shouldBypassAutoCapture(bypassItem, details.url, { tabId: details.tabId }, { consume: false })) return;
+    if (shouldBypassAutoCapture(bypassItem, details.url, markedInfo, { consume: false })) return;
 
     if (!shouldSendFromResponseHeaders(details, classification, redirectIntent)) return;
     if (shouldSkipSmallDownloadSize(totalBytes, config)) return;
 
-    const existingClaim = getResponseCaptureClaim(details.url);
-    if (existingClaim) return;
+    const captureResponse = () => {
+      const existingClaim = getResponseCaptureClaim(details.url);
+      if (existingClaim) return undefined;
 
-    const reqHeaders = requestHeadersCache.get(details.url)?.headers || redirectIntent?.headers || {};
-    const key = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const responseSourceFilename = redirectIntent?.sourceFilename || requestHeadersCache.get(details.url)?.sourceFilename;
-    const responseUrlFilename = filenameFromUrl(details.url);
-    const responsePrimaryFilename = preferredUrlFilename(responseUrlFilename) || classification.filename || responseUrlFilename || '';
-    const taskInfo = {
-      key,
-      url: details.url,
-      filename: resolveCapturedFilename(responsePrimaryFilename, {
-        sourceFilename: responseSourceFilename,
+      const reqHeaders = requestHeadersCache.get(details.url)?.headers || redirectIntent?.headers || {};
+      const key = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const responseSourceFilename = redirectIntent?.sourceFilename || requestHeadersCache.get(details.url)?.sourceFilename;
+      const responseUrlFilename = filenameFromUrl(details.url);
+      const responsePrimaryFilename = preferredUrlFilename(responseUrlFilename) || classification.filename || responseUrlFilename || '';
+      const taskInfo = {
+        key,
+        url: details.url,
+        filename: resolveCapturedFilename(responsePrimaryFilename, {
+          sourceFilename: responseSourceFilename,
+          mime: classification.mime,
+          candidates: [classification.filename, responseUrlFilename],
+        }),
+        size: totalBytes,
         mime: classification.mime,
-        candidates: [classification.filename, responseUrlFilename],
-      }),
-      size: totalBytes,
-      mime: classification.mime,
-      contentDisposition,
-      captureSource: redirectIntent ? 'redirect' : classification.source,
-      captureReason: classification.reason,
-      headers: reqHeaders,
-      method: redirectIntent?.method || requestHeadersCache.get(details.url)?.method || 'GET',
-      origin: reqHeaders.origin || deriveOrigin(details.url, reqHeaders.referer || redirectIntent?.sourceUrl || ''),
-      referrer: reqHeaders.referer || redirectIntent?.sourceUrl || '',
-      sourceTabId: typeof redirectIntent?.sourceTabId === 'number' ? redirectIntent.sourceTabId : requestHeadersCache.get(details.url)?.sourceTabId,
-      sourceWindowId: typeof redirectIntent?.sourceWindowId === 'number' ? redirectIntent.sourceWindowId : requestHeadersCache.get(details.url)?.sourceWindowId,
-      sourceFilename: responseSourceFilename,
-      addedAt: Date.now(),
+        contentDisposition,
+        captureSource: redirectIntent ? 'redirect' : classification.source,
+        captureReason: classification.reason,
+        headers: reqHeaders,
+        method: redirectIntent?.method || requestHeadersCache.get(details.url)?.method || 'GET',
+        origin: reqHeaders.origin || deriveOrigin(details.url, reqHeaders.referer || redirectIntent?.sourceUrl || ''),
+        referrer: reqHeaders.referer || redirectIntent?.sourceUrl || '',
+        sourceTabId: typeof redirectIntent?.sourceTabId === 'number' ? redirectIntent.sourceTabId : requestHeadersCache.get(details.url)?.sourceTabId,
+        sourceWindowId: typeof redirectIntent?.sourceWindowId === 'number' ? redirectIntent.sourceWindowId : requestHeadersCache.get(details.url)?.sourceWindowId,
+        sourceFilename: responseSourceFilename,
+        addedAt: Date.now(),
+      };
+
+      const claimState = { discarded: false };
+      const claimPromise = (async () => {
+        const result = await queueOrSendCapturedDownload(taskInfo, {
+          openPopupOnFailure: true,
+          shouldReportFailure: () => !claimState.discarded,
+        });
+        return { handled: Boolean(result?.ok), result };
+      })().catch((error) => ({ handled: false, result: { ok: false, error: error?.message || String(error) } }));
+      const claimOptions = { cancelBrowserDownloadImmediately: true, claimState };
+      rememberResponseCaptureClaim(details.url, claimPromise, claimOptions);
+      if (redirectIntent) {
+        rememberResponseCaptureClaim(redirectIntent.sourceUrl, claimPromise, claimOptions);
+        if (redirectIntent.redirectUrl && redirectIntent.redirectUrl !== details.url) rememberResponseCaptureClaim(redirectIntent.redirectUrl, claimPromise, claimOptions);
+        deleteRedirectIntent(details.url, redirectIntent.sourceUrl, redirectIntent.redirectUrl);
+      }
+      return isFirefoxRuntime ? { cancel: true } : undefined;
     };
 
-    const claimState = { discarded: false };
-    const claimPromise = (async () => {
-      const result = await queueOrSendCapturedDownload(taskInfo, {
-        openPopupOnFailure: true,
-        shouldReportFailure: () => !claimState.discarded,
-      });
-      return { handled: Boolean(result?.ok), result };
-    })().catch((error) => ({ handled: false, result: { ok: false, error: error?.message || String(error) } }));
-    const claimOptions = { cancelBrowserDownloadImmediately: true, claimState };
-    rememberResponseCaptureClaim(details.url, claimPromise, claimOptions);
-    if (redirectIntent) {
-      rememberResponseCaptureClaim(redirectIntent.sourceUrl, claimPromise, claimOptions);
-      if (redirectIntent.redirectUrl && redirectIntent.redirectUrl !== details.url) rememberResponseCaptureClaim(redirectIntent.redirectUrl, claimPromise, claimOptions);
-      deleteRedirectIntent(details.url, redirectIntent.sourceUrl, redirectIntent.redirectUrl);
-    }
+    if (!isFirefoxRuntime) return captureResponse();
+    return waitForFirefoxBypassSignal(bypassItem, details.url, markedInfo).then((shouldBypass) => {
+      if (shouldBypass) return undefined;
+      return captureResponse();
+    });
   },
   { urls: ['<all_urls>'] },
-  ['responseHeaders']
+  responseHeaderExtraInfoSpec
 );
 
 chrome.webRequest.onHeadersReceived.addListener(
@@ -1048,7 +1209,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
     source: 'browser-download',
   });
   if (!marked && !classification.shouldCapture) return;
-  if (shouldSkipSmallDownloadSize(item.totalBytes || cachedResponse.totalBytes, config)) {
+  if (shouldSkipSmallDownloadSize(firstKnownSize(item.totalBytes, marked?.size, cachedResponse.totalBytes), config)) {
     if (marked) {
       markedUrls.delete(url);
       markedUrls.delete(item.url);
@@ -1079,7 +1240,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
     key,
     url,
     filename,
-    size: item.totalBytes || cachedResponse.totalBytes || 0,
+    size: firstKnownSize(item.totalBytes, marked?.size, cachedResponse.totalBytes),
     mime: marked?.mime || cachedResponse.contentType || '',
     contentDisposition: marked?.contentDisposition || cachedResponse.contentDisposition || '',
     captureSource: marked?.captureSource || classification.source,
@@ -1326,7 +1487,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       case 'SAVE_CONFIG':
         const savedConfig = { ...msg.config };
-        await chrome.storage.sync.set(savedConfig);
+        await saveStoredConfig(savedConfig);
         config = { ...config, ...savedConfig };
         sendResponse({ ok: true });
         break;

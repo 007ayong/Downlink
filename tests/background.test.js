@@ -14,6 +14,8 @@ function createChromeStub(storedConfig = {}) {
     contextMenusOnClicked: null,
     webRequestOnSendHeaders: [],
     webRequestOnHeadersReceived: [],
+    webRequestOnSendHeadersSpecs: [],
+    webRequestOnHeadersReceivedSpecs: [],
   };
   const actionCalls = {
     openPopup: 0,
@@ -33,8 +35,14 @@ function createChromeStub(storedConfig = {}) {
     lastErrorReads: 0,
   };
   const dnrCalls = [];
+  const localStorageWrites = [];
+  const syncShouldFail = storedConfig.__syncShouldFail;
+  const storedValues = { ...storedConfig };
+  delete storedValues.__syncShouldFail;
+  delete storedValues.__firefoxRuntime;
+  let runtimeApi;
 
-  return {
+  const chromeStub = {
     _listeners: listeners,
     _actionCalls: actionCalls,
     _tabsCalls: tabsCalls,
@@ -42,12 +50,29 @@ function createChromeStub(storedConfig = {}) {
     _notificationCalls: notificationCalls,
     _downloadCalls: downloadCalls,
     _dnrCalls: dnrCalls,
+    _localStorageWrites: localStorageWrites,
     storage: {
       sync: {
         get(defaults, callback) {
-          callback?.({ ...defaults, ...storedConfig });
+          if (syncShouldFail) {
+            runtimeApi.lastError = { message: 'sync unavailable' };
+            callback?.({ ...defaults });
+            runtimeApi.lastError = null;
+            return;
+          }
+          callback?.({ ...defaults, ...storedValues });
         },
-        set: async () => {},
+        set: async () => {
+          if (syncShouldFail) throw new Error('sync unavailable');
+        },
+      },
+      local: {
+        get(defaults, callback) {
+          callback?.({ ...defaults, ...storedValues });
+        },
+        set: async (values) => {
+          localStorageWrites.push(values);
+        },
       },
       onChanged: {
         addListener() {},
@@ -64,13 +89,15 @@ function createChromeStub(storedConfig = {}) {
     },
     webRequest: {
       onSendHeaders: {
-        addListener(callback) {
+        addListener(callback, _filter, extraInfoSpec) {
           listeners.webRequestOnSendHeaders.push(callback);
+          listeners.webRequestOnSendHeadersSpecs.push(extraInfoSpec);
         },
       },
       onHeadersReceived: {
-        addListener(callback) {
+        addListener(callback, _filter, extraInfoSpec) {
           listeners.webRequestOnHeadersReceived.push(callback);
+          listeners.webRequestOnHeadersReceivedSpecs.push(extraInfoSpec);
         },
       },
     },
@@ -120,6 +147,7 @@ function createChromeStub(storedConfig = {}) {
       sendMessage() {
         return Promise.resolve();
       },
+      getBrowserInfo: storedConfig.__firefoxRuntime ? (() => Promise.resolve({ name: 'Firefox' })) : undefined,
       getURL(pathname) {
         return `chrome-extension://test/${pathname}`;
       },
@@ -178,6 +206,8 @@ function createChromeStub(storedConfig = {}) {
       },
     },
   };
+  runtimeApi = chromeStub.runtime;
+  return chromeStub;
 }
 
 function loadBackgroundRuntime(storedConfig = {}, options = {}) {
@@ -198,6 +228,7 @@ function loadBackgroundRuntime(storedConfig = {}, options = {}) {
     fetch: options.fetch || (async () => {
       throw new Error('unexpected fetch in background test');
     }),
+    WebSocket: options.WebSocket,
     atob(value) {
       return Buffer.from(value, 'base64').toString('binary');
     },
@@ -257,9 +288,11 @@ async function invokeSendHeaders(background, details) {
 }
 
 async function invokeResponseHeaders(background, details) {
+  const results = [];
   for (const listener of background.chrome._listeners.webRequestOnHeadersReceived || []) {
-    await listener(details);
+    results.push(await listener(details));
   }
+  return results;
 }
 
 async function invokeContextMenuClick(background, info, tab = {}) {
@@ -719,6 +752,189 @@ test('response header capture enters pending queue before browser download is cr
   assert.equal(pending[0].filename, 'response-only.zip');
   assert.equal(pending[0].size, 2048);
   assert.equal(pending[0].captureSource, 'headers');
+});
+
+test('Firefox response header capture blocks the browser download before its panel opens', async () => {
+  const background = loadBackgroundRuntime({
+    __firefoxRuntime: true,
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._listeners.webRequestOnSendHeadersSpecs[0])), ['requestHeaders']);
+  assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._listeners.webRequestOnHeadersReceivedSpecs[0])), ['responseHeaders', 'blocking']);
+
+  const url = 'https://example.com/firefox-response.zip';
+  const results = await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="firefox-response.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '2048' },
+    ],
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(results[0])), { cancel: true });
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, url);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+});
+
+test('Firefox response claim prevents duplicate pending task if a download event still arrives', async () => {
+  const background = loadBackgroundRuntime({
+    __firefoxRuntime: true,
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  const url = 'https://example.com/firefox-duplicate.zip';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="firefox-duplicate.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+    ],
+  });
+  await invokeDownloadCreated(background, {
+    id: 18,
+    url,
+    finalUrl: url,
+    filename: '/Downloads/firefox-duplicate.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [18]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, url);
+});
+
+test('Firefox response header blocking waits briefly for a late bypass signal', async () => {
+  const background = loadBackgroundRuntime({
+    __firefoxRuntime: true,
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureBypassModifier: 'alt',
+    captureExtensions: 'zip',
+  });
+
+  const url = 'https://example.com/firefox-bypass.zip';
+  const responsePromise = invokeResponseHeaders(background, {
+    url,
+    tabId: 12,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="firefox-bypass.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+    ],
+  });
+
+  const bypass = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'BYPASS_NEXT_DOWNLOAD',
+      url,
+      modifier: 'alt',
+    },
+    { tab: { id: 12 } }
+  );
+  assert.equal(bypass.ok, true);
+
+  const results = await responsePromise;
+  assert.equal(results[0], undefined);
+
+  await invokeDownloadCreated(background, {
+    id: 31,
+    url,
+    finalUrl: url,
+    filename: '/Downloads/firefox-bypass.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('Firefox bypass follows redirected download URL from the clicked tab', async () => {
+  const background = loadBackgroundRuntime({
+    __firefoxRuntime: true,
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureBypassModifier: 'alt',
+    captureExtensions: 'zip',
+  });
+
+  const sourceUrl = 'https://example.com/download?id=1';
+  const finalUrl = 'https://cdn.example.com/signed/file.zip?token=live';
+  await invokeBackgroundMessage(
+    background,
+    {
+      type: 'TRACK_DOWNLOAD_CLICK',
+      url: sourceUrl,
+      filename: 'file.zip',
+    },
+    { tab: { id: 12, windowId: 3 } }
+  );
+  const bypass = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'BYPASS_NEXT_DOWNLOAD',
+      url: sourceUrl,
+      modifier: 'alt',
+    },
+    { tab: { id: 12 } }
+  );
+  assert.equal(bypass.ok, true);
+
+  await invokeSendHeaders(background, {
+    url: sourceUrl,
+    tabId: 12,
+    method: 'GET',
+    requestHeaders: [],
+  });
+  await invokeResponseHeaders(background, {
+    url: sourceUrl,
+    tabId: 12,
+    type: 'main_frame',
+    method: 'GET',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: finalUrl },
+    ],
+  });
+  const results = await invokeResponseHeaders(background, {
+    url: finalUrl,
+    tabId: -1,
+    type: 'main_frame',
+    method: 'GET',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="file.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+    ],
+  });
+
+  assert.equal(results[0], undefined);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
 });
 
 test('browser download created after response capture is cancelled without duplicate pending task', async () => {
@@ -1641,6 +1857,44 @@ test('small known response downloads can stay in the browser when configured', a
   assert.equal(Object.keys(state.pending || {}).length, 0);
 });
 
+test('small Firefox response downloads still skip when download item reports unknown size', async () => {
+  const background = loadBackgroundRuntime({
+    __firefoxRuntime: true,
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+    skipSmallDownloads: true,
+    smallDownloadThresholdBytes: 1024 * 1024,
+  });
+
+  const url = 'https://example.com/firefox-small.zip';
+  const results = await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="firefox-small.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: String(512 * 1024) },
+    ],
+  });
+  await invokeDownloadCreated(background, {
+    id: 23,
+    url,
+    finalUrl: url,
+    filename: 'firefox-small.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: -1,
+  });
+
+  assert.equal(results[0], undefined);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
 test('unknown-size downloads are still captured when small-download skipping is enabled', async () => {
   const background = loadBackgroundRuntime({
     downloaderType: 'aria2',
@@ -1895,6 +2149,44 @@ test('modifier bypass wins over existing response claim during browser download 
   assert.deepEqual(background.chrome._downloadCalls.cancel, []);
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('URL-scoped modifier bypass does not leak to an unrelated next download', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureBypassModifier: 'alt',
+    captureExtensions: 'zip',
+  });
+
+  const bypass = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'BYPASS_NEXT_DOWNLOAD',
+      url: 'https://example.com/not-downloaded.zip',
+      modifier: 'alt',
+    },
+    { tab: { id: 12 } }
+  );
+  assert.equal(bypass.ok, true);
+
+  await invokeSendHeaders(background, {
+    tabId: 12,
+    url: 'https://download.example.com/generated/file.zip',
+    requestHeaders: [],
+  });
+  await invokeDownloadCreated(background, {
+    id: 32,
+    url: 'https://download.example.com/generated/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [32]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 1);
 });
 
 test('modifier bypass does not wait for an in-flight response claim', async () => {
@@ -2519,6 +2811,54 @@ test('Aria2 pending confirmation forwards single threaded override options', asy
     'max-connection-per-server': '1',
     'min-split-size': '1024M',
   });
+});
+
+test('NeatDM sends immediately after socket opens and ignores post-open socket errors', async () => {
+  const sockets = [];
+  class MockWebSocket {
+    constructor(url, protocol) {
+      this.url = url;
+      this.protocol = protocol;
+      this.sent = [];
+      this.closed = false;
+      sockets.push(this);
+      setTimeout(() => {
+        this.onopen?.();
+        this.onerror?.(new Error('post-open close noise'));
+      }, 0);
+    }
+
+    send(message) {
+      this.sent.push(message);
+    }
+
+    close() {
+      this.closed = true;
+    }
+  }
+
+  const background = loadBackgroundRuntime(
+    { downloaderType: 'neatdm' },
+    { WebSocket: MockWebSocket }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_URL',
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    headers: {
+      'content-type': 'application/zip',
+    },
+    referrer: 'https://example.com/page',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(sockets.length, 1);
+  assert.equal(sockets[0].url, 'ws://127.0.0.1:10007/download');
+  assert.equal(sockets[0].protocol, 'neatextension.v1');
+  assert.equal(sockets[0].closed, true);
+  assert.match(sockets[0].sent[0], /^1:GET\r\n2:https:\/\/example\.com\/file\.zip\r\n6:normal\r\n4:file\.zip\r\n/);
+  assert.match(sockets[0].sent[0], /Content-Type: application\/zip\r\n/);
 });
 
 test('Gopeed intercepted downloads use pending confirmation and do not pass save path', async () => {
@@ -3516,4 +3856,26 @@ test('Gopeed connection test uses incoming API and token', async () => {
   assert.equal(result.mode, 'gopeed');
   assert.equal(requestUrl, 'http://10.0.0.5:9999/api/v1/info');
   assert.equal(requestHeaders['X-Api-Token'], 'live-token');
+});
+
+test('config save falls back to local storage when sync storage is unavailable', async () => {
+  const background = loadBackgroundRuntime({ __syncShouldFail: true });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'SAVE_CONFIG',
+    config: {
+      downloaderType: 'motrixnext',
+      motrixNextPort: '16888',
+      motrixNextSecret: 'live-secret',
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._localStorageWrites)), [
+    {
+      downloaderType: 'motrixnext',
+      motrixNextPort: '16888',
+      motrixNextSecret: 'live-secret',
+    },
+  ]);
 });

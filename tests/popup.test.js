@@ -152,6 +152,7 @@ function loadPopupRuntime(options = {}) {
         },
       },
     },
+    permissions: options.permissions,
     tabs: {
       query(_query, callback) {
         callback?.([{ id: 1 }]);
@@ -586,6 +587,31 @@ test('AB DM test connection sends the current form config', () => {
   });
 });
 
+test('test connection skips runtime permission prompts before messaging background', () => {
+  const permissionCalls = [];
+  const popup = loadPopupRuntime({
+    permissions: {
+      contains(payload, callback) {
+        permissionCalls.push({ method: 'contains', payload });
+        callback(false);
+      },
+      request(payload, callback) {
+        permissionCalls.push({ method: 'request', payload });
+        callback(true);
+      },
+    },
+  });
+
+  popup.document.getElementById('cfgDownloaderType').value = 'aria2';
+  popup.document.getElementById('cfgRpc').value = 'http://127.0.0.1:6800/jsonrpc';
+
+  popup.document.getElementById('testConnBtn').click();
+
+  assert.deepEqual(permissionCalls, []);
+  const testMessage = popup.chrome._sentMessages.findLast((message) => message?.type === 'TEST_CONNECTION');
+  assert.equal(testMessage?.config.aria2Rpc, 'http://127.0.0.1:6800/jsonrpc');
+});
+
 test('connection failure alert renders in both tasks and media panels', async () => {
   const popup = loadPopupRuntime({
     state: {
@@ -754,6 +780,64 @@ test('settings controller collects every visible config field from the form', ()
     skipSmallDownloads: true,
     smallDownloadThresholdBytes: 2.5 * 1024 * 1024,
   });
+});
+
+test('settings load defaults keep MotrixNext port and autosave secret fields', async () => {
+  const { context, listenersById, sentMessages } = loadPopupSettingsRuntime();
+  let currentConfig = {
+    downloaderType: 'aria2',
+    language: 'auto',
+    aria2Rpc: 'http://localhost:6800/jsonrpc',
+    motrixNextPort: '16801',
+    motrixNextSecret: '',
+    gopeedApi: 'http://127.0.0.1:9999',
+    externalLauncherHost: 'localhost',
+    externalLauncherPort: '15151',
+    autoCapture: true,
+    captureBypassModifier: 'alt',
+    smallDownloadThresholdBytes: 1048576,
+  };
+  const controller = context.PopupSettings.createSettingsController({
+    getCurrentConfig: () => currentConfig,
+    setCurrentConfig(next) {
+      currentConfig = next;
+    },
+    getSavedConfig: () => currentConfig,
+    setSavedConfig(next) {
+      currentConfig = next;
+    },
+    getCurrentState: () => ({ tasks: {}, pending: {} }),
+    getLoading: () => false,
+    setLoading() {},
+    getAutoSaveTimer: () => null,
+    setAutoSaveTimer() {},
+    getSaveFeedbackTimer: () => null,
+    setSaveFeedbackTimer() {},
+    syncGlobals() {},
+    updateSettingsVisibility() {},
+    updateDynamicLabels() {},
+    renderTasks() {},
+    requestAutoConnectionCheck() {},
+  });
+
+  controller.loadSettings({});
+  assert.equal(context.document.getElementById('cfgMotrixNextPort').value, '16801');
+  assert.equal(context.document.getElementById('cfgGopeedApi').value, 'http://127.0.0.1:9999');
+  assert.equal(context.document.getElementById('cfgLauncherPort').value, '15151');
+
+  controller.bindSettingsEvents();
+  context.document.getElementById('cfgDownloaderType').value = 'motrixnext';
+  context.document.getElementById('cfgMotrixNextPort').value = '16888';
+  context.document.getElementById('cfgMotrixNextSecret').value = 'motrix-secret';
+  for (const handler of listenersById.get('cfgMotrixNextSecret')?.change || []) {
+    handler({ target: context.document.getElementById('cfgMotrixNextSecret') });
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(sentMessages.at(-1).config.motrixNextPort, '16888');
+  assert.equal(sentMessages.at(-1).config.motrixNextSecret, 'motrix-secret');
+  assert.equal(sentMessages.at(-1).config.gopeedApi, 'http://127.0.0.1:9999');
+  assert.equal(sentMessages.at(-1).config.externalLauncherPort, '15151');
 });
 
 test('all editable settings fields trigger autosave on change', async () => {

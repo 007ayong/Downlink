@@ -10,13 +10,41 @@ const t = i18n.t || ((key, substitutions, fallback = key) => {
   return fallback || key;
 });
 
-let currentConfig = {};
+const POPUP_DEFAULT_CONFIG = {
+  language: 'auto',
+  downloaderType: 'aria2',
+  aria2Rpc: 'http://localhost:6800/jsonrpc',
+  aria2Secret: '',
+  saveDir: '',
+  aria2Silent: false,
+  useMotrixNext: false,
+  motrixBridgeAutoClose: false,
+  motrixNextPort: '16801',
+  motrixNextSecret: '',
+  gopeedApi: 'http://127.0.0.1:9999',
+  gopeedToken: '',
+  externalLauncherName: 'AB DM',
+  externalLauncherHost: 'localhost',
+  externalLauncherPort: '15151',
+  abDownloadSilent: false,
+  autoCapture: true,
+  captureBypassModifier: 'alt',
+  captureExtensions: '',
+  skipSmallDownloads: false,
+  smallDownloadThresholdBytes: 1048576,
+};
+
+function normalizePopupConfig(cfg = {}) {
+  return { ...POPUP_DEFAULT_CONFIG, ...(cfg || {}) };
+}
+
+let currentConfig = normalizePopupConfig();
 let isLoadingSettings = false;
 let autoSaveTimer = null;
 let saveFeedbackTimer = null;
 let toastTimer = null;
 let currentState = { tasks: {}, pending: {}, media: {} };
-let savedConfig = {};
+let savedConfig = normalizePopupConfig();
 let currentTabId = null;
 let lastRenderedMediaKey = '';
 let previousMediaCount = 0;

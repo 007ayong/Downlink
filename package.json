@@ -5,6 +5,12 @@
   "license": "GPL-3.0-only",
   "scripts": {
     "test": "node --test",
-    "package:release": "node scripts/package-extension.mjs"
+    "dev": "node scripts/package-extension.mjs all --watch --no-zip",
+    "dev:firefox": "node scripts/package-extension.mjs firefox --watch --no-zip",
+    "dev:chromium": "node scripts/package-extension.mjs chromium --watch --no-zip",
+    "package:release": "node scripts/package-extension.mjs all",
+    "package:all": "node scripts/package-extension.mjs all",
+    "package:chromium": "node scripts/package-extension.mjs chromium",
+    "package:firefox": "node scripts/package-extension.mjs firefox"
   }
 }

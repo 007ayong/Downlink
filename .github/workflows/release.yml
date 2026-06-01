@@ -23,14 +23,22 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build release zip
+      - name: Build release packages
         id: package
-        run: echo "zip_path=$(node scripts/package-extension.mjs)" >> "$GITHUB_OUTPUT"
+        run: |
+          chromium_zip="$(node scripts/package-extension.mjs chromium)"
+          firefox_zip="$(node scripts/package-extension.mjs firefox)"
+          {
+            echo "chromium_zip=${chromium_zip}"
+            echo "firefox_zip=${firefox_zip}"
+          } >> "$GITHUB_OUTPUT"
         env:
           RELEASE_TAG: ${{ github.ref_name }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.package.outputs.zip_path }}
+          files: |
+            ${{ steps.package.outputs.chromium_zip }}
+            ${{ steps.package.outputs.firefox_zip }}
           generate_release_notes: true

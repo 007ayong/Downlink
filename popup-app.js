@@ -742,9 +742,10 @@ async function refreshAll() {
   syncPopupGlobals();
   chrome.runtime.sendMessage({ type: 'GET_STATE' }, (res) => {
     if (!res) return;
-    applyLocaleFromConfig(res.config || {});
-    loadSettings(res.config);
-    renderState(res);
+    const config = normalizePopupConfig(res.config);
+    applyLocaleFromConfig(config);
+    loadSettings(config);
+    renderState({ ...res, config });
   });
 }
 
@@ -794,7 +795,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
 settingsController.bindSettingsEvents();
 
 document.getElementById('cfgLanguage').addEventListener('change', () => {
-  const nextCfg = collectSettingsFromForm();
+  const nextCfg = normalizePopupConfig(collectSettingsFromForm());
   currentConfig = { ...currentConfig, ...nextCfg };
   applyLocaleFromConfig(currentConfig);
   updateDynamicLabels(currentConfig);
@@ -805,20 +806,21 @@ document.getElementById('cfgLanguage').addEventListener('change', () => {
 
 document.getElementById('cfgDownloaderType').addEventListener('change', (event) => {
   const nextType = event.target.value;
-  const nextCfg = { ...currentConfig, ...collectSettingsFromForm(), downloaderType: nextType };
+  const nextCfg = normalizePopupConfig({ ...currentConfig, ...collectSettingsFromForm(), downloaderType: nextType });
   updateHeaderStatusDisplay({ cfg: nextCfg, state: 'checking', stat: null, message: '' });
 });
 
 function getTestConnectionConfig() {
-  return collectSettingsFromForm();
+  return normalizePopupConfig(collectSettingsFromForm());
 }
 
 document.getElementById('testConnBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResult');
+  const testConfig = getTestConnectionConfig();
   resultEl.className = 'conn-result';
   resultEl.textContent = popupAppT('downloaderConnecting', ['Aria2'], 'Aria2 连接中…');
   resultEl.style.display = 'block';
-  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
+  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: testConfig }, (res) => {
     if (res?.ok) {
       const stat = res.stat;
       resultEl.className = 'conn-result ok';
@@ -832,10 +834,11 @@ document.getElementById('testConnBtn').addEventListener('click', () => {
 
 document.getElementById('testLauncherBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResultLauncher');
+  const testConfig = getTestConnectionConfig();
   resultEl.className = 'conn-result';
   resultEl.textContent = popupAppT('readInProgress', undefined, '读取中…');
   resultEl.style.display = 'block';
-  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
+  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: testConfig }, (res) => {
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
       resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('interfaceConfigured', undefined, '接口已配置')], `${res.message || '接口已配置'}`);
@@ -848,10 +851,11 @@ document.getElementById('testLauncherBtn').addEventListener('click', () => {
 
 document.getElementById('testMotrixNextBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResultMotrixNext');
+  const testConfig = getTestConnectionConfig();
   resultEl.className = 'conn-result';
   resultEl.textContent = popupAppT('downloaderConnecting', ['MotrixNext'], 'MotrixNext 连接中…');
   resultEl.style.display = 'block';
-  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
+  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: testConfig }, (res) => {
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
       resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('motrixNextReady', undefined, 'MotrixNext 已就绪')], `${res.message || 'MotrixNext 已就绪'}`);
@@ -864,10 +868,11 @@ document.getElementById('testMotrixNextBtn').addEventListener('click', () => {
 
 document.getElementById('testGopeedBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResultGopeed');
+  const testConfig = getTestConnectionConfig();
   resultEl.className = 'conn-result';
   resultEl.textContent = popupAppT('downloaderConnecting', ['Gopeed'], 'Gopeed 连接中…');
   resultEl.style.display = 'block';
-  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
+  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: testConfig }, (res) => {
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
       resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('gopeedReady', undefined, 'Gopeed 已就绪')], `${res.message || 'Gopeed 已就绪'}`);
@@ -880,10 +885,11 @@ document.getElementById('testGopeedBtn').addEventListener('click', () => {
 
 document.getElementById('testNeatdmBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResultNeatdm');
+  const testConfig = getTestConnectionConfig();
   resultEl.className = 'conn-result';
   resultEl.textContent = popupAppT('downloaderConnecting', ['NeatDM'], 'NeatDM 连接中…');
   resultEl.style.display = 'block';
-  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: getTestConnectionConfig() }, (res) => {
+  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: testConfig }, (res) => {
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
       resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('neatdmReady', undefined, 'NeatDM 已就绪')], `${res.message || 'NeatDM 已就绪'}`);

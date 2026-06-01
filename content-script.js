@@ -99,13 +99,18 @@
   function trackDownloadClickIntent(event) {
     const link = findLink(event.target);
     if (!looksLikeDownloadLink(link)) return;
+    return sendTrackDownloadClickIntent(link);
+  }
+
+  function sendTrackDownloadClickIntent(link) {
+    if (!looksLikeDownloadLink(link)) return Promise.resolve();
     const message = {
       type: 'TRACK_DOWNLOAD_CLICK',
       url: link.href || '',
     };
     const filename = inferLinkFilename(link);
     if (filename) message.filename = filename;
-    sendRuntimeMessage(message).catch(() => {});
+    return sendRuntimeMessage(message).catch(() => {});
   }
 
   function handleBypassGesture(event) {
@@ -120,6 +125,56 @@
       url: url || '',
       modifier: expectedModifier,
     }).catch(() => {});
+  }
+
+  function navigateToLink(link, openedWindow) {
+    const url = link?.href || '';
+    if (!url) return;
+    if (openedWindow) {
+      try {
+        openedWindow.location = url;
+        return;
+      } catch {}
+    }
+    const target = String(link.target || '').trim();
+    if (target && target.toLowerCase() !== '_self') {
+      window.open(url, target);
+      return;
+    }
+    window.location.href = url;
+  }
+
+  function handleBypassClick(event) {
+    const expectedModifier = normalizeShortcut(config.captureBypassModifier || DEFAULT_CONFIG.captureBypassModifier);
+    if (expectedModifier === 'none' || shortcutFromEvent(event) !== expectedModifier) return false;
+
+    const link = findLink(event.target);
+    if (!link?.href) return false;
+    if (!looksLikeDownloadLink(link)) return false;
+
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    event.stopImmediatePropagation?.();
+
+    let openedWindow = null;
+    const target = String(link.target || '').trim();
+    if (target && target.toLowerCase() !== '_self') {
+      try {
+        openedWindow = window.open('about:blank', target);
+      } catch {}
+    }
+
+    Promise.resolve()
+      .then(() => sendTrackDownloadClickIntent(link))
+      .then(() => sendRuntimeMessage({
+        type: 'BYPASS_NEXT_DOWNLOAD',
+        url: link.href || '',
+        modifier: expectedModifier,
+      }))
+      .catch(() => null)
+      .then(() => navigateToLink(link, openedWindow));
+
+    return true;
   }
 
   chrome.storage?.sync?.get?.(DEFAULT_CONFIG, applyConfig);
@@ -138,6 +193,7 @@
     handleBypassGesture(event);
   }, true);
   document.addEventListener('click', (event) => {
+    if (handleBypassClick(event)) return;
     if (event.detail === 0) trackDownloadClickIntent(event);
     if (event.detail !== 0) return;
     handleBypassGesture(event);

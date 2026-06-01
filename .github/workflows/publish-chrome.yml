@@ -28,7 +28,7 @@ jobs:
 
       - name: Build release zip
         id: package
-        run: echo "zip_path=$(node scripts/package-extension.mjs)" >> "$GITHUB_OUTPUT"
+        run: echo "zip_path=$(node scripts/package-extension.mjs chromium)" >> "$GITHUB_OUTPUT"
         env:
           RELEASE_TAG: ${{ inputs.ref }}
 

@@ -41,7 +41,15 @@ function createClickEvent(target) {
     stopPropagation() {
       this.stopPropagationCalled = true;
     },
+    stopImmediatePropagationCalled: false,
+    stopImmediatePropagation() {
+      this.stopImmediatePropagationCalled = true;
+    },
   };
+}
+
+function flushAsyncHandlers() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function loadContentScript({ config = {}, sendMessage } = {}) {
@@ -55,7 +63,13 @@ function loadContentScript({ config = {}, sendMessage } = {}) {
     clearTimeout,
     window: {
       open(url, target) {
-        openedWindows.push({ url, target });
+        const openedWindow = {
+          url,
+          target,
+          location: url,
+        };
+        openedWindows.push(openedWindow);
+        return openedWindow;
       },
     },
     location: {
@@ -114,12 +128,13 @@ function loadContentScript({ config = {}, sendMessage } = {}) {
   const script = fs.readFileSync(path.join(__dirname, '..', 'content-script.js'), 'utf8');
   vm.runInNewContext(script, context, { filename: 'content-script.js' });
 
-  async function dispatchClick(element) {
-    const event = createClickEvent(element);
+  async function dispatchClick(element, props = {}) {
+    const event = { ...createClickEvent(element), ...props };
     for (const entry of listeners.click || []) {
       entry.listener(event);
       await Promise.resolve();
     }
+    await Promise.resolve();
     await Promise.resolve();
     return event;
   }
@@ -218,9 +233,10 @@ test('bypass gesture ignores invalidated extension context before click', async 
   const link = createElement({ href: 'https://files.example/file.zip' });
 
   await runtime.dispatchPointerdown(link, { altKey: true });
-  await runtime.dispatchClick(link);
+  await runtime.dispatchClick(link, { altKey: true });
+  await flushAsyncHandlers();
 
-  assert.equal(runtime.locationHref, 'https://page.example/current');
+  assert.equal(runtime.locationHref, 'https://files.example/file.zip');
 });
 
 test('bypass gesture still marks next download for matching modifier', async () => {
@@ -247,6 +263,89 @@ test('bypass gesture still marks next download for matching modifier', async () 
       modifier: 'alt',
     },
   ]);
+});
+
+test('bypass click waits for background marker before resuming same-tab download navigation', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+  const link = createElement({ href: 'https://files.example/file.zip' });
+
+  const event = await runtime.dispatchClick(link, { altKey: true });
+  await flushAsyncHandlers();
+
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(event.stopPropagationCalled, true);
+  assert.equal(event.stopImmediatePropagationCalled, true);
+  assert.deepEqual(messages.map(message => ({ ...message })), [
+    {
+      type: 'TRACK_DOWNLOAD_CLICK',
+      url: 'https://files.example/file.zip',
+      filename: 'file.zip',
+    },
+    {
+      type: 'BYPASS_NEXT_DOWNLOAD',
+      url: 'https://files.example/file.zip',
+      modifier: 'alt',
+    },
+  ]);
+  assert.equal(runtime.locationHref, 'https://files.example/file.zip');
+});
+
+test('bypass click does not intercept ordinary links', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+  const link = createElement({ href: 'https://files.example/readme' });
+
+  const event = await runtime.dispatchClick(link, { altKey: true });
+  await flushAsyncHandlers();
+
+  assert.equal(event.defaultPrevented, false);
+  assert.deepEqual(messages, []);
+  assert.equal(runtime.locationHref, 'https://page.example/current');
+});
+
+test('bypass click resumes target window download navigation after marker is saved', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+  const link = createElement({ href: 'https://files.example/file.zip', target: '_blank' });
+
+  const event = await runtime.dispatchClick(link, { altKey: true });
+  await flushAsyncHandlers();
+
+  assert.equal(event.defaultPrevented, true);
+  assert.deepEqual(messages.map(message => ({ ...message })), [
+    {
+      type: 'TRACK_DOWNLOAD_CLICK',
+      url: 'https://files.example/file.zip',
+      filename: 'file.zip',
+    },
+    {
+      type: 'BYPASS_NEXT_DOWNLOAD',
+      url: 'https://files.example/file.zip',
+      modifier: 'alt',
+    },
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(runtime.openedWindows)), [{
+    url: 'about:blank',
+    target: '_blank',
+    location: 'https://files.example/file.zip',
+  }]);
+  assert.equal(runtime.locationHref, 'https://page.example/current');
 });
 
 test('direct file links with new-window targets are not intercepted', async () => {
