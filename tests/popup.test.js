@@ -131,6 +131,7 @@ function loadPopupRuntime(options = {}) {
             tasks: options.state?.tasks || {},
             pending: options.state?.pending || {},
             media: options.state?.media || {},
+            pausedTabs: options.state?.pausedTabs || [],
             config: options.state?.config || {},
             hiddenTaskGids: options.state?.hiddenTaskGids || [],
             uiAlert: options.state?.uiAlert || null,
@@ -139,6 +140,11 @@ function loadPopupRuntime(options = {}) {
         }
         if (message?.type === 'TEST_CONNECTION') {
           callback?.(options.testConnectionResult || { ok: false, error: 'stubbed' });
+          return;
+        }
+        if (options.messageResponses && Object.prototype.hasOwnProperty.call(options.messageResponses, message?.type)) {
+          const response = options.messageResponses[message.type];
+          callback?.(typeof response === 'function' ? response(message) : response);
           return;
         }
         callback?.({ ok: true });
@@ -433,6 +439,29 @@ test('media duration label formats finite positive durations', () => {
   assert.equal(popup.mediaDurationLabel(Infinity), '');
 });
 
+test('sniffing resume button shows capture-off message when resume is blocked', async () => {
+  const popup = loadPopupRuntime({
+    state: {
+      pausedTabs: [1],
+    },
+    messageResponses: {
+      RESUME_MEDIA_SNIFFING: { ok: false, disabled: true },
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  popup.document.getElementById('toggleSniffingBtn').click();
+
+  const message = popup.chrome._sentMessages.at(-1);
+  assert.deepEqual(JSON.parse(JSON.stringify(message)), {
+    type: 'RESUME_MEDIA_SNIFFING',
+    tabId: 1,
+  });
+  assert.equal(popup.document.getElementById('toast').textContent, '请先开启拦截');
+});
+
 test('media render key changes when filename changes', () => {
   const popup = loadPopupRuntime();
   const before = popup.buildMediaRenderKey([{ id: '1', resourceUrl: 'u', filename: 'a.mp4', size: 1, kind: 'video', mime: 'video/mp4', width: 0, height: 0 }]);
@@ -544,7 +573,6 @@ test('aria2 test connection sends the current form config', () => {
     externalLauncherPort: '15151',
     abDownloadSilent: false,
     autoCapture: false,
-    captureBypassModifier: 'alt',
     captureExtensions: '',
     skipSmallDownloads: false,
     smallDownloadThresholdBytes: 1048576,
@@ -580,7 +608,6 @@ test('AB DM test connection sends the current form config', () => {
     externalLauncherPort: '17000',
     abDownloadSilent: true,
     autoCapture: false,
-    captureBypassModifier: 'alt',
     captureExtensions: '',
     skipSmallDownloads: false,
     smallDownloadThresholdBytes: 1048576,
@@ -752,7 +779,6 @@ test('settings controller collects every visible config field from the form', ()
   context.document.getElementById('cfgLauncherPort').value = '17000';
   context.document.getElementById('cfgAbDownloadSilent').checked = true;
   context.document.getElementById('cfgAutoCapture').checked = true;
-  context.document.getElementById('cfgCaptureBypassModifier').value = 'Control + Option';
   context.document.getElementById('cfgExts').value = 'zip,mp4';
   context.document.getElementById('cfgSkipSmallDownloads').checked = true;
   context.document.getElementById('cfgSmallDownloadThresholdMb').value = '2.5';
@@ -775,7 +801,6 @@ test('settings controller collects every visible config field from the form', ()
     externalLauncherPort: '17000',
     abDownloadSilent: true,
     autoCapture: true,
-    captureBypassModifier: 'ctrl+alt',
     captureExtensions: 'zip,mp4',
     skipSmallDownloads: true,
     smallDownloadThresholdBytes: 2.5 * 1024 * 1024,
@@ -794,7 +819,6 @@ test('settings load defaults keep MotrixNext port and autosave secret fields', a
     externalLauncherHost: 'localhost',
     externalLauncherPort: '15151',
     autoCapture: true,
-    captureBypassModifier: 'alt',
     smallDownloadThresholdBytes: 1048576,
   };
   const controller = context.PopupSettings.createSettingsController({
@@ -881,52 +905,6 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgMotrixNextSecret', 'motrix-secret')).config.motrixNextSecret, 'motrix-secret');
   assert.equal((await applyChange('cfgLauncherHost', '10.0.0.8')).config.externalLauncherHost, '10.0.0.8');
   assert.equal((await applyChange('cfgLauncherPort', '17000')).config.externalLauncherPort, '17000');
-  assert.equal((await applyChange('cfgCaptureBypassModifier', 'ctrl')).config.captureBypassModifier, 'ctrl');
-  const shortcutEl = context.document.getElementById('cfgCaptureBypassModifier');
-  assert.equal(shortcutEl.readOnly, true);
-  for (const handler of listenersById.get('cfgCaptureBypassModifier')?.keydown || []) {
-    handler({
-      key: 'Shift',
-      ctrlKey: true,
-      altKey: false,
-      shiftKey: true,
-      metaKey: false,
-      preventDefault() {},
-      target: shortcutEl,
-      currentTarget: shortcutEl,
-    });
-  }
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(sentMessages.at(-1).config.captureBypassModifier, 'ctrl+shift');
-  const beforeInvalidKeyCount = sentMessages.length;
-  for (const handler of listenersById.get('cfgCaptureBypassModifier')?.keydown || []) {
-    handler({
-      key: 'A',
-      ctrlKey: false,
-      altKey: false,
-      shiftKey: false,
-      metaKey: false,
-      preventDefault() {},
-      target: shortcutEl,
-      currentTarget: shortcutEl,
-    });
-  }
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(sentMessages.length, beforeInvalidKeyCount);
-  for (const handler of listenersById.get('cfgCaptureBypassModifier')?.keydown || []) {
-    handler({
-      key: 'Meta',
-      ctrlKey: false,
-      altKey: false,
-      shiftKey: false,
-      metaKey: true,
-      preventDefault() {},
-      target: shortcutEl,
-      currentTarget: shortcutEl,
-    });
-  }
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(sentMessages.at(-1).config.captureBypassModifier, 'cmd');
   assert.equal((await applyChange('cfgExts', 'zip,mp4')).config.captureExtensions, 'zip,mp4');
   assert.equal((await applyChange('cfgSmallDownloadThresholdMb', '2')).config.smallDownloadThresholdBytes, 2 * 1024 * 1024);
   assert.equal((await applyChange('cfgAutoCapture', true, 'checked')).config.autoCapture, true);

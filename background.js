@@ -32,7 +32,6 @@ const DEFAULT_CONFIG = {
   externalLauncherPath: '/start-headless-download',
   abDownloadSilent: false,
   autoCapture: true,
-  captureBypassModifier: 'alt',
   captureExtensions: DEFAULT_CAPTURE_EXTENSIONS,
   captureMime: true,
   skipSmallDownloads: false,
@@ -73,11 +72,11 @@ let pendingDownloads = {};
 let hiddenTaskGids = {};
 let uiAlert = null;
 let taskSurfaceOpenPromise = null;
+const autoCapturePausedTabs = new Set();
 
 const markedUrls = new Map();
 const downloadClickIntents = new Map();
 const responseCaptureClaims = new Map();
-const bypassCaptureClicks = new Map();
 const requestHeadersCache = new Map();
 const responseHeadersCache = new Map();
 const redirectIntents = new Map();
@@ -85,8 +84,6 @@ const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
 let contextMenuRefreshVersion = 0;
 const backgroundSessionStartedAt = Date.now();
 const RESTORED_DOWNLOAD_GRACE_MS = 5000;
-const FIREFOX_BYPASS_GRACE_MS = 120;
-
 function getRuntimeLastErrorMessage() {
   try {
     return chrome.runtime?.lastError?.message || '';
@@ -233,7 +230,7 @@ function shouldConfirmBeforeSend() {
   return (config.downloaderType === 'aria2' && !config.aria2Silent) || config.downloaderType === 'gopeed';
 }
 
-function normalizeBypassUrl(url) {
+function normalizeIntentUrl(url) {
   if (!url) return '';
   try {
     const parsed = new URL(url);
@@ -242,46 +239,6 @@ function normalizeBypassUrl(url) {
   } catch {
     return String(url).split('#')[0];
   }
-}
-
-function normalizeBypassShortcut(value) {
-  const tokens = String(value || '')
-    .toLowerCase()
-    .replace(/control/g, 'ctrl')
-    .replace(/option/g, 'alt')
-    .replace(/command|cmd|meta/g, 'cmd')
-    .split(/[^a-z]+/)
-    .filter(Boolean);
-  if (tokens.includes('none') || tokens.includes('off')) return 'none';
-  const ordered = ['ctrl', 'alt', 'shift', 'cmd'].filter((key) => tokens.includes(key));
-  return ordered.join('+') || DEFAULT_CONFIG.captureBypassModifier;
-}
-
-function cleanBypassCaptureClicks() {
-  cleanExpired(bypassCaptureClicks);
-}
-
-function markBypassCaptureClick({ url, modifier, tabId } = {}) {
-  const expectedModifier = normalizeBypassShortcut(config.captureBypassModifier || DEFAULT_CONFIG.captureBypassModifier);
-  if (expectedModifier === 'none' || normalizeBypassShortcut(modifier) !== expectedModifier) return false;
-  const scopedTabId = typeof tabId === 'number' ? tabId : 'global';
-  const normalizedUrl = normalizeBypassUrl(url);
-  const marker = {
-    modifier,
-    tabId: typeof tabId === 'number' ? tabId : undefined,
-    url: normalizedUrl,
-    expiresAt: Date.now() + 10000,
-  };
-  if (normalizedUrl) {
-    bypassCaptureClicks.set(normalizedUrl, marker);
-    if (downloadClickIntents.has(normalizedUrl)) {
-      bypassCaptureClicks.set(`__chain__:${scopedTabId}:${expectedModifier}:${normalizedUrl}`, marker);
-    }
-  } else {
-    bypassCaptureClicks.set(`__next__:${scopedTabId}:${expectedModifier}`, marker);
-  }
-  cleanBypassCaptureClicks();
-  return true;
 }
 
 function normalizeSourceFilename(filename = '') {
@@ -329,7 +286,7 @@ function resolveCapturedFilename(primaryFilename = '', { sourceFilename = '', mi
 }
 
 function rememberDownloadClickIntent({ url, tabId, windowId, filename } = {}) {
-  const normalizedUrl = normalizeBypassUrl(url);
+  const normalizedUrl = normalizeIntentUrl(url);
   if (!normalizedUrl || typeof tabId !== 'number' || tabId < 0) return false;
   downloadClickIntents.set(normalizedUrl, {
     tabId,
@@ -344,7 +301,7 @@ function rememberDownloadClickIntent({ url, tabId, windowId, filename } = {}) {
 function getDownloadClickIntent(...urls) {
   cleanExpired(downloadClickIntents);
   for (const url of urls) {
-    const normalizedUrl = normalizeBypassUrl(url);
+    const normalizedUrl = normalizeIntentUrl(url);
     if (!normalizedUrl) continue;
     const intent = downloadClickIntents.get(normalizedUrl);
     if (intent) {
@@ -353,53 +310,6 @@ function getDownloadClickIntent(...urls) {
     }
   }
   return null;
-}
-
-function shouldBypassAutoCapture(item, url, marked, { consume = true } = {}) {
-  cleanBypassCaptureClicks();
-  const requestMeta = requestHeadersCache.get(url) || requestHeadersCache.get(item?.url) || requestHeadersCache.get(item?.finalUrl);
-  const markedTabId = typeof marked?.tabId === 'number' && marked.tabId >= 0 ? marked.tabId : undefined;
-  const markedSourceTabId = typeof marked?.sourceTabId === 'number' && marked.sourceTabId >= 0 ? marked.sourceTabId : undefined;
-  const requestTabId = typeof requestMeta?.tabId === 'number' && requestMeta.tabId >= 0 ? requestMeta.tabId : undefined;
-  const requestSourceTabId = typeof requestMeta?.sourceTabId === 'number' && requestMeta.sourceTabId >= 0 ? requestMeta.sourceTabId : undefined;
-  const sourceTabId = markedTabId ?? markedSourceTabId ?? requestTabId ?? requestSourceTabId;
-  const candidates = [url, item?.url, item?.finalUrl].map(normalizeBypassUrl).filter(Boolean);
-  for (const candidate of candidates) {
-    const marker = bypassCaptureClicks.get(candidate);
-    if (!marker) continue;
-    if (typeof marker.tabId === 'number' && typeof sourceTabId === 'number' && marker.tabId !== sourceTabId) continue;
-    if (consume) {
-      bypassCaptureClicks.delete(candidate);
-      deletePairedBypassMarkers(marker);
-    }
-    return true;
-  }
-  for (const [key] of bypassCaptureClicks) {
-    if (!String(key).startsWith('__next__:') && !String(key).startsWith('__chain__:')) continue;
-    const marker = bypassCaptureClicks.get(key);
-    if (typeof marker?.tabId === 'number' && typeof sourceTabId === 'number' && marker.tabId !== sourceTabId) continue;
-    if (typeof marker?.tabId === 'number' && typeof sourceTabId !== 'number') continue;
-    if (consume) {
-      bypassCaptureClicks.delete(key);
-      deletePairedBypassMarkers(marker);
-    }
-    return true;
-  }
-  return false;
-}
-
-function deletePairedBypassMarkers(marker = {}) {
-  for (const [key, value] of bypassCaptureClicks) {
-    if (value === marker) bypassCaptureClicks.delete(key);
-  }
-}
-
-function waitForFirefoxBypassSignal(item, url, marked) {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve(shouldBypassAutoCapture(item, url, marked, { consume: false }));
-    }, FIREFOX_BYPASS_GRACE_MS);
-  });
 }
 
 function getEffectiveConfig(override = {}) {
@@ -712,15 +622,24 @@ const configReady = new Promise((resolve) => {
     applyLocaleFromConfig(config);
     refreshContextMenus();
     resolve(config);
+    syncAutoCaptureStateForActiveTabs().then(() => {
+      broadcastUpdate();
+    }).catch(() => {});
   });
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName && !['sync', 'local'].includes(areaName)) return;
+  const previousAutoCapture = config.autoCapture;
   for (const key in changes) config[key] = changes[key].newValue;
   config = normalizeConfig(config);
   applyLocaleFromConfig(config);
   if (changes.language) refreshContextMenus();
+  if (changes.autoCapture && previousAutoCapture !== config.autoCapture) {
+    syncAutoCaptureStateForActiveTabs().then(() => {
+      broadcastUpdate();
+    }).catch(() => {});
+  }
 });
 
 function notify(title, message) {
@@ -865,10 +784,48 @@ async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false, 
 function updateActionBadgeForTab(tabId, count, isPaused = false) {
   if (typeof tabId !== 'number' || tabId < 0) return;
   try {
-    chrome.action.setBadgeBackgroundColor({ color: isPaused ? '#6b7280' : '#e05c2a', tabId });
+    const isCaptureDisabled = !config.autoCapture;
+    chrome.action.setBadgeBackgroundColor({ color: isCaptureDisabled || isPaused ? '#6b7280' : '#e05c2a', tabId });
     chrome.action.setBadgeTextColor?.({ color: '#ffffff', tabId });
-    chrome.action.setBadgeText({ text: count > 0 ? String(Math.min(count, 99)) : '', tabId });
+    chrome.action.setBadgeText({ text: isCaptureDisabled ? '✕' : (count > 0 ? String(Math.min(count, 99)) : ''), tabId });
   } catch {}
+}
+
+function getActiveTabs() {
+  return new Promise((resolve) => {
+    if (!chrome.tabs?.query) {
+      resolve([]);
+      return;
+    }
+    try {
+      const result = chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        resolve(Array.isArray(tabs) ? tabs : []);
+      });
+      if (result && typeof result.then === 'function') {
+        result.then((tabs) => resolve(Array.isArray(tabs) ? tabs : [])).catch(() => resolve([]));
+      }
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
+function syncAutoCaptureStateForTab(tabId) {
+  if (typeof tabId !== 'number' || tabId < 0) return;
+  if (!config.autoCapture) {
+    mediaManager.pauseSniffing(tabId);
+    autoCapturePausedTabs.add(tabId);
+  } else if (autoCapturePausedTabs.has(tabId)) {
+    mediaManager.resumeSniffing(tabId);
+    autoCapturePausedTabs.delete(tabId);
+  }
+  const nextState = mediaManager.getState();
+  updateActionBadgeForTab(tabId, nextState.media[tabId]?.length || 0, nextState.pausedTabs.includes(tabId));
+}
+
+async function syncAutoCaptureStateForActiveTabs() {
+  const tabs = await getActiveTabs();
+  for (const tab of tabs) syncAutoCaptureStateForTab(tab?.id);
 }
 
 function getTabSnapshot(tabId) {
@@ -1059,9 +1016,6 @@ chrome.webRequest.onHeadersReceived.addListener(
     markedUrls.set(details.url, markedInfo);
     cleanExpired(markedUrls);
 
-    const bypassItem = { url: details.url, finalUrl: details.url };
-    if (shouldBypassAutoCapture(bypassItem, details.url, markedInfo, { consume: false })) return;
-
     if (!shouldSendFromResponseHeaders(details, classification, redirectIntent)) return;
     if (shouldSkipSmallDownloadSize(totalBytes, config)) return;
 
@@ -1115,18 +1069,17 @@ chrome.webRequest.onHeadersReceived.addListener(
       return isFirefoxRuntime ? { cancel: true } : undefined;
     };
 
-    if (!isFirefoxRuntime) return captureResponse();
-    return waitForFirefoxBypassSignal(bypassItem, details.url, markedInfo).then((shouldBypass) => {
-      if (shouldBypass) return undefined;
-      return captureResponse();
-    });
+    return captureResponse();
   },
   { urls: ['<all_urls>'] },
   responseHeaderExtraInfoSpec
 );
 
 chrome.webRequest.onHeadersReceived.addListener(
-  (details) => mediaManager.handleMediaResponse(details),
+  (details) => {
+    if (!config.autoCapture) return;
+    return mediaManager.handleMediaResponse(details);
+  },
   { urls: ['<all_urls>'] },
   ['responseHeaders']
 );
@@ -1139,15 +1092,6 @@ chrome.downloads.onDeterminingFilename?.addListener(async (item, suggest) => {
 
   const url = item.finalUrl || item.url;
   const marked = markedUrls.get(url) || markedUrls.get(item.url);
-  if (shouldBypassAutoCapture(item, url, marked)) {
-    discardResponseCaptureClaim(url, item.url, item.finalUrl);
-    if (marked) {
-      markedUrls.delete(url);
-      markedUrls.delete(item.url);
-    }
-    suggest?.();
-    return;
-  }
 
   const responseClaim = getResponseCaptureClaim(url, item.url, item.finalUrl);
   if (responseClaim) {
@@ -1174,14 +1118,6 @@ chrome.downloads.onCreated.addListener(async (item) => {
 
   const url = item.finalUrl || item.url;
   const marked = markedUrls.get(url) || markedUrls.get(item.url);
-  if (shouldBypassAutoCapture(item, url, marked)) {
-    discardResponseCaptureClaim(url, item.url, item.finalUrl);
-    if (marked) {
-      markedUrls.delete(url);
-      markedUrls.delete(item.url);
-    }
-    return;
-  }
 
   const responseClaim = getResponseCaptureClaim(url, item.url, item.finalUrl);
   if (responseClaim) {
@@ -1270,15 +1206,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     switch (msg.type) {
       case 'GET_STATE':
         sendResponse({ tasks, pending: pendingDownloads, media: mediaManager.getState().media, pausedTabs: mediaManager.getState().pausedTabs, config, hiddenTaskGids: Object.keys(hiddenTaskGids), uiAlert });
-        break;
-      case 'BYPASS_NEXT_DOWNLOAD':
-        sendResponse({
-          ok: markBypassCaptureClick({
-            url: msg.url,
-            modifier: msg.modifier,
-            tabId: sender?.tab?.id,
-          }),
-        });
         break;
       case 'TRACK_DOWNLOAD_CLICK':
         sendResponse({
@@ -1403,12 +1330,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       case 'PAUSE_MEDIA_SNIFFING':
         mediaManager.pauseSniffing(msg.tabId);
+        autoCapturePausedTabs.delete(msg.tabId);
         updateActionBadgeForTab(msg.tabId, mediaManager.getState().media[msg.tabId]?.length || 0, true);
         broadcastUpdate();
         sendResponse({ ok: true });
         break;
       case 'RESUME_MEDIA_SNIFFING':
+        if (!config.autoCapture) {
+          syncAutoCaptureStateForTab(msg.tabId);
+          broadcastUpdate();
+          sendResponse({ ok: false, disabled: true });
+          break;
+        }
         mediaManager.resumeSniffing(msg.tabId);
+        autoCapturePausedTabs.delete(msg.tabId);
         updateActionBadgeForTab(msg.tabId, mediaManager.getState().media[msg.tabId]?.length || 0, false);
         broadcastUpdate();
         sendResponse({ ok: true });
@@ -1487,8 +1422,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       case 'SAVE_CONFIG':
         const savedConfig = { ...msg.config };
+        const previousAutoCapture = config.autoCapture;
         await saveStoredConfig(savedConfig);
-        config = { ...config, ...savedConfig };
+        config = normalizeConfig({ ...config, ...savedConfig });
+        if (previousAutoCapture !== config.autoCapture) {
+          await syncAutoCaptureStateForActiveTabs();
+          broadcastUpdate();
+        }
         sendResponse({ ok: true });
         break;
       case 'OPEN_MOTRIXNEXT_VIEW':
@@ -1530,19 +1470,21 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  autoCapturePausedTabs.delete(tabId);
   mediaManager.clearTabState(tabId);
   mediaManager.clearPreviewRule(tabId);
 });
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  const state = mediaManager.getState();
-  updateActionBadgeForTab(tabId, state.media[tabId]?.length || 0, state.pausedTabs.includes(tabId));
+  syncAutoCaptureStateForTab(tabId);
+  broadcastUpdate();
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status !== 'loading') return;
   mediaManager.clearTabState(tabId);
-  updateActionBadgeForTab(tabId, 0);
+  autoCapturePausedTabs.delete(tabId);
+  syncAutoCaptureStateForTab(tabId);
   mediaManager.clearPreviewRule(tabId);
   broadcastUpdate();
 });

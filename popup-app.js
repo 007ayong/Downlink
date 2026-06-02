@@ -912,8 +912,12 @@ document.getElementById('clearMediaBtn').addEventListener('click', () => {
 document.getElementById('toggleSniffingBtn').addEventListener('click', () => {
   const isPaused = currentState.pausedTabs?.includes(currentTabId);
   const msgType = isPaused ? 'RESUME_MEDIA_SNIFFING' : 'PAUSE_MEDIA_SNIFFING';
-  chrome.runtime.sendMessage({ type: msgType, tabId: currentTabId }, () => {
-    showToast(isPaused
+  chrome.runtime.sendMessage({ type: msgType, tabId: currentTabId }, (res) => {
+    if (res?.disabled) {
+      showToast(popupAppT('sniffingResumeBlockedByCaptureOff', undefined, '请先开启拦截'));
+      return;
+    }
+    showToast(isPaused && res?.ok !== false
       ? popupAppT('sniffingResumed', undefined, '已恢复嗅探')
       : popupAppT('sniffingPausedToast', undefined, '已暂停嗅探'));
   });
