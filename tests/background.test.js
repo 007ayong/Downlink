@@ -30,6 +30,7 @@ function createChromeStub(storedConfig = {}) {
   const tabsCalls = {
     create: [],
     update: [],
+    remove: [],
   };
   const windowsCalls = {
     create: [],
@@ -48,6 +49,7 @@ function createChromeStub(storedConfig = {}) {
   delete storedValues.__syncShouldFail;
   delete storedValues.__firefoxRuntime;
   delete storedValues.__activeTabs;
+  delete storedValues.__tabsById;
   let runtimeApi;
 
   const chromeStub = {
@@ -189,11 +191,14 @@ function createChromeStub(storedConfig = {}) {
         return { id: 1 };
       },
       get(_tabId, callback) {
-        callback?.({ id: _tabId, windowId: 3, title: '', url: '' });
+        callback?.(storedConfig.__tabsById?.[_tabId] || { id: _tabId, windowId: 3, title: '', url: '' });
       },
       update: async (tabId, opts) => {
         tabsCalls.update.push({ tabId, opts });
         return { id: tabId };
+      },
+      remove: async (tabId) => {
+        tabsCalls.remove.push(tabId);
       },
       onRemoved: {
         addListener(callback) {
@@ -810,6 +815,65 @@ test('Firefox response header capture blocks the browser download before its pan
   assert.equal(pending.length, 1);
   assert.equal(pending[0].url, url);
   assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+});
+
+test('Firefox response header capture closes opener-created download tab', async () => {
+  const background = loadBackgroundRuntime({
+    __firefoxRuntime: true,
+    __tabsById: {
+      9: { id: 9, windowId: 3, openerTabId: 1, title: '', url: 'https://example.com/firefox-response.zip' },
+    },
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  const url = 'https://example.com/firefox-response.zip';
+  const results = await invokeResponseHeaders(background, {
+    url,
+    tabId: 9,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="firefox-response.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '2048' },
+    ],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(results[0])), { cancel: true });
+  assert.deepEqual(background.chrome._tabsCalls.remove, [9]);
+});
+
+test('Firefox response header capture keeps tab when opener is unknown', async () => {
+  const background = loadBackgroundRuntime({
+    __firefoxRuntime: true,
+    __tabsById: {
+      9: { id: 9, windowId: 3, title: '', url: 'https://example.com/firefox-response.zip' },
+    },
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  const url = 'https://example.com/firefox-response.zip';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 9,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="firefox-response.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '2048' },
+    ],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(background.chrome._tabsCalls.remove, []);
 });
 
 test('Firefox response claim prevents duplicate pending task if a download event still arrives', async () => {
@@ -2654,6 +2718,50 @@ test('MotrixNext intercepted downloads send immediately without pending confirma
   assert.equal(requestedUrl, 'http://localhost:16888/add');
   assert.equal(background.chrome._actionCalls.openPopup, 0);
 
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.values(state.pending || {}).length, 0);
+});
+
+test('MotrixNext response claim does not open popup after successful direct send', async () => {
+  let requestedUrl = '';
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'motrixnext',
+      motrixNextPort: '16888',
+      autoCapture: true,
+      captureExtensions: 'zip',
+      captureMime: true,
+    },
+    {
+      fetch: async (url) => {
+        requestedUrl = url;
+        return { ok: true, status: 200 };
+      },
+    }
+  );
+
+  const url = 'https://example.com/file.zip';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="file.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+    ],
+  });
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url,
+    filename: 'file.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.equal(requestedUrl, 'http://localhost:16888/add');
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(Object.values(state.pending || {}).length, 0);
 });

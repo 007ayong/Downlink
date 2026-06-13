@@ -328,13 +328,21 @@ function clearUiAlert() {
 }
 
 async function openTaskSurface() {
-  if (taskSurfaceOpenPromise) return taskSurfaceOpenPromise;
+  if (taskSurfaceOpenPromise) {
+    console.info('[Downlink][popup] reuse pending popup open request');
+    return taskSurfaceOpenPromise;
+  }
 
   taskSurfaceOpenPromise = (async () => {
     try {
+      console.info('[Downlink][popup] opening extension popup');
       await chrome.action.openPopup();
+      console.info('[Downlink][popup] extension popup opened');
       return true;
-    } catch {
+    } catch (error) {
+      console.warn('[Downlink][popup] failed to open extension popup', {
+        error: error?.message || String(error),
+      });
       return false;
     }
   })();
@@ -374,6 +382,15 @@ async function focusPopupTarget({ tabId, windowId } = {}) {
 }
 
 async function openTaskSurfaceForTask(taskInfo = {}) {
+  console.info('[Downlink][popup] popup requested for task', {
+    url: taskInfo.url || '',
+    filename: taskInfo.filename || '',
+    captureSource: taskInfo.captureSource || '',
+    captureReason: taskInfo.captureReason || '',
+    sourceTabId: taskInfo.sourceTabId,
+    sourceWindowId: taskInfo.sourceWindowId,
+    downloaderType: config.downloaderType,
+  });
   await focusPopupTarget({
     tabId: taskInfo.sourceTabId,
     windowId: taskInfo.sourceWindowId,
@@ -381,9 +398,51 @@ async function openTaskSurfaceForTask(taskInfo = {}) {
   return openTaskSurface();
 }
 
+async function closeFirefoxInterceptedDownloadTab(taskInfo = {}, reason = '') {
+  if (!isFirefoxRuntime || typeof taskInfo.downloadTabId !== 'number' || taskInfo.downloadTabId < 0) return false;
+  if (typeof taskInfo.sourceTabId === 'number') return false;
+
+  const tab = await getTab(taskInfo.downloadTabId);
+  if (typeof tab?.openerTabId !== 'number' || tab.openerTabId < 0) {
+    console.info('[Downlink][firefox-tab] keep intercepted download tab because opener is unknown', {
+      tabId: taskInfo.downloadTabId,
+      url: taskInfo.url || '',
+      reason,
+    });
+    return false;
+  }
+
+  try {
+    console.info('[Downlink][firefox-tab] closing intercepted download tab', {
+      tabId: taskInfo.downloadTabId,
+      openerTabId: tab.openerTabId,
+      url: taskInfo.url || '',
+      reason,
+    });
+    await chrome.tabs?.remove?.(taskInfo.downloadTabId);
+    return true;
+  } catch (error) {
+    console.warn('[Downlink][firefox-tab] failed to close intercepted download tab', {
+      tabId: taskInfo.downloadTabId,
+      error: error?.message || String(error),
+      reason,
+    });
+    return false;
+  }
+}
+
 async function enqueuePendingDownload(taskInfo, { openSurface = true } = {}) {
   const key = taskInfo?.key || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
   pendingDownloads[key] = { ...taskInfo, key };
+  console.info('[Downlink][popup] pending download queued', {
+    key,
+    url: taskInfo?.url || '',
+    filename: taskInfo?.filename || '',
+    captureSource: taskInfo?.captureSource || '',
+    captureReason: taskInfo?.captureReason || '',
+    openSurface,
+    downloaderType: config.downloaderType,
+  });
   broadcastUpdate();
   if (openSurface) await openTaskSurfaceForTask(taskInfo);
   return key;
@@ -470,9 +529,9 @@ function discardResponseCaptureClaim(...urls) {
     });
 }
 
-async function queueOrSendCapturedDownload(taskInfo, { openPopupOnFailure = true, shouldReportFailure } = {}) {
+async function queueOrSendCapturedDownload(taskInfo, { openPopupOnFailure = true, openPendingSurface = true, shouldReportFailure } = {}) {
   if (shouldConfirmBeforeSend()) {
-    const key = await enqueuePendingDownload(taskInfo);
+    const key = await enqueuePendingDownload(taskInfo, { openSurface: openPendingSurface });
     return { ok: true, pending: true, key };
   }
   return sendTask(taskInfo, {}, { openPopupOnFailure, shouldReportFailure });
@@ -483,10 +542,35 @@ function rememberResponseCaptureClaim(url, promise, { cancelBrowserDownloadImmed
   responseCaptureClaims.set(url, {
     promise,
     cancelBrowserDownloadImmediately,
+    browserDownloadCancelled: false,
+    pendingSurfaceOpenRequested: false,
     claimState,
     expiresAt: Date.now() + 30000,
   });
   cleanExpired(responseCaptureClaims);
+}
+
+function openPendingSurfaceForResponseClaim(responseClaim, reason = '') {
+  if (!responseClaim || responseClaim.pendingSurfaceOpenRequested) return Promise.resolve(false);
+  responseClaim.pendingSurfaceOpenRequested = true;
+  if (responseClaim.claimState) responseClaim.claimState.pendingSurfaceOpenRequested = true;
+
+  return responseClaim.promise
+    .catch(() => null)
+    .then((claimResult) => {
+      if (responseClaim.discarded || responseClaim.claimState?.discarded) return false;
+      const key = claimResult?.result?.key;
+      if (!claimResult?.result?.pending || !key) return false;
+      const taskInfo = (key && pendingDownloads[key]) || responseClaim.claimState?.taskInfo;
+      if (!taskInfo) return false;
+      console.info('[Downlink][popup] opening deferred popup after browser download cancel', {
+        key,
+        url: taskInfo.url || '',
+        filename: taskInfo.filename || '',
+        reason,
+      });
+      return openTaskSurfaceForTask(taskInfo);
+    });
 }
 
 function rememberRedirectIntent(sourceUrl = '', redirectUrl = '', details = {}) {
@@ -567,45 +651,112 @@ function isDownloadInProgress(item = {}) {
   return !item.state || item.state === 'in_progress';
 }
 
-function eraseBrowserDownloadItem(downloadId) {
+function describeBrowserDownloadItem(item = {}) {
+  return {
+    id: item.id,
+    url: item.finalUrl || item.url || '',
+    filename: item.filename || '',
+    state: item.state || '',
+    mime: item.mime || '',
+    totalBytes: item.totalBytes,
+    danger: item.danger || '',
+    exists: item.exists,
+  };
+}
+
+function eraseBrowserDownloadItem(downloadId, reason = '') {
+  console.info('[Downlink][browser-download] erase browser download record', {
+    id: downloadId,
+    reason,
+  });
   chrome.downloads.erase({ id: downloadId }, () => {
     const ignoredError = chrome.runtime.lastError;
-    void ignoredError;
+    if (ignoredError) {
+      console.warn('[Downlink][browser-download] erase browser download record failed', {
+        id: downloadId,
+        reason,
+        error: ignoredError.message || String(ignoredError),
+      });
+    }
   });
 }
 
-function cancelBrowserDownloadItem(item = {}) {
-  if (typeof item.id !== 'number') return;
-  if (!isDownloadInProgress(item)) {
-    eraseBrowserDownloadItem(item.id);
-    return;
-  }
+function cancelBrowserDownloadItem(item = {}, reason = 'captured-download') {
+  if (typeof item.id !== 'number') return Promise.resolve({ cancelled: false, reason: 'missing-id' });
+  const summary = describeBrowserDownloadItem(item);
+  console.info('[Downlink][browser-download] cancel browser download requested', {
+    ...summary,
+    reason,
+  });
 
-  const cancel = () => {
-    chrome.downloads.cancel(item.id, () => {
-      const ignoredError = chrome.runtime.lastError;
-      void ignoredError;
-      eraseBrowserDownloadItem(item.id);
-    });
-  };
+  return new Promise((resolve) => {
+    if (!isDownloadInProgress(item)) {
+      console.info('[Downlink][browser-download] browser download already stopped before cancel', {
+        ...summary,
+        reason,
+      });
+      eraseBrowserDownloadItem(item.id, `${reason}:not-in-progress`);
+      resolve({ cancelled: false, reason: 'not-in-progress' });
+      return;
+    }
 
-  if (!chrome.downloads.search) {
-    cancel();
-    return;
-  }
+    const cancel = () => {
+      console.info('[Downlink][browser-download] calling chrome.downloads.cancel', {
+        id: item.id,
+        reason,
+      });
+      chrome.downloads.cancel(item.id, () => {
+        const ignoredError = chrome.runtime.lastError;
+        if (ignoredError) {
+          console.warn('[Downlink][browser-download] chrome.downloads.cancel failed', {
+            id: item.id,
+            reason,
+            error: ignoredError.message || String(ignoredError),
+          });
+        } else {
+          console.info('[Downlink][browser-download] chrome.downloads.cancel completed', {
+            id: item.id,
+            reason,
+          });
+        }
+        eraseBrowserDownloadItem(item.id, reason);
+        resolve({ cancelled: !ignoredError, error: ignoredError?.message || '' });
+      });
+    };
 
-  chrome.downloads.search({ id: item.id }, (items = []) => {
-    const searchError = chrome.runtime.lastError;
-    if (searchError) {
+    if (!chrome.downloads.search) {
+      console.info('[Downlink][browser-download] chrome.downloads.search unavailable, cancel directly', {
+        id: item.id,
+        reason,
+      });
       cancel();
       return;
     }
-    const current = items?.[0];
-    if (!current || !isDownloadInProgress(current)) {
-      eraseBrowserDownloadItem(item.id);
-      return;
-    }
-    cancel();
+
+    chrome.downloads.search({ id: item.id }, (items = []) => {
+      const searchError = chrome.runtime.lastError;
+      if (searchError) {
+        console.warn('[Downlink][browser-download] chrome.downloads.search failed before cancel', {
+          id: item.id,
+          reason,
+          error: searchError.message || String(searchError),
+        });
+        cancel();
+        return;
+      }
+      const current = items?.[0];
+      if (!current || !isDownloadInProgress(current)) {
+        console.info('[Downlink][browser-download] browser download missing or not active when rechecked', {
+          ...describeBrowserDownloadItem(current || item),
+          found: Boolean(current),
+          reason,
+        });
+        eraseBrowserDownloadItem(item.id, `${reason}:not-active-on-recheck`);
+        resolve({ cancelled: false, reason: 'not-active-on-recheck' });
+        return;
+      }
+      cancel();
+    });
   });
 }
 
@@ -1045,16 +1196,22 @@ chrome.webRequest.onHeadersReceived.addListener(
         method: redirectIntent?.method || requestHeadersCache.get(details.url)?.method || 'GET',
         origin: reqHeaders.origin || deriveOrigin(details.url, reqHeaders.referer || redirectIntent?.sourceUrl || ''),
         referrer: reqHeaders.referer || redirectIntent?.sourceUrl || '',
+        downloadTabId: typeof redirectIntent?.tabId === 'number' ? redirectIntent.tabId : details.tabId,
         sourceTabId: typeof redirectIntent?.sourceTabId === 'number' ? redirectIntent.sourceTabId : requestHeadersCache.get(details.url)?.sourceTabId,
         sourceWindowId: typeof redirectIntent?.sourceWindowId === 'number' ? redirectIntent.sourceWindowId : requestHeadersCache.get(details.url)?.sourceWindowId,
         sourceFilename: responseSourceFilename,
         addedAt: Date.now(),
       };
 
-      const claimState = { discarded: false };
+      const deferPendingSurfaceUntilBrowserCancel =
+        !isFirefoxRuntime &&
+        shouldConfirmBeforeSend() &&
+        typeof taskInfo.sourceTabId !== 'number';
+      const claimState = { discarded: false, taskInfo };
       const claimPromise = (async () => {
         const result = await queueOrSendCapturedDownload(taskInfo, {
           openPopupOnFailure: true,
+          openPendingSurface: !deferPendingSurfaceUntilBrowserCancel,
           shouldReportFailure: () => !claimState.discarded,
         });
         return { handled: Boolean(result?.ok), result };
@@ -1065,6 +1222,9 @@ chrome.webRequest.onHeadersReceived.addListener(
         rememberResponseCaptureClaim(redirectIntent.sourceUrl, claimPromise, claimOptions);
         if (redirectIntent.redirectUrl && redirectIntent.redirectUrl !== details.url) rememberResponseCaptureClaim(redirectIntent.redirectUrl, claimPromise, claimOptions);
         deleteRedirectIntent(details.url, redirectIntent.sourceUrl, redirectIntent.redirectUrl);
+      }
+      if (isFirefoxRuntime) {
+        claimPromise.then(() => closeFirefoxInterceptedDownloadTab(taskInfo, 'response-headers-cancel'));
       }
       return isFirefoxRuntime ? { cancel: true } : undefined;
     };
@@ -1096,14 +1256,17 @@ chrome.downloads.onDeterminingFilename?.addListener(async (item, suggest) => {
   const responseClaim = getResponseCaptureClaim(url, item.url, item.finalUrl);
   if (responseClaim) {
     if (responseClaim.cancelBrowserDownloadImmediately) {
-      cancelBrowserDownloadItem(item);
+      responseClaim.browserDownloadCancelled = true;
+      if (responseClaim.claimState) responseClaim.claimState.browserDownloadCancelled = true;
+      cancelBrowserDownloadItem(item, 'response-claim:onDeterminingFilename:immediate')
+        .then(() => openPendingSurfaceForResponseClaim(responseClaim, 'response-claim:onDeterminingFilename:immediate'));
       markedUrls.delete(url);
       markedUrls.delete(item.url);
       suggest?.();
       return;
     }
     await responseClaim.promise;
-    cancelBrowserDownloadItem(item);
+    cancelBrowserDownloadItem(item, 'response-claim:onDeterminingFilename:after-claim');
     markedUrls.delete(url);
     markedUrls.delete(item.url);
   }
@@ -1123,7 +1286,17 @@ chrome.downloads.onCreated.addListener(async (item) => {
   if (responseClaim) {
     await responseClaim.promise;
     deleteResponseCaptureClaim(url, item.url, item.finalUrl);
-    cancelBrowserDownloadItem(item);
+    if (responseClaim.browserDownloadCancelled || responseClaim.claimState?.browserDownloadCancelled) {
+      console.info('[Downlink][browser-download] skip duplicate cancel for already cancelled response claim', {
+        ...describeBrowserDownloadItem(item),
+        reason: 'response-claim:onCreated',
+      });
+    } else {
+      responseClaim.browserDownloadCancelled = true;
+      if (responseClaim.claimState) responseClaim.claimState.browserDownloadCancelled = true;
+      await cancelBrowserDownloadItem(item, 'response-claim:onCreated');
+      await openPendingSurfaceForResponseClaim(responseClaim, 'response-claim:onCreated');
+    }
     markedUrls.delete(url);
     markedUrls.delete(item.url);
     return;
@@ -1153,7 +1326,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
     return;
   }
 
-  cancelBrowserDownloadItem(item);
+  cancelBrowserDownloadItem(item, 'browser-download:onCreated:capture');
 
   const requestMeta = requestHeadersCache.get(url) || requestHeadersCache.get(item.url) || {};
   const reqHeaders = requestMeta.headers || {};
