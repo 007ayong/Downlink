@@ -76,7 +76,6 @@ Required fields:
 
 - RPC URL
 - RPC secret, optional
-- Default save directory, optional
 
 This works for local or remote `aria2c` or Motrix setups with RPC enabled.
 If you also have MotrixNext installed, you can enable "Manage with MotrixNext" and open it quickly from the task panel.

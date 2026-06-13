@@ -550,7 +550,6 @@ test('aria2 test connection sends the current form config', () => {
   popup.document.getElementById('cfgDownloaderType').value = 'aria2';
   popup.document.getElementById('cfgRpc').value = 'http://127.0.0.1:6800/jsonrpc';
   popup.document.getElementById('cfgSecret').value = 'bad-secret';
-  popup.document.getElementById('cfgSaveDir').value = '/downloads';
 
   popup.document.getElementById('testConnBtn').click();
 
@@ -560,7 +559,6 @@ test('aria2 test connection sends the current form config', () => {
     language: 'auto',
     aria2Rpc: 'http://127.0.0.1:6800/jsonrpc',
     aria2Secret: 'bad-secret',
-    saveDir: '/downloads',
     aria2Silent: false,
     useMotrixNext: false,
     motrixBridgeAutoClose: false,
@@ -595,7 +593,6 @@ test('AB DM test connection sends the current form config', () => {
     language: 'auto',
     aria2Rpc: 'http://localhost:6800/jsonrpc',
     aria2Secret: '',
-    saveDir: '',
     aria2Silent: false,
     useMotrixNext: false,
     motrixBridgeAutoClose: false,
@@ -769,7 +766,6 @@ test('settings controller collects every visible config field from the form', ()
   context.document.getElementById('cfgDownloaderType').value = 'abdownload';
   context.document.getElementById('cfgRpc').value = 'http://127.0.0.1:6800/jsonrpc';
   context.document.getElementById('cfgSecret').value = 'secret';
-  context.document.getElementById('cfgSaveDir').value = '/tmp/downloads';
   context.document.getElementById('cfgAria2Silent').checked = true;
   context.document.getElementById('cfgUseMotrixNext').checked = true;
   context.document.getElementById('cfgMotrixBridgeAutoClose').checked = true;
@@ -788,7 +784,6 @@ test('settings controller collects every visible config field from the form', ()
     language: 'auto',
     aria2Rpc: 'http://127.0.0.1:6800/jsonrpc',
     aria2Secret: 'secret',
-    saveDir: '/tmp/downloads',
     aria2Silent: true,
     useMotrixNext: true,
     motrixBridgeAutoClose: true,
@@ -899,7 +894,6 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgDownloaderType', 'neatdm')).type, 'SAVE_CONFIG');
   assert.equal((await applyChange('cfgRpc', 'http://127.0.0.1:6800/jsonrpc')).config.aria2Rpc, 'http://127.0.0.1:6800/jsonrpc');
   assert.equal((await applyChange('cfgSecret', 'new-secret')).config.aria2Secret, 'new-secret');
-  assert.equal((await applyChange('cfgSaveDir', '/downloads')).config.saveDir, '/downloads');
   assert.equal((await applyChange('cfgAria2Silent', true, 'checked')).config.aria2Silent, true);
   assert.equal((await applyChange('cfgMotrixNextPort', '16888')).config.motrixNextPort, '16888');
   assert.equal((await applyChange('cfgMotrixNextSecret', 'motrix-secret')).config.motrixNextSecret, 'motrix-secret');

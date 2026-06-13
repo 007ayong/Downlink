@@ -15,7 +15,6 @@ const POPUP_DEFAULT_CONFIG = {
   downloaderType: 'aria2',
   aria2Rpc: 'http://localhost:6800/jsonrpc',
   aria2Secret: '',
-  saveDir: '',
   aria2Silent: false,
   useMotrixNext: false,
   motrixBridgeAutoClose: false,

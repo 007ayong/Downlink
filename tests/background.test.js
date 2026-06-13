@@ -2422,7 +2422,6 @@ test('Gopeed intercepted downloads use pending confirmation and do not pass save
       downloaderType: 'gopeed',
       gopeedApi: 'http://127.0.0.1:9999',
       gopeedToken: 'secret-token',
-      saveDir: '/browser/should-not-send',
       autoCapture: true,
       captureExtensions: 'zip',
     },
@@ -3014,7 +3013,6 @@ test('AB DM silent normal sends use headless endpoint with filename', async () =
       externalLauncherHost: 'localhost',
       externalLauncherPort: '15151',
       abDownloadSilent: true,
-      saveDir: '/downloads',
     },
     {
       fetch: async (url, options) => {
@@ -3034,7 +3032,7 @@ test('AB DM silent normal sends use headless endpoint with filename', async () =
   assert.equal(result.ok, true);
   assert.equal(requestedUrl, 'http://localhost:15151/start-headless-download');
   assert.equal(requestBody.name, 'custom.zip');
-  assert.equal(requestBody.folder, '/downloads');
+  assert.equal(requestBody.folder, undefined);
   assert.deepEqual(requestBody.downloadSource, {
     link: 'https://example.com/file.zip',
   });

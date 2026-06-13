@@ -76,7 +76,6 @@ tag 版本需要和 `manifest.json` 里的 `version` 保持一致，例如 `v1.0
 
 - RPC 地址
 - RPC 密钥，可留空
-- 默认保存目录，可留空
 
 适合本地或远程运行 `aria2c` 或 Motrix，并开启 RPC 的场景。
 如果你同时安装了 MotrixNext，可勾选“使用 MotrixNext 管理”，在任务面板中快速打开查看。

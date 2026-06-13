@@ -36,7 +36,6 @@ const DEFAULT_CONFIG = {
   captureMime: true,
   skipSmallDownloads: false,
   smallDownloadThresholdBytes: 1048576,
-  saveDir: '',
 };
 const i18n = globalThis.Localization || {};
 const t = i18n.t || ((key, substitutions, fallback = key) => {
