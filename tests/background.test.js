@@ -527,7 +527,7 @@ test('Aria2 intercepted downloads enter pending queue by default', async () => {
   const pending = Object.values(state.pending || {});
   assert.equal(pending.length, 1);
   assert.equal(pending[0].url, 'https://example.com/file.zip');
-  assert.equal(pending[0].filename, 'file.zip');
+  assert.equal(pending[0].filename, 'server-file.zip');
 });
 
 test('browser download cancel reads expected lastError when item is no longer in progress', async () => {
@@ -717,7 +717,7 @@ test('browser download interception uses content-disposition when URL path has n
   assert.equal(pending[0].filename, 'server-file.zip');
 });
 
-test('browser download interception prefers specific URL filename over content-disposition filename', async () => {
+test('browser download interception prefers content-disposition filename over specific URL filename', async () => {
   const background = loadBackgroundRuntime({
     downloaderType: 'aria2',
     autoCapture: true,
@@ -747,7 +747,7 @@ test('browser download interception prefers specific URL filename over content-d
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   const pending = Object.values(state.pending || {});
   assert.equal(pending.length, 1);
-  assert.equal(pending[0].filename, 'url-file.zip');
+  assert.equal(pending[0].filename, 'server-file.zip');
   assert.equal(pending[0].contentDisposition, "attachment; filename*=UTF-8''server-file.zip");
 });
 
@@ -1191,6 +1191,56 @@ test('POST redirect intent captures final response without extension from attach
   assert.equal(pending[0].filename, 'official.iso');
   assert.equal(pending[0].captureSource, 'redirect');
   assert.equal(pending[0].referrer, postUrl);
+});
+
+test('POST redirect intent prefers final content-disposition filename over hash URL filename', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'exe',
+  });
+
+  const postUrl = 'https://example.com/export';
+  const redirectUrl = 'https://exe1.webgetstore.com/2026/06/09/c6e56503b33e4622cd97906bd491ea37.exe?sg=76ef179ee2802963d76a6e2cc388ad5d&e=6a2d76a5&fileName=Bandizip-Professional-7.44-x64-Repack.exe&fi=289780795';
+  await invokeSendHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    method: 'POST',
+    requestHeaders: [
+      { name: 'referer', value: postUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: postUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'POST',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: redirectUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: redirectUrl,
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'GET',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: "attachment; filename*=UTF-8''Bandizip-Professional-7.44-x64-Repack.exe" },
+      { name: 'content-type', value: 'application/octet-stream' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, redirectUrl);
+  assert.equal(pending[0].filename, 'Bandizip-Professional-7.44-x64-Repack.exe');
+  assert.equal(pending[0].captureSource, 'redirect');
+  assert.equal(pending[0].captureReason, 'content-disposition');
 });
 
 test('legacy default extensions are upgraded to capture Windows ESD redirects', async () => {

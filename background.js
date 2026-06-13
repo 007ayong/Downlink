@@ -1027,7 +1027,7 @@ chrome.webRequest.onHeadersReceived.addListener(
       const key = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
       const responseSourceFilename = redirectIntent?.sourceFilename || requestHeadersCache.get(details.url)?.sourceFilename;
       const responseUrlFilename = filenameFromUrl(details.url);
-      const responsePrimaryFilename = preferredUrlFilename(responseUrlFilename) || classification.filename || responseUrlFilename || '';
+      const responsePrimaryFilename = classification.filename || preferredUrlFilename(responseUrlFilename) || responseUrlFilename || '';
       const taskInfo = {
         key,
         url: details.url,
@@ -1139,7 +1139,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
   const sourceFilename = marked?.sourceFilename || requestHeadersCache.get(url)?.sourceFilename || requestHeadersCache.get(item.url)?.sourceFilename || cachedResponse.sourceFilename || '';
   const classification = classifyDownloadCandidate(config, {
     url,
-    filename: urlPreferredFilename || headerPreferredFilename || browserFilename || headerFilename,
+    filename: headerPreferredFilename || urlPreferredFilename || browserFilename || headerFilename,
     mime: item.mime || cachedResponse.contentType || '',
     contentDisposition: marked?.contentDisposition || cachedResponse.contentDisposition || '',
     source: 'browser-download',
@@ -1158,7 +1158,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
   const requestMeta = requestHeadersCache.get(url) || requestHeadersCache.get(item.url) || {};
   const reqHeaders = requestMeta.headers || {};
   const filename = resolveCapturedFilename(
-    urlPreferredFilename || headerPreferredFilename || browserFilename || markedPreferredFilename || classification.filename || headerFilename || urlFilename || '',
+    headerPreferredFilename || urlPreferredFilename || browserFilename || markedPreferredFilename || classification.filename || headerFilename || urlFilename || '',
     {
       sourceFilename,
       mime: marked?.mime || cachedResponse.contentType || item.mime || classification.mime || '',
