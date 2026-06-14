@@ -48,10 +48,6 @@ function buildSubtitle(media) {
   return parts.filter(Boolean).join(' · ');
 }
 
-function esc(value) {
-  return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 function setStatus(message, type = '') {
   const el = document.getElementById('status');
   el.textContent = message || '';
@@ -206,22 +202,44 @@ function setupFilenameEditor(media) {
   };
 }
 
+function createTextElement(tagName, className, text) {
+  const element = document.createElement(tagName);
+  if (className) element.className = className;
+  element.textContent = text || '';
+  return element;
+}
+
+function createAudioIcon() {
+  const svgNs = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNs, 'svg');
+  svg.setAttribute('viewBox', '0 0 20 20');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+
+  const path = document.createElementNS(svgNs, 'path');
+  path.setAttribute('d', 'M8 5.7v8.6a1.8 1.8 0 1 1-1.2-1.7V6.9l6.8-1.5v7.3a1.8 1.8 0 1 1-1.2-1.7V4.2L8 5.7Z');
+  path.setAttribute('fill', 'currentColor');
+  svg.appendChild(path);
+
+  return svg;
+}
+
 function renderHeaders(headers = {}) {
   const container = document.getElementById('headerList');
   if (!container) return;
-  container.innerHTML = '';
+  container.replaceChildren();
   const entries = Object.entries(headers).filter(([, value]) => value);
   if (!entries.length) {
-    container.innerHTML = `<div class="header-item"><div class="header-value">${esc(t('noHeadersCaptured', undefined, '当前没有捕获到可用请求头。'))}</div></div>`;
+    const item = createTextElement('div', 'header-item', '');
+    item.appendChild(createTextElement('div', 'header-value', t('noHeadersCaptured', undefined, '当前没有捕获到可用请求头。')));
+    container.appendChild(item);
     return;
   }
   entries.forEach(([key, value]) => {
     const item = document.createElement('div');
     item.className = 'header-item';
-    item.innerHTML = `
-      <div class="header-key">${esc(key)}</div>
-      <div class="header-value">${esc(value)}</div>
-    `;
+    item.appendChild(createTextElement('div', 'header-key', key));
+    item.appendChild(createTextElement('div', 'header-value', value));
     container.appendChild(item);
   });
 }
@@ -229,7 +247,7 @@ function renderHeaders(headers = {}) {
 function mountPlayer(media) {
   const playerWrap = document.getElementById('playerWrap');
   const tagName = media.kind === 'audio' ? 'audio' : 'video';
-  playerWrap.innerHTML = '';
+  playerWrap.replaceChildren();
   const player = document.createElement(tagName);
   player.controls = true;
   player.preload = 'metadata';
@@ -237,19 +255,18 @@ function mountPlayer(media) {
   if (tagName === 'audio') {
     const panel = document.createElement('div');
     panel.className = 'audio-panel';
-    panel.innerHTML = `
-      <div class="audio-head">
-        <div class="audio-icon">
-          <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-            <path d="M8 5.7v8.6a1.8 1.8 0 1 1-1.2-1.7V6.9l6.8-1.5v7.3a1.8 1.8 0 1 1-1.2-1.7V4.2L8 5.7Z" fill="currentColor"/>
-          </svg>
-        </div>
-        <div class="audio-copy">
-          <div class="audio-title">${esc(currentPreviewFilename || media.filename || t('previewTitle', undefined, '媒体预览'))}</div>
-          <div class="audio-sub">${esc(buildSubtitle(media))}</div>
-        </div>
-      </div>
-    `;
+    const audioHead = document.createElement('div');
+    audioHead.className = 'audio-head';
+    const audioIcon = document.createElement('div');
+    audioIcon.className = 'audio-icon';
+    audioIcon.appendChild(createAudioIcon());
+    const audioCopy = document.createElement('div');
+    audioCopy.className = 'audio-copy';
+    audioCopy.appendChild(createTextElement('div', 'audio-title', currentPreviewFilename || media.filename || t('previewTitle', undefined, '媒体预览')));
+    audioCopy.appendChild(createTextElement('div', 'audio-sub', buildSubtitle(media)));
+    audioHead.appendChild(audioIcon);
+    audioHead.appendChild(audioCopy);
+    panel.appendChild(audioHead);
     panel.appendChild(player);
     playerWrap.appendChild(panel);
   } else {
@@ -297,12 +314,15 @@ function renderMedia(media) {
   if (infoPageUrl) infoPageUrl.textContent = media.pageUrl || media.referrer || '-';
 
   const chips = document.getElementById('metaChips');
-  chips.innerHTML = `
-    <span class="chip kind">${mediaKindText(media)}</span>
-    <span class="chip">${esc(fmt(media.size))}</span>
-    ${media.kind === 'video' && media.width && media.height ? `<span class="chip">${esc(`${media.width}×${media.height}`)}</span>` : ''}
-    ${media.mime ? `<span class="chip">${esc(media.mime)}</span>` : ''}
-  `;
+  const chipNodes = [
+    createTextElement('span', 'chip kind', mediaKindText(media)),
+    createTextElement('span', 'chip', fmt(media.size)),
+  ];
+  if (media.kind === 'video' && media.width && media.height) {
+    chipNodes.push(createTextElement('span', 'chip', `${media.width}×${media.height}`));
+  }
+  if (media.mime) chipNodes.push(createTextElement('span', 'chip', media.mime));
+  chips.replaceChildren(...chipNodes);
 
   renderHeaders(media.headers || {});
 
