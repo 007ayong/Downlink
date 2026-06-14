@@ -143,6 +143,12 @@
     }
     .tab:hover { color: var(--text-2); }
     .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab.disabled {
+      color: var(--text-3);
+      opacity: 0.45;
+    }
+    .tab.disabled:hover { color: var(--text-3); }
+    .tab.disabled .tab-badge { background: var(--text-3); }
     .tab-badge {
       background: var(--accent);
       color: white;
@@ -884,7 +890,7 @@
     <span data-i18n="tabTasks">任务</span>
     <span class="tab-badge" id="pendingBadge" style="display:none">0</span>
   </div>
-  <div class="tab" data-tab="media">
+  <div class="tab" data-tab="media" id="mediaTab">
     <img class="tab-icon" src="assets/file-icons/media-bar.svg" alt="" aria-hidden="true"/>
     <span data-i18n="tabMedia">媒体</span>
     <span class="tab-badge" id="mediaBadge" style="display:none">0</span>
@@ -1050,6 +1056,10 @@
 
   <div class="settings-group">
     <div class="settings-group-title" data-i18n="settingsCaptureGroup">拦截规则</div>
+    <div class="settings-row">
+      <label><span data-i18n="settingsMediaSniffing">全局媒体嗅探</span> <span class="settings-sub" data-i18n="settingsMediaSniffingSub">关闭后不再从任何网页刷新媒体资源列表；单个网页的暂停状态仍会保留</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgMediaSniffing"><div class="toggle-track"></div></label>
+    </div>
     <div class="settings-row col">
       <label><span data-i18n="settingsCaptureExtensions">拦截文件类型</span> <span class="settings-sub" data-i18n="settingsCaptureExtensionsSub">逗号分隔，留空拦截所有</span></label>
       <input class="settings-input wide" id="cfgExts" type="text" placeholder="zip,rar,mp4,exe..." data-i18n-placeholder="settingsCaptureExtensionsPlaceholder"/>

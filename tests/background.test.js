@@ -3654,6 +3654,51 @@ test('enabling auto capture resumes tabs paused by the auto capture switch', asy
   assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeBackgroundColor.at(-1))), { color: '#e05c2a', tabId: 12 });
 });
 
+test('disabling global media sniffing pauses active tab sniffing without disabling capture', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    mediaSniffing: true,
+    __activeTabs: [{ id: 12, windowId: 3, active: true }],
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'SAVE_CONFIG',
+    config: {
+      mediaSniffing: false,
+    },
+  });
+
+  assert.equal(result.ok, true);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.autoCapture, true);
+  assert.equal(state.config.mediaSniffing, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.pausedTabs)), [12]);
+  assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeText.at(-1))), { text: '', tabId: 12 });
+});
+
+test('global media sniffing switch blocks media responses only', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    mediaSniffing: false,
+    __activeTabs: [{ id: 12, windowId: 3, active: true }],
+  });
+
+  await invokeResponseHeaders(background, {
+    tabId: 12,
+    frameId: 0,
+    url: 'https://cdn.example.com/video.mp4',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'video/mp4' },
+      { name: 'content-length', value: '2048' },
+    ],
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.autoCapture, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.media)), {});
+});
+
 test('storage auto capture changes pause active tab sniffing and update the badge', async () => {
   const background = loadBackgroundRuntime({
     autoCapture: true,

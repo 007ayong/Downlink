@@ -383,6 +383,27 @@ test('does not auto-switch when there are pending confirmation cards', () => {
   );
 });
 
+test('global media sniffing off greys media tab and disables media controls', async () => {
+  const popup = loadPopupRuntime({
+    state: {
+      config: { mediaSniffing: false },
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const mediaTab = popup.document.getElementById('mediaTab');
+  const toggleSniffingBtn = popup.document.getElementById('toggleSniffingBtn');
+  const clearMediaBtn = popup.document.getElementById('clearMediaBtn');
+  const mediaSummary = popup.document.getElementById('mediaSummary');
+
+  assert.equal(mediaTab.classList.contains('disabled'), true);
+  assert.equal(toggleSniffingBtn.disabled, true);
+  assert.equal(clearMediaBtn.disabled, true);
+  assert.equal(mediaSummary.textContent, '全局嗅探已关闭，请在设置中开启后再刷新媒体资源');
+});
+
 test('pending confirmation filename edit survives state re-render', () => {
   const popup = loadPopupRuntime();
   const pending = {
@@ -685,6 +706,7 @@ test('aria2 test connection sends the current form config', () => {
     externalLauncherPort: '15151',
     abDownloadSilent: false,
     autoCapture: false,
+    mediaSniffing: false,
     captureExtensions: '',
     skipSmallDownloads: false,
     smallDownloadThresholdBytes: 1048576,
@@ -719,6 +741,7 @@ test('AB DM test connection sends the current form config', () => {
     externalLauncherPort: '17000',
     abDownloadSilent: true,
     autoCapture: false,
+    mediaSniffing: false,
     captureExtensions: '',
     skipSmallDownloads: false,
     smallDownloadThresholdBytes: 1048576,
@@ -889,6 +912,7 @@ test('settings controller collects every visible config field from the form', ()
   context.document.getElementById('cfgLauncherPort').value = '17000';
   context.document.getElementById('cfgAbDownloadSilent').checked = true;
   context.document.getElementById('cfgAutoCapture').checked = true;
+  context.document.getElementById('cfgMediaSniffing').checked = false;
   context.document.getElementById('cfgExts').value = 'zip,mp4';
   context.document.getElementById('cfgSkipSmallDownloads').checked = true;
   context.document.getElementById('cfgSmallDownloadThresholdMb').value = '2.5';
@@ -910,6 +934,7 @@ test('settings controller collects every visible config field from the form', ()
     externalLauncherPort: '17000',
     abDownloadSilent: true,
     autoCapture: true,
+    mediaSniffing: false,
     captureExtensions: 'zip,mp4',
     skipSmallDownloads: true,
     smallDownloadThresholdBytes: 2.5 * 1024 * 1024,
@@ -928,6 +953,7 @@ test('settings load defaults keep MotrixNext port and autosave secret fields', a
     externalLauncherHost: 'localhost',
     externalLauncherPort: '15151',
     autoCapture: true,
+    mediaSniffing: true,
     smallDownloadThresholdBytes: 1048576,
   };
   const controller = context.PopupSettings.createSettingsController({
@@ -957,6 +983,7 @@ test('settings load defaults keep MotrixNext port and autosave secret fields', a
   assert.equal(context.document.getElementById('cfgMotrixNextPort').value, '16801');
   assert.equal(context.document.getElementById('cfgGopeedApi').value, 'http://127.0.0.1:9999');
   assert.equal(context.document.getElementById('cfgLauncherPort').value, '15151');
+  assert.equal(context.document.getElementById('cfgMediaSniffing').checked, true);
 
   controller.bindSettingsEvents();
   context.document.getElementById('cfgDownloaderType').value = 'motrixnext';
@@ -1016,6 +1043,7 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgExts', 'zip,mp4')).config.captureExtensions, 'zip,mp4');
   assert.equal((await applyChange('cfgSmallDownloadThresholdMb', '2')).config.smallDownloadThresholdBytes, 2 * 1024 * 1024);
   assert.equal((await applyChange('cfgAutoCapture', true, 'checked')).config.autoCapture, true);
+  assert.equal((await applyChange('cfgMediaSniffing', false, 'checked')).config.mediaSniffing, false);
   assert.equal((await applyChange('cfgSkipSmallDownloads', true, 'checked')).config.skipSmallDownloads, true);
   assert.equal((await applyChange('cfgUseMotrixNext', true, 'checked')).config.useMotrixNext, true);
   assert.equal((await applyChange('cfgMotrixBridgeAutoClose', true, 'checked')).config.motrixBridgeAutoClose, true);

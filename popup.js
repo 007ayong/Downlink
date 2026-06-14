@@ -27,6 +27,7 @@ const POPUP_DEFAULT_CONFIG = {
   externalLauncherPort: '15151',
   abDownloadSilent: false,
   autoCapture: true,
+  mediaSniffing: true,
   captureExtensions: '',
   skipSmallDownloads: false,
   smallDownloadThresholdBytes: 1048576,

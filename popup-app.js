@@ -755,15 +755,21 @@ function renderMedia(mediaByTab, pausedTabs = []) {
   const emptyEl = document.getElementById('mediaEmpty');
   const summaryEl = document.getElementById('mediaSummary');
   const mediaBadge = document.getElementById('mediaBadge');
+  const mediaTab = document.getElementById('mediaTab');
   const toggleSniffingBtn = document.getElementById('toggleSniffingBtn');
+  const clearMediaBtn = document.getElementById('clearMediaBtn');
   renderInlineAlert('mediaAlert');
   const media = currentTabId == null ? [] : (mediaByTab?.[currentTabId] || []);
   const mediaKey = buildMediaRenderKey(media);
   const mediaCount = media.length;
+  const isGlobalSniffingDisabled = currentConfig.mediaSniffing === false;
+  const globalSniffingDisabledLabel = popupAppT('mediaSniffingDisabled', undefined, '全局嗅探已关闭，请在设置中开启后再刷新媒体资源');
   const isPaused = currentTabId != null && pausedTabs.includes(currentTabId);
 
   emptyEl.style.display = media.length ? 'none' : 'flex';
-  if (isPaused) {
+  if (isGlobalSniffingDisabled) {
+    summaryEl.textContent = globalSniffingDisabledLabel;
+  } else if (isPaused) {
     summaryEl.textContent = popupAppT('sniffingPaused', undefined, '已暂停嗅探，直播资源不再刷新');
   } else {
     summaryEl.textContent = media.length
@@ -782,14 +788,20 @@ function renderMedia(mediaByTab, pausedTabs = []) {
       ? popupAppT('resumeSniffing', undefined, '恢复嗅探')
       : popupAppT('pauseSniffing', undefined, '暂停嗅探');
     toggleSniffingBtn.replaceChildren(getSniffingToggleIcon(isPaused));
-    toggleSniffingBtn.title = label;
+    toggleSniffingBtn.title = isGlobalSniffingDisabled ? globalSniffingDisabledLabel : label;
+    toggleSniffingBtn.disabled = isGlobalSniffingDisabled;
     if (typeof toggleSniffingBtn.setAttribute === 'function') {
-      toggleSniffingBtn.setAttribute('aria-label', label);
+      toggleSniffingBtn.setAttribute('aria-label', isGlobalSniffingDisabled ? globalSniffingDisabledLabel : label);
     } else {
-      toggleSniffingBtn.ariaLabel = label;
+      toggleSniffingBtn.ariaLabel = isGlobalSniffingDisabled ? globalSniffingDisabledLabel : label;
     }
     toggleSniffingBtn.classList.toggle('btn-primary', isPaused);
     toggleSniffingBtn.classList.toggle('btn-ghost', !isPaused);
+  }
+  if (clearMediaBtn) clearMediaBtn.disabled = isGlobalSniffingDisabled;
+  if (mediaTab) {
+    mediaTab.classList.toggle('disabled', isGlobalSniffingDisabled);
+    mediaTab.title = isGlobalSniffingDisabled ? globalSniffingDisabledLabel : '';
   }
 
   const pendingCount = Object.values(currentState.pending || {}).length;
@@ -1146,6 +1158,10 @@ document.getElementById('clearMediaBtn').addEventListener('click', () => {
 });
 
 document.getElementById('toggleSniffingBtn').addEventListener('click', () => {
+  if (currentConfig.mediaSniffing === false) {
+    showToast(popupAppT('sniffingResumeBlockedByGlobalOff', undefined, '请先在设置中开启全局嗅探'));
+    return;
+  }
   const isPaused = currentState.pausedTabs?.includes(currentTabId);
   const msgType = isPaused ? 'RESUME_MEDIA_SNIFFING' : 'PAUSE_MEDIA_SNIFFING';
   chrome.runtime.sendMessage({ type: msgType, tabId: currentTabId }, (res) => {

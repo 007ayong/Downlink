@@ -32,6 +32,7 @@ const DEFAULT_CONFIG = {
   externalLauncherPath: '/start-headless-download',
   abDownloadSilent: false,
   autoCapture: true,
+  mediaSniffing: true,
   captureExtensions: DEFAULT_CAPTURE_EXTENSIONS,
   captureMime: true,
   skipSmallDownloads: false,
@@ -196,8 +197,13 @@ function normalizeConfig(nextConfig = {}) {
   return {
     ...nextConfig,
     externalLauncherName: 'AB DM',
+    mediaSniffing: nextConfig.mediaSniffing !== false,
     captureExtensions: normalizeCaptureExtensionsConfig(nextConfig.captureExtensions),
   };
+}
+
+function isMediaSniffingEnabled(nextConfig = config) {
+  return nextConfig.autoCapture !== false && nextConfig.mediaSniffing !== false;
 }
 
 function applyLocaleFromConfig(nextConfig = config) {
@@ -205,12 +211,12 @@ function applyLocaleFromConfig(nextConfig = config) {
 }
 
 async function saveConfigAndSync(nextConfig) {
-  const previousAutoCapture = config.autoCapture;
+  const previousMediaSniffingEnabled = isMediaSniffingEnabled(config);
   await saveStoredConfig(nextConfig);
   config = normalizeConfig({ ...config, ...nextConfig });
   applyLocaleFromConfig(config);
-  if (previousAutoCapture !== config.autoCapture) {
-    await syncAutoCaptureStateForActiveTabs();
+  if (previousMediaSniffingEnabled !== isMediaSniffingEnabled(config)) {
+    await syncMediaSniffingStateForActiveTabs();
     broadcastUpdate();
   }
   return config;
@@ -827,7 +833,7 @@ const configReady = new Promise((resolve) => {
     applyLocaleFromConfig(config);
     refreshContextMenus();
     resolve(config);
-    syncAutoCaptureStateForActiveTabs().then(() => {
+    syncMediaSniffingStateForActiveTabs().then(() => {
       broadcastUpdate();
     }).catch(() => {});
   });
@@ -835,13 +841,13 @@ const configReady = new Promise((resolve) => {
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName && !['sync', 'local'].includes(areaName)) return;
-  const previousAutoCapture = config.autoCapture;
+  const previousMediaSniffingEnabled = isMediaSniffingEnabled(config);
   for (const key in changes) config[key] = changes[key].newValue;
   config = normalizeConfig(config);
   applyLocaleFromConfig(config);
   if (changes.language) refreshContextMenus();
-  if (changes.autoCapture && previousAutoCapture !== config.autoCapture) {
-    syncAutoCaptureStateForActiveTabs().then(() => {
+  if ((changes.autoCapture || changes.mediaSniffing) && previousMediaSniffingEnabled !== isMediaSniffingEnabled(config)) {
+    syncMediaSniffingStateForActiveTabs().then(() => {
       broadcastUpdate();
     }).catch(() => {});
   }
@@ -1016,9 +1022,9 @@ function getActiveTabs() {
   });
 }
 
-function syncAutoCaptureStateForTab(tabId) {
+function syncMediaSniffingStateForTab(tabId) {
   if (typeof tabId !== 'number' || tabId < 0) return;
-  if (!config.autoCapture) {
+  if (!isMediaSniffingEnabled(config)) {
     mediaManager.pauseSniffing(tabId);
     autoCapturePausedTabs.add(tabId);
   } else if (autoCapturePausedTabs.has(tabId)) {
@@ -1029,9 +1035,9 @@ function syncAutoCaptureStateForTab(tabId) {
   updateActionBadgeForTab(tabId, nextState.media[tabId]?.length || 0, nextState.pausedTabs.includes(tabId));
 }
 
-async function syncAutoCaptureStateForActiveTabs() {
+async function syncMediaSniffingStateForActiveTabs() {
   const tabs = await getActiveTabs();
-  for (const tab of tabs) syncAutoCaptureStateForTab(tab?.id);
+  for (const tab of tabs) syncMediaSniffingStateForTab(tab?.id);
 }
 
 function getTabSnapshot(tabId) {
@@ -1294,7 +1300,7 @@ chrome.webRequest.onHeadersReceived.addListener(
 
 chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
-    if (!config.autoCapture) return;
+    if (!isMediaSniffingEnabled(config)) return;
     return mediaManager.handleMediaResponse(details);
   },
   { urls: ['<all_urls>'] },
@@ -1569,8 +1575,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true });
         break;
       case 'RESUME_MEDIA_SNIFFING':
-        if (!config.autoCapture) {
-          syncAutoCaptureStateForTab(msg.tabId);
+        if (!isMediaSniffingEnabled(config)) {
+          syncMediaSniffingStateForTab(msg.tabId);
           broadcastUpdate();
           sendResponse({ ok: false, disabled: true });
           break;
@@ -1709,7 +1715,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  syncAutoCaptureStateForTab(tabId);
+  syncMediaSniffingStateForTab(tabId);
   broadcastUpdate();
 });
 
@@ -1717,7 +1723,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status !== 'loading') return;
   mediaManager.clearTabState(tabId);
   autoCapturePausedTabs.delete(tabId);
-  syncAutoCaptureStateForTab(tabId);
+  syncMediaSniffingStateForTab(tabId);
   mediaManager.clearPreviewRule(tabId);
   broadcastUpdate();
 });
