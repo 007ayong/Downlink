@@ -4,11 +4,48 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function createElementStub() {
+function createElementStub(tagName = 'div') {
   const classes = new Set();
   const listeners = {};
   let innerHTML = '';
+  const normalizedTagName = String(tagName || 'div').toLowerCase();
+  const hasClass = (element, className) => String(element.className || '').split(/\s+/).includes(className)
+    || element._classes?.has(className);
+  const matchesSelector = (element, selector) => {
+    if (!selector) return false;
+    if (selector.startsWith('.')) return hasClass(element, selector.slice(1));
+    if (selector.startsWith('[') && selector.endsWith(']')) {
+      const attr = selector.slice(1, -1);
+      if (attr.startsWith('data-')) {
+        const key = attr.slice(5).replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+        return Object.prototype.hasOwnProperty.call(element.dataset || {}, key);
+      }
+      return false;
+    }
+    return String(element.tagName || '').toLowerCase() === selector.toLowerCase();
+  };
+  const findFirst = (element, parts) => {
+    const [part, ...rest] = parts;
+    for (const child of element.children || []) {
+      if (matchesSelector(child, part)) {
+        if (!rest.length) return child;
+        const nested = findFirst(child, rest);
+        if (nested) return nested;
+      }
+      const descendant = findFirst(child, parts);
+      if (descendant) return descendant;
+    }
+    return null;
+  };
+  const findAll = (element, selector, results = []) => {
+    for (const child of element.children || []) {
+      if (matchesSelector(child, selector)) results.push(child);
+      findAll(child, selector, results);
+    }
+    return results;
+  };
   const element = {
+    tagName: normalizedTagName,
     style: {},
     dataset: {},
     value: '',
@@ -55,17 +92,31 @@ function createElementStub() {
       this.children.push(child);
       return child;
     },
+    replaceChildren(...children) {
+      this.children = [];
+      children.forEach((child) => this.appendChild(child));
+    },
     remove() {},
     focus() {},
     select() {},
+    setAttribute(name, value) {
+      if (name === 'class') this.className = String(value);
+      else if (name === 'aria-label') this.ariaLabel = String(value);
+      else if (name.startsWith('data-')) {
+        const key = name.slice(5).replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+        this.dataset[key] = String(value);
+      } else {
+        this[name] = String(value);
+      }
+    },
     click() {
       (listeners.click || []).forEach((handler) => handler({ currentTarget: this, target: this }));
     },
     querySelector(selector) {
-      return this._queryMap.get(selector) || createElementStub();
+      return this._queryMap.get(selector) || findFirst(this, String(selector).trim().split(/\s+/)) || createElementStub();
     },
-    querySelectorAll() {
-      return [];
+    querySelectorAll(selector) {
+      return findAll(this, selector);
     },
     _classes: classes,
     _listeners: listeners,
@@ -111,8 +162,14 @@ function loadPopupRuntime(options = {}) {
     querySelectorAll() {
       return [];
     },
-    createElement() {
-      return createElementStub();
+    createElement(tagName) {
+      return createElementStub(tagName);
+    },
+    createElementNS(_namespace, tagName) {
+      return createElementStub(tagName);
+    },
+    createDocumentFragment() {
+      return createElementStub('fragment');
     },
     execCommand() {
       return true;

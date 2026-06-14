@@ -45,17 +45,112 @@ function getMediaFilenameValue(item) {
     : (item.filename || popupAppT('untitledMedia', undefined, '未命名媒体'));
 }
 
+function createTextElement(tagName, className, text = '') {
+  const element = document.createElement(tagName);
+  if (className) element.className = className;
+  element.textContent = text;
+  return element;
+}
+
+function createSvgElement(viewBox, className = '') {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  if (className) svg.setAttribute('class', className);
+  svg.setAttribute('viewBox', viewBox);
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  return svg;
+}
+
+function appendSvgPath(svg, d, attrs = {}) {
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', d);
+  Object.entries(attrs).forEach(([key, value]) => path.setAttribute(key, value));
+  svg.appendChild(path);
+  return path;
+}
+
+function createTaskButton(label, action, { gid = '', danger = false } = {}) {
+  const button = createTextElement('button', `task-btn${danger ? ' danger' : ''}`, label);
+  button.dataset.action = action;
+  if (gid) button.dataset.gid = gid;
+  return button;
+}
+
+function createIconImage(src, className = '') {
+  const img = document.createElement('img');
+  img.src = src || '';
+  img.alt = '';
+  img.loading = 'lazy';
+  if (className) img.className = className;
+  return img;
+}
+
 function mediaEditIcon() {
-  return '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M10.9 2.4a1.6 1.6 0 0 1 2.3 2.3l-7.1 7.1-3 .7.7-3 7.1-7.1Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M9.8 3.5l2.7 2.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+  const svg = createSvgElement('0 0 16 16');
+  appendSvgPath(svg, 'M10.9 2.4a1.6 1.6 0 0 1 2.3 2.3l-7.1 7.1-3 .7.7-3 7.1-7.1Z', {
+    fill: 'none',
+    stroke: 'currentColor',
+    'stroke-width': '1.4',
+    'stroke-linejoin': 'round',
+  });
+  appendSvgPath(svg, 'M9.8 3.5l2.7 2.7', {
+    fill: 'none',
+    stroke: 'currentColor',
+    'stroke-width': '1.4',
+    'stroke-linecap': 'round',
+  });
+  return svg;
 }
 
 function mediaFactIcon(name) {
-  const icons = {
-    size: '<svg class="media-fact-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2.5" y="3.5" width="11" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.75 10.25h6.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="5" cy="6.25" r=".75" fill="currentColor"/></svg>',
-    resolution: '<svg class="media-fact-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2.5" y="4" width="11" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6.25 13.25h3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
-    duration: '<svg class="media-fact-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.25" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 5.25V8l2 1.25" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  };
-  return icons[name] || '';
+  const svg = createSvgElement('0 0 16 16', 'media-fact-icon');
+  if (name === 'size') {
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', '2.5');
+    rect.setAttribute('y', '3.5');
+    rect.setAttribute('width', '11');
+    rect.setAttribute('height', '9');
+    rect.setAttribute('rx', '1.6');
+    rect.setAttribute('fill', 'none');
+    rect.setAttribute('stroke', 'currentColor');
+    rect.setAttribute('stroke-width', '1.4');
+    svg.appendChild(rect);
+    appendSvgPath(svg, 'M4.75 10.25h6.5', { fill: 'none', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' });
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', '5');
+    circle.setAttribute('cy', '6.25');
+    circle.setAttribute('r', '.75');
+    circle.setAttribute('fill', 'currentColor');
+    svg.appendChild(circle);
+    return svg;
+  }
+  if (name === 'resolution') {
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', '2.5');
+    rect.setAttribute('y', '4');
+    rect.setAttribute('width', '11');
+    rect.setAttribute('height', '7.5');
+    rect.setAttribute('rx', '1.5');
+    rect.setAttribute('fill', 'none');
+    rect.setAttribute('stroke', 'currentColor');
+    rect.setAttribute('stroke-width', '1.4');
+    svg.appendChild(rect);
+    appendSvgPath(svg, 'M6.25 13.25h3.5', { fill: 'none', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' });
+    return svg;
+  }
+  if (name === 'duration') {
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', '8');
+    circle.setAttribute('cy', '8');
+    circle.setAttribute('r', '5.25');
+    circle.setAttribute('fill', 'none');
+    circle.setAttribute('stroke', 'currentColor');
+    circle.setAttribute('stroke-width', '1.4');
+    svg.appendChild(circle);
+    appendSvgPath(svg, 'M8 5.25V8l2 1.25', { fill: 'none', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+    return svg;
+  }
+  return document.createDocumentFragment();
 }
 
 function buildPendingConfirmRenderKey(pendingVals) {
@@ -70,6 +165,191 @@ function buildPendingConfirmRenderKey(pendingVals) {
     + `|${popupAppT('ignore', undefined, '忽略')}`
     + `|${getSendLabel(currentConfig)}`
     + `|${currentConfig.downloaderType || ''}`;
+}
+
+function createPendingCard(item, { filename, canForceSingleThread }) {
+  const card = document.createElement('div');
+  card.className = 'pending-card';
+  card.appendChild(createTextElement('div', 'pending-label', popupAppT('pendingDownload', undefined, '待确认下载')));
+  card.appendChild(createTextElement('div', 'pending-url', item.url || ''));
+
+  const filenameRow = document.createElement('div');
+  filenameRow.className = 'pending-filename-row';
+  const filenameLabel = createTextElement('label', '', popupAppT('fileName', undefined, '文件名'));
+  const filenameInput = document.createElement('input');
+  filenameInput.type = 'text';
+  filenameInput.className = 'pending-fname';
+  filenameInput.value = filename || '';
+  filenameInput.placeholder = popupAppT('autoDetect', undefined, '自动识别');
+  filenameInput.autocomplete = 'off';
+  filenameInput.spellcheck = false;
+  filenameRow.appendChild(filenameLabel);
+  filenameRow.appendChild(filenameInput);
+  card.appendChild(filenameRow);
+
+  if (canForceSingleThread) {
+    const optionLabel = document.createElement('label');
+    optionLabel.className = 'pending-option';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'force-single-thread aria2-single-thread';
+    optionLabel.appendChild(checkbox);
+    optionLabel.appendChild(createTextElement('span', '', popupAppT('aria2SingleThread', undefined, '单线程不分片下载')));
+    card.appendChild(optionLabel);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'pending-actions';
+  const confirmBtn = createTextElement('button', 'btn btn-primary confirm-btn', getSendLabel(currentConfig));
+  confirmBtn.dataset.key = item.key || '';
+  const rejectBtn = createTextElement('button', 'btn btn-ghost reject-btn', popupAppT('ignore', undefined, '忽略'));
+  rejectBtn.dataset.key = item.key || '';
+  actions.appendChild(confirmBtn);
+  actions.appendChild(rejectBtn);
+  card.appendChild(actions);
+
+  return card;
+}
+
+function appendTaskMeta(meta, text) {
+  if (!text) return;
+  meta.appendChild(createTextElement('span', '', text));
+}
+
+function createTaskCard(task, { name, stateKey, pct, showProgress, eta, canViewInMotrix, canViewInGopeed }) {
+  const card = document.createElement('div');
+  card.className = `task-card ${stateKey}`;
+
+  const top = document.createElement('div');
+  top.className = 'task-top';
+  const iconWrap = document.createElement('div');
+  iconWrap.className = 'task-icon';
+  iconWrap.appendChild(createIconImage(getFileIcon({ name, mime: task.mime, kind: task.kind })));
+
+  const info = document.createElement('div');
+  info.className = 'task-info';
+  const taskName = createTextElement('div', 'task-name', name);
+  taskName.title = name;
+  const meta = document.createElement('div');
+  meta.className = 'task-meta';
+  if (task.totalLength) appendTaskMeta(meta, `${fmt(task.completedLength)} / ${fmt(task.totalLength)}`);
+  if (task.targetName) appendTaskMeta(meta, `${popupAppT('targetLabel', undefined, '目标')} ${task.targetName}`);
+  if (stateKey === 'active' && task.downloadSpeed) appendTaskMeta(meta, `${popupAppT('speedLabel', undefined, '速度')} ${fmtSpeed(task.downloadSpeed)}`);
+  if (stateKey === 'active' && eta) appendTaskMeta(meta, `${popupAppT('etaLabel', undefined, '剩余')} ${eta}`);
+  if (task.connections) appendTaskMeta(meta, popupAppT('connectionsCount', [task.connections], `${task.connections}线`));
+  info.appendChild(taskName);
+  info.appendChild(meta);
+
+  top.appendChild(iconWrap);
+  top.appendChild(info);
+  top.appendChild(createTextElement('span', `state-pill state-${stateKey}`, getStateLabel(stateKey)));
+  card.appendChild(top);
+
+  if (showProgress) {
+    const progress = document.createElement('div');
+    progress.className = 'task-progress';
+    const track = document.createElement('div');
+    track.className = 'progress-track';
+    const fill = document.createElement('div');
+    fill.className = `progress-fill ${stateKey}`;
+    fill.style.width = `${pct}%`;
+    track.appendChild(fill);
+    const row = document.createElement('div');
+    row.className = 'progress-row';
+    row.appendChild(createTextElement('span', '', fmt(task.completedLength)));
+    row.appendChild(createTextElement('span', 'progress-pct', `${pct}%`));
+    progress.appendChild(track);
+    progress.appendChild(row);
+    card.appendChild(progress);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'task-actions';
+  if (canViewInMotrix) actions.appendChild(createTaskButton(popupAppT('motrixView', undefined, 'MotrixNext中查看'), 'motrix-view'));
+  if (canViewInGopeed) actions.appendChild(createTaskButton(popupAppT('gopeedView', undefined, 'Gopeed中查看'), 'gopeed-view'));
+  if (stateKey === 'active') actions.appendChild(createTaskButton(popupAppT('pauseTask', undefined, '暂停'), 'pause', { gid: task.gid }));
+  if (stateKey === 'paused') actions.appendChild(createTaskButton(popupAppT('resumeTask', undefined, '继续'), 'resume', { gid: task.gid }));
+  if (stateKey === 'complete') actions.appendChild(createTaskButton(popupAppT('clearTask', undefined, '清除'), 'remove', { gid: task.gid }));
+  if (['active', 'paused', 'waiting'].includes(stateKey)) actions.appendChild(createTaskButton(popupAppT('cancelTask', undefined, '取消'), 'remove', { gid: task.gid, danger: true }));
+  if (stateKey === 'sent') actions.appendChild(createTaskButton(popupAppT('clearTask', undefined, '清除'), 'remove', { gid: task.gid }));
+  if (stateKey === 'error') actions.appendChild(createTaskButton(popupAppT('clearTask', undefined, '清除'), 'remove', { gid: task.gid, danger: true }));
+  card.appendChild(actions);
+
+  return card;
+}
+
+function createMediaFact(iconName, text, className = '') {
+  const fact = document.createElement('span');
+  fact.className = `media-fact${className ? ` ${className}` : ''}`;
+  fact.appendChild(mediaFactIcon(iconName));
+  fact.appendChild(createTextElement('span', '', text));
+  return fact;
+}
+
+function createMediaCard(item, { iconSrc, durationText, resolutionText, displayFilename }) {
+  const card = document.createElement('div');
+  card.className = `media-card media-card-${item.kind || 'media'}`;
+  card.dataset.mediaId = item.id;
+
+  const top = document.createElement('div');
+  top.className = 'media-top';
+  const iconWrap = document.createElement('div');
+  iconWrap.className = 'media-icon';
+  iconWrap.appendChild(createIconImage(iconSrc));
+
+  const info = document.createElement('div');
+  info.className = 'media-info';
+  const titleRow = document.createElement('div');
+  titleRow.className = 'media-title-row';
+  const nameEl = createTextElement('div', 'media-name', displayFilename);
+  nameEl.title = displayFilename;
+  const nameInput = document.createElement('input');
+  nameInput.className = 'media-name-input';
+  nameInput.type = 'text';
+  nameInput.value = displayFilename;
+  nameInput.autocomplete = 'off';
+  nameInput.spellcheck = false;
+  nameInput.hidden = true;
+  const editBtn = document.createElement('button');
+  editBtn.className = 'media-name-edit';
+  editBtn.type = 'button';
+  editBtn.title = popupAppT('editFileName', undefined, '编辑文件名');
+  editBtn.setAttribute('aria-label', popupAppT('editFileName', undefined, '编辑文件名'));
+  editBtn.appendChild(mediaEditIcon());
+  titleRow.appendChild(nameEl);
+  titleRow.appendChild(nameInput);
+  titleRow.appendChild(editBtn);
+  titleRow.appendChild(createTextElement('span', `media-chip media-kind kind-${item.kind || 'video'}`, mediaKindLabel(item.kind)));
+
+  const urlEl = createTextElement('div', 'media-url', item.resourceUrl || '');
+  const meta = document.createElement('div');
+  meta.className = 'media-meta';
+  meta.appendChild(createMediaFact('size', item.size ? fmt(item.size) : popupAppT('unknownSize', undefined, '大小未知')));
+  if (resolutionText) meta.appendChild(createMediaFact('resolution', resolutionText, 'media-resolution'));
+  if (durationText) meta.appendChild(createMediaFact('duration', durationText));
+
+  info.appendChild(titleRow);
+  info.appendChild(urlEl);
+  info.appendChild(meta);
+  if (item.mime) info.appendChild(createTextElement('div', 'media-mime', item.mime));
+  top.appendChild(iconWrap);
+  top.appendChild(info);
+  card.appendChild(top);
+
+  const actions = document.createElement('div');
+  actions.className = 'media-actions';
+  const previewBtn = createTextElement('button', 'task-btn media-preview-toggle', popupAppT('previewMedia', undefined, '预览'));
+  previewBtn.dataset.id = item.id;
+  const copyBtn = createTextElement('button', 'task-btn', popupAppT('copyLink', undefined, '复制链接'));
+  copyBtn.dataset.copyUrl = item.resourceUrl || '';
+  const sendBtn = createTextElement('button', 'task-btn media-send-btn', getSendLabel(currentConfig));
+  sendBtn.dataset.sendId = item.id;
+  actions.appendChild(previewBtn);
+  actions.appendChild(copyBtn);
+  actions.appendChild(sendBtn);
+  card.appendChild(actions);
+
+  return card;
 }
 
 function syncPopupGlobals() {
@@ -121,7 +401,9 @@ function getSniffingToggleIcon(isPaused) {
   const path = isPaused
     ? 'M5.4 3.5c0-.7.76-1.13 1.36-.76l5.6 3.5c.56.35.56 1.17 0 1.52l-5.6 3.5c-.6.37-1.36-.06-1.36-.76v-7Z'
     : 'M5.25 3.25h1.5c.55 0 1 .45 1 1v7.5c0 .55-.45 1-1 1h-1.5c-.55 0-1-.45-1-1v-7.5c0-.55.45-1 1-1Zm5 0h1.5c.55 0 1 .45 1 1v7.5c0 .55-.45 1-1 1h-1.5c-.55 0-1-.45-1-1v-7.5c0-.55.45-1 1-1Z';
-  return `<svg class="control-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="${path}" fill="currentColor"/></svg>`;
+  const svg = createSvgElement('0 0 16 16', 'control-icon');
+  appendSvgPath(svg, path, { fill: 'currentColor' });
+  return svg;
 }
 
 function renderHeaderStatus({ cfg = currentConfig, state = 'checking', stat = null, message = '' } = {}) {
@@ -294,31 +576,11 @@ function renderTasks(tasks, pending) {
   const pendingRenderKey = buildPendingConfirmRenderKey(pendingVals);
   const pendingList = document.getElementById('pendingList');
   if (pendingRenderKey !== lastRenderedPendingKey) {
-    pendingList.innerHTML = '';
+    pendingList.replaceChildren();
     pendingVals.forEach((item) => {
       const filename = getPendingFilenameValue(item);
       const canForceSingleThread = ['aria2', 'gopeed'].includes(currentConfig.downloaderType);
-      const singleThreadOption = canForceSingleThread ? `
-        <label class="pending-option">
-          <input type="checkbox" class="force-single-thread aria2-single-thread"/>
-          <span>${popupAppT('aria2SingleThread', undefined, '单线程不分片下载')}</span>
-        </label>
-      ` : '';
-      const card = document.createElement('div');
-      card.className = 'pending-card';
-      card.innerHTML = `
-        <div class="pending-label">${popupAppT('pendingDownload', undefined, '待确认下载')}</div>
-        <div class="pending-url">${escHtml(item.url)}</div>
-        <div class="pending-filename-row">
-          <label>${popupAppT('fileName', undefined, '文件名')}</label>
-          <input type="text" class="pending-fname" value="${escHtml(filename)}" placeholder="${escHtml(popupAppT('autoDetect', undefined, '自动识别'))}" autocomplete="off" spellcheck="false"/>
-        </div>
-        ${singleThreadOption}
-        <div class="pending-actions">
-          <button class="btn btn-primary confirm-btn" data-key="${item.key}">${getSendLabel(currentConfig)}</button>
-          <button class="btn btn-ghost reject-btn" data-key="${item.key}">${popupAppT('ignore', undefined, '忽略')}</button>
-        </div>
-      `;
+      const card = createPendingCard(item, { filename, canForceSingleThread });
       pendingList.appendChild(card);
       card.querySelector('.pending-fname').addEventListener('input', (event) => {
         pendingFilenameDrafts.set(item.key, event.currentTarget.value);
@@ -353,7 +615,7 @@ function renderTasks(tasks, pending) {
   }
 
   const taskList = document.getElementById('taskList');
-  taskList.innerHTML = '';
+  taskList.replaceChildren();
   let activeCount = 0;
   let doneCount = 0;
   let totalSpeed = 0;
@@ -373,8 +635,6 @@ function renderTasks(tasks, pending) {
       }
       if (['complete', 'sent'].includes(stateKey)) doneCount++;
 
-      const card = document.createElement('div');
-      card.className = `task-card ${stateKey}`;
       const canViewInMotrix = currentConfig.downloaderType === 'aria2' && !!currentConfig.useMotrixNext;
       const canViewInGopeed = task.provider === 'gopeed';
 
@@ -388,42 +648,7 @@ function renderTasks(tasks, pending) {
         return `${(sec / 3600).toFixed(1)}h`;
       })();
 
-      card.innerHTML = `
-        <div class="task-top">
-          <div class="task-icon"><img src="${escHtml(getFileIcon({ name, mime: task.mime, kind: task.kind }))}" alt="" loading="lazy"></div>
-          <div class="task-info">
-            <div class="task-name" title="${escHtml(name)}">${escHtml(name)}</div>
-            <div class="task-meta">
-              ${task.totalLength ? `<span>${fmt(task.completedLength)} / ${fmt(task.totalLength)}</span>` : ''}
-              ${task.targetName ? `<span>${popupAppT('targetLabel', undefined, '目标')} ${escHtml(task.targetName)}</span>` : ''}
-              ${stateKey === 'active' && task.downloadSpeed ? `<span>${popupAppT('speedLabel', undefined, '速度')} ${fmtSpeed(task.downloadSpeed)}</span>` : ''}
-              ${stateKey === 'active' && eta ? `<span>${popupAppT('etaLabel', undefined, '剩余')} ${eta}</span>` : ''}
-              ${task.connections ? `<span>${popupAppT('connectionsCount', [task.connections], `${task.connections}线`)}</span>` : ''}
-            </div>
-          </div>
-          <span class="state-pill state-${stateKey}">${getStateLabel(stateKey)}</span>
-        </div>
-        ${showProgress ? `
-        <div class="task-progress">
-          <div class="progress-track">
-            <div class="progress-fill ${stateKey}" style="width:${pct}%"></div>
-          </div>
-          <div class="progress-row">
-            <span>${fmt(task.completedLength)}</span>
-            <span class="progress-pct">${pct}%</span>
-          </div>
-        </div>` : ''}
-        <div class="task-actions">
-          ${canViewInMotrix ? `<button class="task-btn" data-action="motrix-view">${popupAppT('motrixView', undefined, 'MotrixNext中查看')}</button>` : ''}
-          ${canViewInGopeed ? `<button class="task-btn" data-action="gopeed-view">${popupAppT('gopeedView', undefined, 'Gopeed中查看')}</button>` : ''}
-          ${stateKey === 'active' ? `<button class="task-btn" data-action="pause" data-gid="${task.gid}">${popupAppT('pauseTask', undefined, '暂停')}</button>` : ''}
-          ${stateKey === 'paused' ? `<button class="task-btn" data-action="resume" data-gid="${task.gid}">${popupAppT('resumeTask', undefined, '继续')}</button>` : ''}
-          ${stateKey === 'complete' ? `<button class="task-btn" data-action="remove" data-gid="${task.gid}">${popupAppT('clearTask', undefined, '清除')}</button>` : ''}
-          ${['active', 'paused', 'waiting'].includes(stateKey) ? `<button class="task-btn danger" data-action="remove" data-gid="${task.gid}">${popupAppT('cancelTask', undefined, '取消')}</button>` : ''}
-          ${stateKey === 'sent' ? `<button class="task-btn" data-action="remove" data-gid="${task.gid}">${popupAppT('clearTask', undefined, '清除')}</button>` : ''}
-          ${stateKey === 'error' ? `<button class="task-btn danger" data-action="remove" data-gid="${task.gid}">${popupAppT('clearTask', undefined, '清除')}</button>` : ''}
-        </div>
-      `;
+      const card = createTaskCard(task, { name, stateKey, pct, showProgress, eta, canViewInMotrix, canViewInGopeed });
       taskList.appendChild(card);
       const icon = card.querySelector('.task-icon img');
       if (icon) icon.addEventListener('error', handleTaskIconError);
@@ -556,7 +781,7 @@ function renderMedia(mediaByTab, pausedTabs = []) {
     const label = isPaused
       ? popupAppT('resumeSniffing', undefined, '恢复嗅探')
       : popupAppT('pauseSniffing', undefined, '暂停嗅探');
-    toggleSniffingBtn.innerHTML = getSniffingToggleIcon(isPaused);
+    toggleSniffingBtn.replaceChildren(getSniffingToggleIcon(isPaused));
     toggleSniffingBtn.title = label;
     if (typeof toggleSniffingBtn.setAttribute === 'function') {
       toggleSniffingBtn.setAttribute('aria-label', label);
@@ -586,40 +811,13 @@ function renderMedia(mediaByTab, pausedTabs = []) {
   lastRenderedMediaKey = mediaKey;
   syncPopupGlobals();
 
-  listEl.innerHTML = '';
+  listEl.replaceChildren();
   media.forEach((item) => {
-    const card = document.createElement('div');
-    card.className = `media-card media-card-${item.kind || 'media'}`;
-    card.dataset.mediaId = item.id;
     const iconSrc = getFileIcon({ name: item.filename, mime: item.mime, kind: item.kind });
     const durationText = mediaDurationLabel(item.duration);
     const resolutionText = item.kind === 'video' || item.kind === 'media' ? mediaResolutionLabel(item) : '';
     const displayFilename = getMediaFilenameValue(item);
-    card.innerHTML = `
-      <div class="media-top">
-        <div class="media-icon"><img src="${escHtml(iconSrc)}" alt="" loading="lazy"></div>
-        <div class="media-info">
-          <div class="media-title-row">
-            <div class="media-name" title="${escHtml(displayFilename)}">${escHtml(displayFilename)}</div>
-            <input class="media-name-input" type="text" value="${escHtml(displayFilename)}" autocomplete="off" spellcheck="false" hidden/>
-            <button class="media-name-edit" type="button" title="${escHtml(popupAppT('editFileName', undefined, '编辑文件名'))}" aria-label="${escHtml(popupAppT('editFileName', undefined, '编辑文件名'))}">${mediaEditIcon()}</button>
-            <span class="media-chip media-kind kind-${escHtml(item.kind || 'video')}">${mediaKindLabel(item.kind)}</span>
-          </div>
-          <div class="media-url">${escHtml(item.resourceUrl)}</div>
-          <div class="media-meta">
-            <span class="media-fact">${mediaFactIcon('size')}<span>${item.size ? fmt(item.size) : popupAppT('unknownSize', undefined, '大小未知')}</span></span>
-            ${resolutionText ? `<span class="media-fact media-resolution">${mediaFactIcon('resolution')}<span>${escHtml(resolutionText)}</span></span>` : ''}
-            ${durationText ? `<span class="media-fact">${mediaFactIcon('duration')}<span>${escHtml(durationText)}</span></span>` : ''}
-          </div>
-          ${item.mime ? `<div class="media-mime">${escHtml(item.mime)}</div>` : ''}
-        </div>
-      </div>
-      <div class="media-actions">
-        <button class="task-btn media-preview-toggle" data-id="${item.id}">${popupAppT('previewMedia', undefined, '预览')}</button>
-        <button class="task-btn" data-copy-url="${escHtml(item.resourceUrl)}">${popupAppT('copyLink', undefined, '复制链接')}</button>
-        <button class="task-btn media-send-btn" data-send-id="${item.id}">${getSendLabel(currentConfig)}</button>
-      </div>
-    `;
+    const card = createMediaCard(item, { iconSrc, durationText, resolutionText, displayFilename });
     listEl.appendChild(card);
     const icon = card.querySelector('.media-icon img');
     if (icon) icon.addEventListener('error', handleTaskIconError);
