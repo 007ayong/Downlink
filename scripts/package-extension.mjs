@@ -107,6 +107,9 @@ function manifestForTarget(baseManifest, buildTarget) {
       gecko: {
         id: 'downlink@winapps.cc',
         strict_min_version: '113.0',
+        data_collection_permissions: {
+          required: ['none'],
+        },
       },
     },
   };
