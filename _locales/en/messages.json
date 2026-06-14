@@ -4,5 +4,8 @@
   },
   "extensionDescription": {
     "message": "Take over downloads after the browser confirms the response and send them to your selected downloader"
+  },
+  "commandToggleAutoCapture": {
+    "message": "Toggle automatic interception"
   }
 }

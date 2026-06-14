@@ -20,6 +20,7 @@ function createChromeStub(storedConfig = {}) {
     tabsOnUpdated: null,
     tabsOnRemoved: null,
     storageOnChanged: null,
+    commandsOnCommand: null,
   };
   const actionCalls = {
     openPopup: 0,
@@ -178,6 +179,13 @@ function createChromeStub(storedConfig = {}) {
       onClicked: {
         addListener(callback) {
           listeners.contextMenusOnClicked = callback;
+        },
+      },
+    },
+    commands: {
+      onCommand: {
+        addListener(callback) {
+          listeners.commandsOnCommand = callback;
         },
       },
     },
@@ -3557,4 +3565,61 @@ test('storage auto capture changes pause active tab sniffing and update the badg
   assert.equal(state.config.autoCapture, false);
   assert.deepEqual(JSON.parse(JSON.stringify(state.pausedTabs)), [12]);
   assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeText.at(-1))), { text: '✕', tabId: 12 });
+});
+
+test('command toggles auto capture and keeps sniffing state in sync', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    __activeTabs: [{ id: 12, windowId: 3, active: true }],
+  });
+
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_12',
+    tabId: 12,
+    resourceUrl: 'https://cdn.example.com/video.mp4',
+    filename: 'video.mp4',
+    mime: 'video/mp4',
+  });
+
+  assert.equal(typeof background.chrome._listeners.commandsOnCommand, 'function');
+  background.chrome._listeners.commandsOnCommand('toggle-auto-capture');
+  await background.__backgroundTestHooks.waitForAutoCaptureToggle();
+
+  let state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.autoCapture, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.pausedTabs)), [12]);
+  assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeText.at(-1))), { text: '✕', tabId: 12 });
+
+  background.chrome._listeners.commandsOnCommand('toggle-auto-capture');
+  await background.__backgroundTestHooks.waitForAutoCaptureToggle();
+
+  state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.autoCapture, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.pausedTabs)), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeText.at(-1))), { text: '1', tabId: 12 });
+});
+
+test('rapid auto capture shortcut presses are applied sequentially', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    __activeTabs: [{ id: 12, windowId: 3, active: true }],
+  });
+
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_12',
+    tabId: 12,
+    resourceUrl: 'https://cdn.example.com/video.mp4',
+    filename: 'video.mp4',
+    mime: 'video/mp4',
+  });
+
+  assert.equal(typeof background.chrome._listeners.commandsOnCommand, 'function');
+  background.chrome._listeners.commandsOnCommand('toggle-auto-capture');
+  background.chrome._listeners.commandsOnCommand('toggle-auto-capture');
+  await background.__backgroundTestHooks.waitForAutoCaptureToggle();
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.autoCapture, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.pausedTabs)), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeText.at(-1))), { text: '1', tabId: 12 });
 });

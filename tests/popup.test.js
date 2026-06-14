@@ -122,6 +122,7 @@ function loadPopupRuntime(options = {}) {
   const chrome = {
     _listeners: {},
     _sentMessages: [],
+    _createdTabs: [],
     runtime: {
       lastError: null,
       sendMessage(message, callback) {
@@ -152,6 +153,7 @@ function loadPopupRuntime(options = {}) {
       getURL(value) {
         return value;
       },
+      getBrowserInfo: options.browserInfo ? (() => Promise.resolve(options.browserInfo)) : undefined,
       onMessage: {
         addListener(callback) {
           chrome._listeners.runtimeOnMessage = callback;
@@ -164,6 +166,7 @@ function loadPopupRuntime(options = {}) {
         callback?.([{ id: 1 }]);
       },
       create(_opts, callback) {
+        chrome._createdTabs.push(_opts);
         callback?.({ id: 2 });
       },
     },
@@ -187,6 +190,7 @@ function loadPopupRuntime(options = {}) {
     location: {
       search: '',
     },
+    browser: options.browser,
     globalThis: null,
     self: null,
     window: null,
@@ -388,6 +392,59 @@ test('does not auto-switch again for the same media count', () => {
     }),
     false
   );
+});
+
+test('popup auto capture switch follows background config updates', () => {
+  const popup = loadPopupRuntime();
+  const autoCapture = popup.document.getElementById('cfgAutoCapture');
+  autoCapture.checked = true;
+
+  popup.chrome._listeners.runtimeOnMessage({
+    type: 'TASKS_UPDATE',
+    tasks: {},
+    pending: {},
+    media: {},
+    pausedTabs: [],
+    hiddenTaskGids: [],
+    config: { autoCapture: false },
+  });
+
+  assert.equal(autoCapture.checked, false);
+});
+
+test('customize shortcut button opens Chromium shortcut settings by default', async () => {
+  const popup = loadPopupRuntime();
+  popup.document.getElementById('customizeShortcutBtn').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(popup.chrome._createdTabs.at(-1)?.url, 'chrome://extensions/shortcuts');
+});
+
+test('customize shortcut button uses Firefox shortcut settings API when available', async () => {
+  let opened = false;
+  const popup = loadPopupRuntime({
+    browserInfo: { name: 'Firefox' },
+    browser: {
+      commands: {
+        openShortcutSettings: async () => {
+          opened = true;
+        },
+      },
+    },
+  });
+  popup.document.getElementById('customizeShortcutBtn').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(opened, true);
+  assert.equal(popup.chrome._createdTabs.length, 0);
+});
+
+test('customize shortcut button falls back to Firefox add-ons manager when API is unavailable', async () => {
+  const popup = loadPopupRuntime({ browserInfo: { name: 'Firefox' } });
+  popup.document.getElementById('customizeShortcutBtn').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(popup.chrome._createdTabs.at(-1)?.url, 'about:addons');
 });
 
 test('popup display filename decoder handles Chinese encoded words', () => {

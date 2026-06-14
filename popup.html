@@ -1055,6 +1055,10 @@
       <input class="settings-input wide" id="cfgExts" type="text" placeholder="zip,rar,mp4,exe..." data-i18n-placeholder="settingsCaptureExtensionsPlaceholder"/>
     </div>
     <div class="settings-row">
+      <label><span data-i18n="settingsAutoCaptureShortcut">拦截快捷键</span> <span class="settings-sub" data-i18n="settingsAutoCaptureShortcutSub">默认 Ctrl+Shift+D，可在浏览器扩展管理页中自定义</span></label>
+      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="customizeShortcutBtn" data-i18n="customizeShortcut">自定义</button>
+    </div>
+    <div class="settings-row">
       <label><span data-i18n="settingsSkipSmallDownloads">小文件不接管</span> <span class="settings-sub" data-i18n="settingsSkipSmallDownloadsSub">已知大小低于阈值时保留浏览器下载，减少小文件进入下载器；未知大小仍按规则接管</span></label>
       <label class="toggle"><input type="checkbox" id="cfgSkipSmallDownloads"><div class="toggle-track"></div></label>
     </div>

@@ -4,5 +4,8 @@
   },
   "extensionDescription": {
     "message": "在浏览器确认下载响应后接管，并发送到你选择的下载器"
+  },
+  "commandToggleAutoCapture": {
+    "message": "开启/关闭自动拦截"
   }
 }

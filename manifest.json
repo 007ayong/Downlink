@@ -27,6 +27,15 @@
   "background": {
     "service_worker": "background.js"
   },
+  "commands": {
+    "toggle-auto-capture": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+D",
+        "mac": "MacCtrl+Shift+D"
+      },
+      "description": "__MSG_commandToggleAutoCapture__"
+    }
+  },
   "content_scripts": [
     {
       "matches": [

@@ -71,6 +71,7 @@ let pendingDownloads = {};
 let hiddenTaskGids = {};
 let uiAlert = null;
 let taskSurfaceOpenPromise = null;
+let autoCaptureTogglePromise = Promise.resolve();
 const autoCapturePausedTabs = new Set();
 
 const markedUrls = new Map();
@@ -201,6 +202,28 @@ function normalizeConfig(nextConfig = {}) {
 
 function applyLocaleFromConfig(nextConfig = config) {
   i18n.setLocalePreference?.(nextConfig.language || 'auto');
+}
+
+async function saveConfigAndSync(nextConfig) {
+  const previousAutoCapture = config.autoCapture;
+  await saveStoredConfig(nextConfig);
+  config = normalizeConfig({ ...config, ...nextConfig });
+  applyLocaleFromConfig(config);
+  if (previousAutoCapture !== config.autoCapture) {
+    await syncAutoCaptureStateForActiveTabs();
+    broadcastUpdate();
+  }
+  return config;
+}
+
+function queueAutoCaptureToggle() {
+  autoCaptureTogglePromise = autoCaptureTogglePromise
+    .catch(() => {})
+    .then(async () => {
+      await configReady;
+      await saveConfigAndSync({ autoCapture: !config.autoCapture });
+    });
+  return autoCaptureTogglePromise;
 }
 
 function refreshContextMenus() {
@@ -863,6 +886,7 @@ function broadcastUpdate() {
     pausedTabs: mediaState.pausedTabs,
     hiddenTaskGids: Object.keys(hiddenTaskGids),
     uiAlert,
+    config,
   }).catch(() => {});
 }
 
@@ -1593,14 +1617,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         break;
       case 'SAVE_CONFIG':
-        const savedConfig = { ...msg.config };
-        const previousAutoCapture = config.autoCapture;
-        await saveStoredConfig(savedConfig);
-        config = normalizeConfig({ ...config, ...savedConfig });
-        if (previousAutoCapture !== config.autoCapture) {
-          await syncAutoCaptureStateForActiveTabs();
-          broadcastUpdate();
-        }
+        await saveConfigAndSync(msg.config || {});
         sendResponse({ ok: true });
         break;
       case 'OPEN_MOTRIXNEXT_VIEW':
@@ -1613,6 +1630,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   })();
 
   return true;
+});
+
+chrome.commands?.onCommand?.addListener((command) => {
+  if (command !== 'toggle-auto-capture') return;
+  queueAutoCaptureToggle().catch((error) => {
+    console.warn('[Downlink] failed to toggle auto capture from shortcut', error);
+  });
 });
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -1689,5 +1713,6 @@ globalThis.__backgroundTestHooks = {
   clearUiAlert,
   pollTasks,
   openTaskSurface,
+  waitForAutoCaptureToggle: () => autoCaptureTogglePromise,
   mediaManager,
 };

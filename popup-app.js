@@ -721,6 +721,13 @@ function renderMedia(mediaByTab, pausedTabs = []) {
 }
 
 function renderState(state) {
+  if (state.config) {
+    const nextConfig = normalizePopupConfig(state.config);
+    if (JSON.stringify(nextConfig) !== JSON.stringify(savedConfig)) {
+      applyLocaleFromConfig(nextConfig);
+      loadSettings(nextConfig);
+    }
+  }
   hiddenTaskGids = new Set(state.hiddenTaskGids || []);
   currentState = {
     tasks: state.tasks || {},
@@ -743,8 +750,6 @@ async function refreshAll() {
   chrome.runtime.sendMessage({ type: 'GET_STATE' }, (res) => {
     if (!res) return;
     const config = normalizePopupConfig(res.config);
-    applyLocaleFromConfig(config);
-    loadSettings(config);
     renderState({ ...res, config });
   });
 }
@@ -808,6 +813,39 @@ document.getElementById('cfgDownloaderType').addEventListener('change', (event) 
   const nextType = event.target.value;
   const nextCfg = normalizePopupConfig({ ...currentConfig, ...collectSettingsFromForm(), downloaderType: nextType });
   updateHeaderStatusDisplay({ cfg: nextCfg, state: 'checking', stat: null, message: '' });
+});
+
+async function openShortcutSettings() {
+  try {
+    const commandsApi = globalThis.browser?.commands || chrome.commands;
+    if (typeof commandsApi?.openShortcutSettings === 'function') {
+      await commandsApi.openShortcutSettings();
+      showToast(popupAppT('shortcutSettingsOpened', undefined, '已打开浏览器扩展快捷键设置'));
+      return;
+    }
+  } catch {}
+
+  let url = 'chrome://extensions/shortcuts';
+  try {
+    const info = typeof chrome.runtime.getBrowserInfo === 'function'
+      ? await chrome.runtime.getBrowserInfo()
+      : null;
+    if (/firefox/i.test(info?.name || '')) url = 'about:addons';
+  } catch {}
+
+  chrome.tabs.create({ url }, () => {
+    if (chrome.runtime.lastError) {
+      showToast(chrome.runtime.lastError.message || popupAppT('openFailed', [popupAppT('customizeShortcut', undefined, '自定义')], '打开失败：自定义'));
+      return;
+    }
+    showToast(url === 'about:addons'
+      ? popupAppT('shortcutSettingsOpenedFirefoxFallback', undefined, '已打开 Firefox 扩展管理页，可在齿轮菜单中管理扩展快捷键')
+      : popupAppT('shortcutSettingsOpened', undefined, '已打开浏览器扩展快捷键设置'));
+  });
+}
+
+document.getElementById('customizeShortcutBtn').addEventListener('click', async () => {
+  await openShortcutSettings();
 });
 
 function getTestConnectionConfig() {
