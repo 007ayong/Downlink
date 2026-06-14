@@ -2447,6 +2447,85 @@ test('NeatDM sends immediately after socket opens and ignores post-open socket e
   assert.match(sockets[0].sent[0], /Content-Type: application\/zip\r\n/);
 });
 
+test('NeatDM response capture waits for browser download cancel before sending', async () => {
+  const sockets = [];
+  class MockWebSocket {
+    constructor(url, protocol) {
+      this.url = url;
+      this.protocol = protocol;
+      this.sent = [];
+      this.closed = false;
+      sockets.push(this);
+      setTimeout(() => {
+        this.onopen?.();
+      }, 0);
+    }
+
+    send(message) {
+      this.sent.push(message);
+    }
+
+    close() {
+      this.closed = true;
+    }
+  }
+
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'neatdm',
+      autoCapture: true,
+      captureExtensions: 'zip',
+    },
+    { WebSocket: MockWebSocket }
+  );
+  const order = [];
+  background.chrome.downloads.cancel = (_id, callback) => {
+    order.push('cancel');
+    background.chrome._downloadCalls.cancel.push(_id);
+    setTimeout(() => {
+      order.push('cancel-callback');
+      callback?.();
+    }, 0);
+  };
+
+  const url = 'https://example.com/response-neatdm.zip';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="response-neatdm.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
+
+  assert.equal(sockets.length, 0);
+
+  const listener = background.chrome._listeners.downloadsOnDeterminingFilename;
+  let suggested = false;
+  await listener({
+    id: 31,
+    url,
+    finalUrl: url,
+    filename: 'response-neatdm.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  }, () => {
+    order.push('suggest');
+    suggested = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(suggested, true);
+  assert.deepEqual(order, ['cancel', 'cancel-callback', 'suggest']);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [31]);
+  assert.equal(sockets.length, 1);
+  assert.equal(sockets[0].url, 'ws://127.0.0.1:10007/download');
+  assert.match(sockets[0].sent[0], /^1:GET\r\n2:https:\/\/example\.com\/response-neatdm\.zip\r\n6:normal\r\n4:response-neatdm\.zip\r\n/);
+});
+
 test('Gopeed intercepted downloads use pending confirmation and do not pass save path', async () => {
   let requestUrl = '';
   let requestHeaders = null;

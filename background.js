@@ -559,14 +559,46 @@ async function queueOrSendCapturedDownload(taskInfo, { openPopupOnFailure = true
   return sendTask(taskInfo, {}, { openPopupOnFailure, shouldReportFailure });
 }
 
-function rememberResponseCaptureClaim(url, promise, { cancelBrowserDownloadImmediately = false, claimState } = {}) {
+function createResponseCaptureGate(waitForBrowserCancel = false) {
+  if (!waitForBrowserCancel) {
+    return {
+      promise: Promise.resolve(),
+      release() {},
+    };
+  }
+
+  let released = false;
+  let releaseGate;
+  const promise = new Promise((resolve) => {
+    releaseGate = resolve;
+  });
+  return {
+    promise,
+    release() {
+      if (released) return;
+      released = true;
+      releaseGate();
+    },
+  };
+}
+
+function releaseResponseCaptureClaimAfterBrowserCancel(responseClaim) {
+  if (!responseClaim) return;
+  responseClaim.browserDownloadCancelCompleted = true;
+  if (responseClaim.claimState) responseClaim.claimState.browserDownloadCancelCompleted = true;
+  responseClaim.browserCancelGate?.release();
+}
+
+function rememberResponseCaptureClaim(url, promise, { cancelBrowserDownloadImmediately = false, claimState, browserCancelGate } = {}) {
   if (!url) return;
   responseCaptureClaims.set(url, {
     promise,
     cancelBrowserDownloadImmediately,
     browserDownloadCancelled: false,
+    browserDownloadCancelCompleted: false,
     pendingSurfaceOpenRequested: false,
     claimState,
+    browserCancelGate,
     expiresAt: Date.now() + 30000,
   });
   cleanExpired(responseCaptureClaims);
@@ -1231,7 +1263,9 @@ chrome.webRequest.onHeadersReceived.addListener(
         shouldConfirmBeforeSend() &&
         typeof taskInfo.sourceTabId !== 'number';
       const claimState = { discarded: false, taskInfo };
+      const browserCancelGate = createResponseCaptureGate(!isFirefoxRuntime && !shouldConfirmBeforeSend());
       const claimPromise = (async () => {
+        await browserCancelGate.promise;
         const result = await queueOrSendCapturedDownload(taskInfo, {
           openPopupOnFailure: true,
           openPendingSurface: !deferPendingSurfaceUntilBrowserCancel,
@@ -1239,7 +1273,7 @@ chrome.webRequest.onHeadersReceived.addListener(
         });
         return { handled: Boolean(result?.ok), result };
       })().catch((error) => ({ handled: false, result: { ok: false, error: error?.message || String(error) } }));
-      const claimOptions = { cancelBrowserDownloadImmediately: true, claimState };
+      const claimOptions = { cancelBrowserDownloadImmediately: true, claimState, browserCancelGate };
       rememberResponseCaptureClaim(details.url, claimPromise, claimOptions);
       if (redirectIntent) {
         rememberResponseCaptureClaim(redirectIntent.sourceUrl, claimPromise, claimOptions);
@@ -1282,8 +1316,9 @@ if (!isFirefoxRuntime && chrome.downloads.onDeterminingFilename?.addListener) {
       if (responseClaim.cancelBrowserDownloadImmediately) {
         responseClaim.browserDownloadCancelled = true;
         if (responseClaim.claimState) responseClaim.claimState.browserDownloadCancelled = true;
-        cancelBrowserDownloadItem(item, 'response-claim:onDeterminingFilename:immediate')
-          .then(() => openPendingSurfaceForResponseClaim(responseClaim, 'response-claim:onDeterminingFilename:immediate'));
+        await cancelBrowserDownloadItem(item, 'response-claim:onDeterminingFilename:immediate');
+        releaseResponseCaptureClaimAfterBrowserCancel(responseClaim);
+        openPendingSurfaceForResponseClaim(responseClaim, 'response-claim:onDeterminingFilename:immediate');
         markedUrls.delete(url);
         markedUrls.delete(item.url);
         suggest?.();
@@ -1309,7 +1344,6 @@ chrome.downloads.onCreated.addListener(async (item) => {
 
   const responseClaim = getResponseCaptureClaim(url, item.url, item.finalUrl);
   if (responseClaim) {
-    await responseClaim.promise;
     deleteResponseCaptureClaim(url, item.url, item.finalUrl);
     if (responseClaim.browserDownloadCancelled || responseClaim.claimState?.browserDownloadCancelled) {
       console.info('[Downlink][browser-download] skip duplicate cancel for already cancelled response claim', {
@@ -1320,6 +1354,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
       responseClaim.browserDownloadCancelled = true;
       if (responseClaim.claimState) responseClaim.claimState.browserDownloadCancelled = true;
       await cancelBrowserDownloadItem(item, 'response-claim:onCreated');
+      releaseResponseCaptureClaimAfterBrowserCancel(responseClaim);
       await openPendingSurfaceForResponseClaim(responseClaim, 'response-claim:onCreated');
     }
     markedUrls.delete(url);
