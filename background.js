@@ -1267,35 +1267,37 @@ chrome.webRequest.onHeadersReceived.addListener(
   ['responseHeaders']
 );
 
-chrome.downloads.onDeterminingFilename?.addListener(async (item, suggest) => {
-  if (!config.autoCapture || !isDownloadInProgress(item)) {
-    suggest?.();
-    return;
-  }
-
-  const url = item.finalUrl || item.url;
-  const marked = markedUrls.get(url) || markedUrls.get(item.url);
-
-  const responseClaim = getResponseCaptureClaim(url, item.url, item.finalUrl);
-  if (responseClaim) {
-    if (responseClaim.cancelBrowserDownloadImmediately) {
-      responseClaim.browserDownloadCancelled = true;
-      if (responseClaim.claimState) responseClaim.claimState.browserDownloadCancelled = true;
-      cancelBrowserDownloadItem(item, 'response-claim:onDeterminingFilename:immediate')
-        .then(() => openPendingSurfaceForResponseClaim(responseClaim, 'response-claim:onDeterminingFilename:immediate'));
-      markedUrls.delete(url);
-      markedUrls.delete(item.url);
+if (!isFirefoxRuntime && chrome.downloads.onDeterminingFilename?.addListener) {
+  chrome.downloads.onDeterminingFilename.addListener(async (item, suggest) => {
+    if (!config.autoCapture || !isDownloadInProgress(item)) {
       suggest?.();
       return;
     }
-    await responseClaim.promise;
-    cancelBrowserDownloadItem(item, 'response-claim:onDeterminingFilename:after-claim');
-    markedUrls.delete(url);
-    markedUrls.delete(item.url);
-  }
 
-  suggest?.();
-});
+    const url = item.finalUrl || item.url;
+    const marked = markedUrls.get(url) || markedUrls.get(item.url);
+
+    const responseClaim = getResponseCaptureClaim(url, item.url, item.finalUrl);
+    if (responseClaim) {
+      if (responseClaim.cancelBrowserDownloadImmediately) {
+        responseClaim.browserDownloadCancelled = true;
+        if (responseClaim.claimState) responseClaim.claimState.browserDownloadCancelled = true;
+        cancelBrowserDownloadItem(item, 'response-claim:onDeterminingFilename:immediate')
+          .then(() => openPendingSurfaceForResponseClaim(responseClaim, 'response-claim:onDeterminingFilename:immediate'));
+        markedUrls.delete(url);
+        markedUrls.delete(item.url);
+        suggest?.();
+        return;
+      }
+      await responseClaim.promise;
+      cancelBrowserDownloadItem(item, 'response-claim:onDeterminingFilename:after-claim');
+      markedUrls.delete(url);
+      markedUrls.delete(item.url);
+    }
+
+    suggest?.();
+  });
+}
 
 chrome.downloads.onCreated.addListener(async (item) => {
   await configReady;

@@ -46,12 +46,47 @@ function createChromeStub(storedConfig = {}) {
   const dnrCalls = [];
   const localStorageWrites = [];
   const syncShouldFail = storedConfig.__syncShouldFail;
+  const throwOnDeterminingFilenameAccess = storedConfig.__throwOnDeterminingFilenameAccess;
   const storedValues = { ...storedConfig };
   delete storedValues.__syncShouldFail;
   delete storedValues.__firefoxRuntime;
+  delete storedValues.__throwOnDeterminingFilenameAccess;
   delete storedValues.__activeTabs;
   delete storedValues.__tabsById;
   let runtimeApi;
+
+  const downloadsApi = {
+    onCreated: {
+      addListener(callback) {
+        listeners.downloadsOnCreated = callback;
+      },
+    },
+    onDeterminingFilename: {
+      addListener(callback) {
+        listeners.downloadsOnDeterminingFilename = callback;
+      },
+    },
+    cancel(_id, callback) {
+      downloadCalls.cancel.push(_id);
+      callback?.();
+    },
+    search(query, callback) {
+      callback?.([{ id: query.id, state: 'in_progress' }]);
+    },
+    erase(query, callback) {
+      downloadCalls.erase.push(query);
+      callback?.();
+    },
+  };
+
+  if (throwOnDeterminingFilenameAccess) {
+    Object.defineProperty(downloadsApi, 'onDeterminingFilename', {
+      configurable: true,
+      get() {
+        throw new Error('onDeterminingFilename should not be read');
+      },
+    });
+  }
 
   const chromeStub = {
     _listeners: listeners,
@@ -120,29 +155,7 @@ function createChromeStub(storedConfig = {}) {
         },
       },
     },
-    downloads: {
-      onCreated: {
-        addListener(callback) {
-          listeners.downloadsOnCreated = callback;
-        },
-      },
-      onDeterminingFilename: {
-        addListener(callback) {
-          listeners.downloadsOnDeterminingFilename = callback;
-        },
-      },
-      cancel(_id, callback) {
-        downloadCalls.cancel.push(_id);
-        callback?.();
-      },
-      search(query, callback) {
-        callback?.([{ id: query.id, state: 'in_progress' }]);
-      },
-      erase(query, callback) {
-        downloadCalls.erase.push(query);
-        callback?.();
-      },
-    },
+    downloads: downloadsApi,
     runtime: {
       onMessage: {
         addListener(callback) {
@@ -823,6 +836,19 @@ test('Firefox response header capture blocks the browser download before its pan
   assert.equal(pending.length, 1);
   assert.equal(pending[0].url, url);
   assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+});
+
+test('Firefox runtime does not read unsupported onDeterminingFilename API', async () => {
+  const background = loadBackgroundRuntime({
+    __firefoxRuntime: true,
+    __throwOnDeterminingFilenameAccess: true,
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  assert.equal(background.chrome._listeners.downloadsOnDeterminingFilename, null);
 });
 
 test('Firefox response header capture closes opener-created download tab', async () => {
