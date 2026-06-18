@@ -11,6 +11,20 @@ function normalizeVersion(value) {
   return String(value || '').trim().replace(/^v/, '');
 }
 
+function envValue(name) {
+  return String(process.env[name] || '').trim();
+}
+
+function formatFailure(prefix, result) {
+  const body = typeof result.body === 'string' ? result.body : JSON.stringify(result.body);
+  const detail = body && body !== 'null' ? ` ${body}` : '';
+  const authHint =
+    result.response.status === 401
+      ? ' Check that EDGE_CLIENT_ID and EDGE_API_KEY are v1.1 Publish API credentials from the same Partner Center tenant as EDGE_PRODUCT_ID, and that the API key has not expired.'
+      : '';
+  return `${prefix}: ${result.response.status}${detail}${authHint}`;
+}
+
 async function requestJson(url, options) {
   const response = await fetch(url, options);
   const text = await response.text();
@@ -32,11 +46,14 @@ function operationIdFromLocation(location) {
 const zipPath = process.argv[2];
 if (!zipPath) fail('Usage: publish-edge.mjs <zip-path>');
 
-const productId = process.env.EDGE_PRODUCT_ID;
-const clientId = process.env.EDGE_CLIENT_ID;
-const apiKey = process.env.EDGE_API_KEY;
+const productId = envValue('EDGE_PRODUCT_ID');
+const clientId = envValue('EDGE_CLIENT_ID');
+const apiKey = envValue('EDGE_API_KEY');
 if (!productId || !clientId || !apiKey) {
   fail('Missing EDGE_PRODUCT_ID, EDGE_CLIENT_ID, or EDGE_API_KEY');
+}
+if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId)) {
+  fail('EDGE_PRODUCT_ID must be the Partner Center Product ID GUID, not the browser extension ID');
 }
 
 const manifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
@@ -60,7 +77,7 @@ const upload = await requestJson(uploadUrl, {
 });
 
 if (upload.response.status !== 202 && !upload.response.ok) {
-  fail(`Edge upload failed: ${upload.response.status} ${upload.text}`);
+  fail(formatFailure('Edge upload failed', upload));
 }
 
 let uploadOperationId = operationIdFromLocation(upload.headers.get('location'));
@@ -76,7 +93,7 @@ for (let attempt = 0; attempt < 60; attempt += 1) {
     headers,
   });
   if (!status.response.ok && status.response.status !== 202) {
-    fail(`Edge upload status failed: ${status.response.status} ${status.text}`);
+    fail(formatFailure('Edge upload status failed', status));
   }
   uploadStatus = status.body;
   if (uploadStatus?.status === 'Failed') {
@@ -99,13 +116,13 @@ const publish = await requestJson(publishUrl, {
   method: 'POST',
   headers: {
     ...headers,
-    'Content-Type': 'text/plain; charset=utf-8',
+    'Content-Type': 'application/json',
   },
-  body: `Release v${manifestVersion}`,
+  body: JSON.stringify({ notes: `Release v${manifestVersion}` }),
 });
 
 if (publish.response.status !== 202 && !publish.response.ok) {
-  fail(`Edge publish failed: ${publish.response.status} ${publish.text}`);
+  fail(formatFailure('Edge publish failed', publish));
 }
 
 const publishOperationId = operationIdFromLocation(publish.headers.get('location'));
@@ -121,7 +138,7 @@ for (let attempt = 0; attempt < 60; attempt += 1) {
     headers,
   });
   if (!status.response.ok && status.response.status !== 202) {
-    fail(`Edge publish status failed: ${status.response.status} ${status.text}`);
+    fail(formatFailure('Edge publish status failed', status));
   }
   publishStatus = status.body;
   if (publishStatus?.status === 'Failed') {
