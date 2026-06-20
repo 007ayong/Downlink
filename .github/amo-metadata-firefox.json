@@ -1,0 +1,16 @@
+{
+  "name": {
+    "en-US": "Downlink",
+    "zh-CN": "Downlink"
+  },
+  "summary": {
+    "en-US": "Take over downloads after Firefox confirms the response and send them to your selected downloader.",
+    "zh-CN": "在 Firefox 确认下载响应后接管，并发送到你选择的下载器。"
+  },
+  "categories": [
+    "other"
+  ],
+  "version": {
+    "license": "GPL-3.0-only"
+  }
+}

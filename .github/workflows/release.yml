@@ -56,6 +56,7 @@ jobs:
         run: echo "firefox_source_dir=$(node scripts/package-extension.mjs firefox --no-zip)" >> "$GITHUB_OUTPUT"
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+          FIREFOX_UPDATE_URL: https://github.com/${{ github.repository }}/releases/latest/download/downlink-firefox-updates.json
 
       - name: Sign Firefox self-distributed XPI
         run: |
@@ -71,14 +72,22 @@ jobs:
             echo "Signed Firefox XPI was not created" >&2
             exit 1
           fi
-          echo "firefox_xpi=${firefox_xpi}" >> "$GITHUB_OUTPUT"
+          version="$(node -p "require('./manifest.json').version")"
+          release_xpi="dist/downlink-v${version}-firefox.xpi"
+          mv "${firefox_xpi}" "${release_xpi}"
+          node scripts/generate-firefox-update-manifest.mjs "${release_xpi}" dist/downlink-firefox-updates.json
+          echo "firefox_xpi=${release_xpi}" >> "$GITHUB_OUTPUT"
+          echo "firefox_updates=dist/downlink-firefox-updates.json" >> "$GITHUB_OUTPUT"
         id: sign-firefox
         env:
           FIREFOX_SOURCE_DIR: ${{ steps.package.outputs.firefox_source_dir }}
+          RELEASE_TAG: ${{ github.ref_name }}
           WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
           WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
 
-      - name: Upload signed Firefox XPI to GitHub Release
+      - name: Upload signed Firefox XPI and update manifest to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.sign-firefox.outputs.firefox_xpi }}
+          files: |
+            ${{ steps.sign-firefox.outputs.firefox_xpi }}
+            ${{ steps.sign-firefox.outputs.firefox_updates }}

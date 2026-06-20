@@ -43,11 +43,17 @@ Downlink 是一个浏览器扩展，用来在浏览器确认下载响应后接�
 
 ## 自动发布
 
-仓库现在拆成了 3 个独立工作流：
+仓库现在拆成了 4 个独立工作流：
 
 - `GitHub Release`：推送 `v*` 格式的 tag 时自动生成压缩包并上传 Release
 - `Publish to Edge Add-ons`：推送 `v*` 格式的 tag 时自动提交到 Edge
 - `Publish to Chrome Web Store`：手动触发，使用你指定的 tag 或 commit
+- `Publish to Firefox Add-ons`：手动触发，使用你指定的 tag 或 commit，并提交 AMO 公开上架版本
+
+`GitHub Release` 会额外上传 Firefox 自托管更新文件：
+
+- `downlink-vX.Y.Z-firefox.xpi`
+- `downlink-firefox-updates.json`
 
 发布前需要在 GitHub Secrets 中配置：
 
@@ -57,6 +63,8 @@ Downlink 是一个浏览器扩展，用来在浏览器确认下载响应后接�
 - `EDGE_PRODUCT_ID`
 - `EDGE_CLIENT_ID`
 - `EDGE_API_KEY`
+- `AMO_JWT_ISSUER`
+- `AMO_JWT_SECRET`
 
 tag 版本需要和 `manifest.json` 里的 `version` 保持一致，例如 `v1.0.3` 对应 `manifest.json` 中的 `1.0.3`。
 

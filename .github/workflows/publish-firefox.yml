@@ -1,0 +1,59 @@
+name: Publish to Firefox Add-ons
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag or commit to publish, for example v1.3.4'
+        required: true
+        type: string
+      approval_notes:
+        description: 'Optional notes for Mozilla reviewers'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build Firefox extension source
+        id: package
+        run: echo "firefox_source_dir=$(node scripts/package-extension.mjs firefox --no-zip)" >> "$GITHUB_OUTPUT"
+        env:
+          RELEASE_TAG: ${{ inputs.ref }}
+
+      - name: Prepare AMO metadata
+        run: |
+          cp .github/amo-metadata-firefox.json dist/amo-metadata-firefox.json
+          node -e "const fs = require('fs'); const path = 'dist/amo-metadata-firefox.json'; const data = JSON.parse(fs.readFileSync(path, 'utf8')); const notes = String(process.env.AMO_APPROVAL_NOTES || '').trim(); if (notes) data.version = { ...(data.version || {}), approval_notes: notes }; fs.writeFileSync(path, JSON.stringify(data, null, 2) + '\n');"
+        env:
+          AMO_APPROVAL_NOTES: ${{ inputs.approval_notes }}
+
+      - name: Submit listed Firefox version to AMO
+        run: |
+          npx --yes web-ext@8 sign \
+            --source-dir "${FIREFOX_SOURCE_DIR}" \
+            --channel listed \
+            --amo-metadata dist/amo-metadata-firefox.json \
+            --timeout 900000 \
+            --approval-timeout 7200000
+        env:
+          FIREFOX_SOURCE_DIR: ${{ steps.package.outputs.firefox_source_dir }}
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}

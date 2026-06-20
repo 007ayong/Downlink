@@ -43,11 +43,17 @@ Open the extensions page in a Chromium-based browser, enable Developer mode, the
 
 ## Automated Publishing
 
-The repository is currently split into 3 separate workflows:
+The repository is currently split into 4 separate workflows:
 
 - `GitHub Release`: automatically builds a zip package and uploads it to GitHub Releases when a `v*` tag is pushed
 - `Publish to Edge Add-ons`: automatically submits the package to Edge when a `v*` tag is pushed
 - `Publish to Chrome Web Store`: manually triggered with a specific tag or commit
+- `Publish to Firefox Add-ons`: manually triggered with a specific tag or commit, and submits a listed AMO version
+
+`GitHub Release` also uploads Firefox self-hosted update assets:
+
+- `downlink-vX.Y.Z-firefox.xpi`
+- `downlink-firefox-updates.json`
 
 Before publishing, configure these GitHub Secrets:
 
@@ -57,6 +63,8 @@ Before publishing, configure these GitHub Secrets:
 - `EDGE_PRODUCT_ID`
 - `EDGE_CLIENT_ID`
 - `EDGE_API_KEY`
+- `AMO_JWT_ISSUER`
+- `AMO_JWT_SECRET`
 
 The tag version must match the `version` field in `manifest.json`. For example, `v1.1.0` should correspond to `1.1.0` in `manifest.json`.
 
