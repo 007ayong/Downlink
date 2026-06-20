@@ -1403,6 +1403,131 @@ test('empty capture extension config stays empty instead of being upgraded', asy
   assert.equal(state.config.captureExtensions, '');
 });
 
+test('empty capture extension config captures downloads with any extension', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: '',
+  });
+
+  const url = 'https://example.com/releases/package.custom';
+  await invokeDownloadCreated(background, {
+    id: 41,
+    url,
+    finalUrl: url,
+    filename: 'package.custom',
+    mime: 'application/octet-stream',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [41]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, url);
+  assert.equal(pending[0].filename, 'package.custom');
+  assert.equal(pending[0].captureReason, 'extension');
+});
+
+test('capture extension config still checks filename when URL extension differs', async () => {
+  const background = loadBackgroundRuntime({
+    captureExtensions: 'zip',
+  });
+
+  const classification = background.BackgroundShared.classifyDownloadCandidate({
+    captureExtensions: 'zip',
+  }, {
+    url: 'https://example.com/download.bin',
+    filename: 'release.zip',
+    source: 'test',
+  });
+
+  assert.equal(classification.shouldCapture, true);
+  assert.equal(classification.byExt, true);
+  assert.equal(classification.reason, 'extension');
+});
+
+test('empty capture extension config cancels redirected downloads before browser filename prompt', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: '',
+  });
+
+  const sourceUrl = 'https://example.com/download?id=package';
+  const redirectUrl = 'https://cdn.example.com/releases/package.custom';
+  await invokeResponseHeaders(background, {
+    url: sourceUrl,
+    tabId: 1,
+    type: 'main_frame',
+    method: 'GET',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: redirectUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: redirectUrl,
+    tabId: 1,
+    type: 'main_frame',
+    method: 'GET',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'application/octet-stream' },
+      { name: 'content-length', value: '4096' },
+    ],
+  });
+
+  const suggested = await invokeDeterminingFilename(background, {
+    id: 42,
+    url: sourceUrl,
+    finalUrl: redirectUrl,
+    filename: 'package.custom',
+    mime: 'application/octet-stream',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.equal(suggested, true);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [42]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, redirectUrl);
+  assert.equal(pending[0].filename, 'package.custom');
+  assert.equal(pending[0].captureSource, 'redirect');
+  assert.equal(pending[0].captureReason, 'extension');
+});
+
+test('empty capture extension config does not capture extensionless JSON responses', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: '',
+    captureMime: true,
+  });
+
+  await invokeResponseHeaders(background, {
+    url: 'https://example.com/api/status',
+    tabId: 1,
+    type: 'xmlhttprequest',
+    method: 'GET',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'application/json' },
+      { name: 'content-length', value: '512' },
+    ],
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+});
+
 test('POST redirect intent does not capture final HTML response', async () => {
   const background = loadBackgroundRuntime({
     downloaderType: 'aria2',

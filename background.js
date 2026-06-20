@@ -730,6 +730,16 @@ function isPostRedirectIntentCandidate(details = {}, redirectUrl = '') {
   return true;
 }
 
+function isLikelyDownloadRedirectCandidate(details = {}, redirectUrl = '', contentDisposition = '') {
+  if (!redirectUrl || !isRedirectStatus(details.statusCode) || !isUserDownloadLikeResponse(details)) return false;
+  const classification = classifyDownloadCandidate(config, {
+    url: redirectUrl,
+    contentDisposition,
+    source: 'redirect',
+  });
+  return Boolean(classification.shouldCapture && (classification.byDisposition || classification.byExt || classification.byMime));
+}
+
 function isDownloadInProgress(item = {}) {
   return !item.state || item.state === 'in_progress';
 }
@@ -1220,6 +1230,10 @@ chrome.webRequest.onHeadersReceived.addListener(
         return;
       }
       if (typeof requestHeadersCache.get(details.url)?.sourceTabId === 'number') {
+        rememberRedirectIntent(details.url, redirectUrl, details);
+        return;
+      }
+      if (isLikelyDownloadRedirectCandidate(details, redirectUrl, contentDisposition)) {
         rememberRedirectIntent(details.url, redirectUrl, details);
         return;
       }
