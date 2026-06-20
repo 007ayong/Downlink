@@ -41,6 +41,7 @@ function normalizePopupConfig(cfg = {}) {
   const next = { ...POPUP_DEFAULT_CONFIG, ...(cfg || {}) };
   next.aria2CustomSaveEnabled = !!next.aria2CustomSaveEnabled && !next.aria2Silent;
   next.aria2SaveLocations = normalizeAria2SaveLocations(next.aria2SaveLocations);
+  next.externalLauncherHost = 'localhost';
   return next;
 }
 

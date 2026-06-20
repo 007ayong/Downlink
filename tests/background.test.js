@@ -3413,7 +3413,7 @@ test('connection test uses the incoming config override instead of the last save
   assert.equal(result.error, '与 Aria2 连接失败，检查 Aria2 是否正在运行');
 });
 
-test('AB DM connection test uses the incoming config override instead of the last saved endpoint', async () => {
+test('AB DM connection test uses localhost host and incoming port override', async () => {
   let requestedUrl = '';
   const background = loadBackgroundRuntime(
     {
@@ -3443,7 +3443,7 @@ test('AB DM connection test uses the incoming config override instead of the las
     },
   });
 
-  assert.equal(requestedUrl, 'http://live-host:17000/queues');
+  assert.equal(requestedUrl, 'http://localhost:17000/queues');
   assert.equal(result.ok, false);
   assert.equal(result.mode, 'abdownload');
   assert.equal(result.error, '与 AB DM 连接失败，检查 AB DM 是否正在运行');
@@ -3697,6 +3697,42 @@ test('global media sniffing switch blocks media responses only', async () => {
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(state.config.autoCapture, true);
   assert.deepEqual(JSON.parse(JSON.stringify(state.media)), {});
+});
+
+test('auto capture switch updates the badge while global media sniffing is disabled', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    mediaSniffing: false,
+    __activeTabs: [{ id: 12, windowId: 3, active: true }],
+  });
+
+  let result = await invokeBackgroundMessage(background, {
+    type: 'SAVE_CONFIG',
+    config: {
+      autoCapture: false,
+    },
+  });
+
+  assert.equal(result.ok, true);
+  let state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.autoCapture, false);
+  assert.equal(state.config.mediaSniffing, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.pausedTabs)), [12]);
+  assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeText.at(-1))), { text: '✕', tabId: 12 });
+
+  result = await invokeBackgroundMessage(background, {
+    type: 'SAVE_CONFIG',
+    config: {
+      autoCapture: true,
+    },
+  });
+
+  assert.equal(result.ok, true);
+  state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.autoCapture, true);
+  assert.equal(state.config.mediaSniffing, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.pausedTabs)), [12]);
+  assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeText.at(-1))), { text: '', tabId: 12 });
 });
 
 test('storage auto capture changes pause active tab sniffing and update the badge', async () => {

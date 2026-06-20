@@ -218,6 +218,7 @@ function normalizeConfig(nextConfig = {}) {
     aria2CustomSaveEnabled: !!nextConfig.aria2CustomSaveEnabled && !nextConfig.aria2Silent,
     aria2SaveLocations: normalizeAria2SaveLocations(nextConfig.aria2SaveLocations),
     externalLauncherName: 'AB DM',
+    externalLauncherHost: 'localhost',
     mediaSniffing: nextConfig.mediaSniffing !== false,
     captureExtensions: normalizeCaptureExtensionsConfig(nextConfig.captureExtensions),
   };
@@ -233,10 +234,11 @@ function applyLocaleFromConfig(nextConfig = config) {
 
 async function saveConfigAndSync(nextConfig) {
   const previousMediaSniffingEnabled = isMediaSniffingEnabled(config);
+  const previousAutoCapture = config.autoCapture;
   await saveStoredConfig(nextConfig);
   config = normalizeConfig({ ...config, ...nextConfig });
   applyLocaleFromConfig(config);
-  if (previousMediaSniffingEnabled !== isMediaSniffingEnabled(config)) {
+  if (previousAutoCapture !== config.autoCapture || previousMediaSniffingEnabled !== isMediaSniffingEnabled(config)) {
     await syncMediaSniffingStateForActiveTabs();
     broadcastUpdate();
   }
@@ -863,11 +865,14 @@ const configReady = new Promise((resolve) => {
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName && !['sync', 'local'].includes(areaName)) return;
   const previousMediaSniffingEnabled = isMediaSniffingEnabled(config);
+  const previousAutoCapture = config.autoCapture;
   for (const key in changes) config[key] = changes[key].newValue;
   config = normalizeConfig(config);
   applyLocaleFromConfig(config);
   if (changes.language) refreshContextMenus();
-  if ((changes.autoCapture || changes.mediaSniffing) && previousMediaSniffingEnabled !== isMediaSniffingEnabled(config)) {
+  const autoCaptureChanged = changes.autoCapture && previousAutoCapture !== config.autoCapture;
+  const mediaSniffingEnabledChanged = (changes.autoCapture || changes.mediaSniffing) && previousMediaSniffingEnabled !== isMediaSniffingEnabled(config);
+  if (autoCaptureChanged || mediaSniffingEnabledChanged) {
     syncMediaSniffingStateForActiveTabs().then(() => {
       broadcastUpdate();
     }).catch(() => {});

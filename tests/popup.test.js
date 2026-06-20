@@ -762,7 +762,6 @@ test('AB DM test connection sends the current form config', () => {
   const popup = loadPopupRuntime();
 
   popup.document.getElementById('cfgDownloaderType').value = 'abdownload';
-  popup.document.getElementById('cfgLauncherHost').value = '10.0.0.8';
   popup.document.getElementById('cfgLauncherPort').value = '17000';
   popup.document.getElementById('cfgAbDownloadSilent').checked = true;
 
@@ -784,7 +783,7 @@ test('AB DM test connection sends the current form config', () => {
     gopeedApi: 'http://127.0.0.1:9999',
     gopeedToken: '',
     externalLauncherName: 'AB DM',
-    externalLauncherHost: '10.0.0.8',
+    externalLauncherHost: 'localhost',
     externalLauncherPort: '17000',
     abDownloadSilent: true,
     autoCapture: false,
@@ -984,7 +983,6 @@ test('settings controller collects every visible config field from the form', ()
   context.document.getElementById('cfgMotrixBridgeAutoClose').checked = true;
   context.document.getElementById('cfgMotrixNextPort').value = '16888';
   context.document.getElementById('cfgMotrixNextSecret').value = 'motrix-secret';
-  context.document.getElementById('cfgLauncherHost').value = '10.0.0.8';
   context.document.getElementById('cfgLauncherPort').value = '17000';
   context.document.getElementById('cfgAbDownloadSilent').checked = true;
   context.document.getElementById('cfgAutoCapture').checked = true;
@@ -1008,7 +1006,7 @@ test('settings controller collects every visible config field from the form', ()
     gopeedApi: 'http://127.0.0.1:9999',
     gopeedToken: '',
     externalLauncherName: 'AB DM',
-    externalLauncherHost: '10.0.0.8',
+    externalLauncherHost: 'localhost',
     externalLauncherPort: '17000',
     abDownloadSilent: true,
     autoCapture: true,
@@ -1135,7 +1133,7 @@ test('settings load defaults keep MotrixNext port and autosave secret fields', a
     motrixNextPort: '16801',
     motrixNextSecret: '',
     gopeedApi: 'http://127.0.0.1:9999',
-    externalLauncherHost: 'localhost',
+    externalLauncherHost: 'legacy-host',
     externalLauncherPort: '15151',
     autoCapture: true,
     mediaSniffing: true,
@@ -1169,6 +1167,7 @@ test('settings load defaults keep MotrixNext port and autosave secret fields', a
   assert.equal(context.document.getElementById('cfgGopeedApi').value, 'http://127.0.0.1:9999');
   assert.equal(context.document.getElementById('cfgLauncherPort').value, '15151');
   assert.equal(context.document.getElementById('cfgMediaSniffing').checked, true);
+  assert.equal(currentConfig.externalLauncherHost, 'localhost');
 
   controller.bindSettingsEvents();
   context.document.getElementById('cfgDownloaderType').value = 'motrixnext';
@@ -1224,7 +1223,6 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgAria2CustomSaveEnabled', true, 'checked')).config.aria2CustomSaveEnabled, false);
   assert.equal((await applyChange('cfgMotrixNextPort', '16888')).config.motrixNextPort, '16888');
   assert.equal((await applyChange('cfgMotrixNextSecret', 'motrix-secret')).config.motrixNextSecret, 'motrix-secret');
-  assert.equal((await applyChange('cfgLauncherHost', '10.0.0.8')).config.externalLauncherHost, '10.0.0.8');
   assert.equal((await applyChange('cfgLauncherPort', '17000')).config.externalLauncherPort, '17000');
   assert.equal((await applyChange('cfgExts', 'zip,mp4')).config.captureExtensions, 'zip,mp4');
   assert.equal((await applyChange('cfgSmallDownloadThresholdMb', '2')).config.smallDownloadThresholdBytes, 2 * 1024 * 1024);

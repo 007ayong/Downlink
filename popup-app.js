@@ -580,6 +580,9 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
     if (toggle) toggle.disabled = !motrixAutoCloseEnabled;
     el.classList.toggle('settings-disabled', !motrixAutoCloseEnabled);
   });
+  document.querySelectorAll('.downloader-config-group').forEach((el) => {
+    el.classList.toggle('settings-hidden', !(isAria2 || isAbDownload));
+  });
 }
 
 function renderInlineAlert(elementId, message = currentState.uiAlert?.message || '', { shake = false } = {}) {

@@ -800,6 +800,27 @@
     .settings-input:focus { border-color: var(--accent); }
     .settings-input.wide { width: 100%; margin-top: 4px; }
     .settings-row.col { flex-direction: column; align-items: stretch; }
+    .settings-test-row {
+      align-items: stretch;
+      gap: 8px;
+    }
+    .settings-test-row .conn-result {
+      margin-top: 0;
+    }
+    .settings-test-button {
+      width: 100%;
+      padding: 8px 0;
+      flex: 0 0 auto;
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+      box-shadow: 0 6px 14px rgba(232,95,46,0.18);
+    }
+    .settings-test-button:hover {
+      background: #c94e23;
+      border-color: #c94e23;
+      color: white;
+    }
     .settings-hidden { display: none; }
     .settings-row.settings-disabled {
       opacity: 0.55;
@@ -1084,7 +1105,7 @@
   </div>
 
   <div class="settings-group">
-    <div class="settings-group-title" data-i18n="settingsConfigGroup">配置信息</div>
+    <div class="settings-group-title" data-i18n="settingsConnectionGroup">连接信息</div>
     <div class="settings-row col aria2-only">
       <label><span data-i18n="settingsRpcAddress">RPC 地址</span> <span class="settings-sub" data-i18n="settingsRpcAddressSub">默认 http://localhost:6800/jsonrpc</span></label>
       <input class="settings-input wide" id="cfgRpc" type="text" placeholder="http://localhost:6800/jsonrpc"/>
@@ -1093,13 +1114,50 @@
       <label><span data-i18n="settingsRpcSecret">RPC 密钥</span> <span class="settings-sub" data-i18n="settingsRpcSecretSub">aria2c --rpc-secret 设置的密钥</span></label>
       <input class="settings-input wide" id="cfgSecret" type="password" placeholder="留空则不使用" data-i18n-placeholder="settingsRpcSecretPlaceholder"/>
     </div>
-    <div class="settings-row aria2-only">
-      <label style="flex:1">
-        <div style="margin-bottom:4px" data-i18n="settingsTestConnection">测试连接</div>
-        <div class="conn-result" id="connResult"></div>
-      </label>
-      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="testConnBtn" data-i18n="test">测试</button>
+    <div class="settings-row col settings-test-row aria2-only">
+      <div class="conn-result" id="connResult"></div>
+      <button class="btn btn-ghost settings-test-button" id="testConnBtn" data-i18n="connectionTest">连接测试</button>
     </div>
+    <div class="settings-row col launcher-only settings-hidden">
+      <label><span data-i18n="settingsPort">端口号</span> <span class="settings-sub" data-i18n="settingsPortSub">在下载器「设置 -- 浏览器插件集成」的服务器端口处获取</span></label>
+      <input class="settings-input wide" id="cfgLauncherPort" type="text" placeholder="15151"/>
+    </div>
+    <div class="settings-row col settings-test-row launcher-only settings-hidden">
+      <div class="conn-result" id="connResultLauncher"></div>
+      <button class="btn btn-ghost settings-test-button" id="testLauncherBtn" data-i18n="connectionTest">连接测试</button>
+    </div>
+    <div class="settings-row col motrixnext-only settings-hidden">
+      <label><span data-i18n="settingsMotrixNextPort">MotrixNext 端口</span> <span class="settings-sub" data-i18n="settingsMotrixNextPortSub">在下载器「设置 -- 高级 -- 浏览器扩展」处的端口</span></label>
+      <input class="settings-input wide" id="cfgMotrixNextPort" type="text" placeholder="16801"/>
+    </div>
+    <div class="settings-row col motrixnext-only settings-hidden">
+      <label><span data-i18n="settingsMotrixNextSecret">MotrixNext 密钥</span> <span class="settings-sub" data-i18n="settingsMotrixNextSecretSub">在下载器「设置 -- 高级 -- 浏览器扩展」处的密钥</span></label>
+      <input class="settings-input wide" id="cfgMotrixNextSecret" type="password" placeholder="留空则不使用" data-i18n-placeholder="settingsRpcSecretPlaceholder"/>
+    </div>
+    <div class="settings-row col settings-test-row motrixnext-only settings-hidden">
+      <div class="conn-result" id="connResultMotrixNext"></div>
+      <button class="btn btn-ghost settings-test-button" id="testMotrixNextBtn" data-i18n="connectionTest">连接测试</button>
+    </div>
+    <div class="settings-row col gopeed-only settings-hidden">
+      <label><span data-i18n="settingsGopeedApi">Gopeed API 地址</span> <span class="settings-sub" data-i18n="settingsGopeedApiSub">下载器「设置 -- 高级 -- API」的 TCP 通讯地址</span></label>
+      <input class="settings-input wide" id="cfgGopeedApi" type="text" placeholder="http://127.0.0.1:9999"/>
+    </div>
+    <div class="settings-row col gopeed-only settings-hidden">
+      <label><span data-i18n="settingsGopeedToken">Gopeed Token</span> <span class="settings-sub" data-i18n="settingsGopeedTokenSub">下载器「设置 -- 高级 -- API」的接口令牌，留空则不使用</span></label>
+      <input class="settings-input wide" id="cfgGopeedToken" type="password" placeholder="留空则不使用" data-i18n-placeholder="settingsRpcSecretPlaceholder"/>
+    </div>
+    <div class="settings-row col settings-test-row gopeed-only settings-hidden">
+      <div class="conn-result" id="connResultGopeed"></div>
+      <button class="btn btn-ghost settings-test-button" id="testGopeedBtn" data-i18n="connectionTest">连接测试</button>
+    </div>
+    <div class="settings-row col settings-test-row neatdm-only settings-hidden">
+      <div class="conn-result" id="connResultNeatdm"></div>
+      <button class="btn btn-ghost settings-test-button" id="testNeatdmBtn" data-i18n="connectionTest">连接测试</button>
+    </div>
+  </div>
+
+  <div class="settings-group downloader-config-group">
+    <div class="settings-group-title" data-i18n="settingsConfigGroup">配置信息</div>
     <div class="settings-row aria2-only">
       <label><span data-i18n="settingsAria2Silent">普通任务静默下载</span> <span class="settings-sub" data-i18n="settingsAria2SilentSub">默认下载前需手动二次确认；开启后自动开始下载，无需二次确认</span></label>
       <label class="toggle"><input type="checkbox" id="cfgAria2Silent"><div class="toggle-track"></div></label>
@@ -1121,62 +1179,9 @@
       <label><span data-i18n="settingsMotrixBridgeAutoClose">自动关闭 MotrixNext 打开时的承接页</span> <span class="settings-sub" data-i18n="settingsMotrixBridgeAutoCloseSub">需先在承接页启用，设置页仅可关闭</span></label>
       <label class="toggle"><input type="checkbox" id="cfgMotrixBridgeAutoClose"><div class="toggle-track"></div></label>
     </div>
-    <div class="settings-row col launcher-only settings-hidden">
-      <label><span data-i18n="settingsServiceHost">服务地址</span> <span class="settings-sub" data-i18n="settingsServiceHostSub">AB DM 默认 localhost</span></label>
-      <input class="settings-input wide" id="cfgLauncherHost" type="text" placeholder="localhost"/>
-    </div>
-    <div class="settings-row col launcher-only settings-hidden">
-      <label><span data-i18n="settingsPort">端口号</span> <span class="settings-sub" data-i18n="settingsPortSub">默认 15151</span></label>
-      <input class="settings-input wide" id="cfgLauncherPort" type="text" placeholder="15151"/>
-    </div>
     <div class="settings-row launcher-only settings-hidden">
       <label><span data-i18n="settingsAbDownloadSilent">普通任务静默下载</span> <span class="settings-sub" data-i18n="settingsAbDownloadSilentSub">默认下载前需手动二次确认；开启后自动开始下载，无需二次确认</span></label>
       <label class="toggle"><input type="checkbox" id="cfgAbDownloadSilent"><div class="toggle-track"></div></label>
-    </div>
-    <div class="settings-row launcher-only settings-hidden">
-      <label style="flex:1">
-        <div style="margin-bottom:4px" data-i18n="settingsTestConnection">测试连接</div>
-        <div class="conn-result" id="connResultLauncher"></div>
-      </label>
-      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="testLauncherBtn" data-i18n="test">测试</button>
-    </div>
-    <div class="settings-row col motrixnext-only settings-hidden">
-      <label><span data-i18n="settingsMotrixNextPort">MotrixNext 端口</span> <span class="settings-sub" data-i18n="settingsMotrixNextPortSub">MotrixNext HTTP 接收服务端口</span></label>
-      <input class="settings-input wide" id="cfgMotrixNextPort" type="text" placeholder="16801"/>
-    </div>
-    <div class="settings-row col motrixnext-only settings-hidden">
-      <label><span data-i18n="settingsMotrixNextSecret">MotrixNext 密钥</span> <span class="settings-sub" data-i18n="settingsMotrixNextSecretSub">对应 MotrixNext extensionApiSecret；留空表示 MotrixNext 未启用 API 鉴权</span></label>
-      <input class="settings-input wide" id="cfgMotrixNextSecret" type="password" placeholder="留空则不使用" data-i18n-placeholder="settingsRpcSecretPlaceholder"/>
-    </div>
-    <div class="settings-row motrixnext-only settings-hidden">
-      <label style="flex:1">
-        <div style="margin-bottom:4px" data-i18n="settingsTestConnection">测试连接</div>
-        <div class="conn-result" id="connResultMotrixNext"></div>
-      </label>
-      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="testMotrixNextBtn" data-i18n="test">测试</button>
-    </div>
-    <div class="settings-row col gopeed-only settings-hidden">
-      <label><span data-i18n="settingsGopeedApi">Gopeed API 地址</span> <span class="settings-sub" data-i18n="settingsGopeedApiSub">默认 http://127.0.0.1:9999</span></label>
-      <input class="settings-input wide" id="cfgGopeedApi" type="text" placeholder="http://127.0.0.1:9999"/>
-    </div>
-    <div class="settings-row col gopeed-only settings-hidden">
-      <label><span data-i18n="settingsGopeedToken">Gopeed Token</span> <span class="settings-sub" data-i18n="settingsGopeedTokenSub">对应 Gopeed API Token；留空则不使用</span></label>
-      <input class="settings-input wide" id="cfgGopeedToken" type="password" placeholder="留空则不使用" data-i18n-placeholder="settingsRpcSecretPlaceholder"/>
-    </div>
-    <div class="settings-row gopeed-only settings-hidden">
-      <label style="flex:1">
-        <div style="margin-bottom:4px" data-i18n="settingsTestConnection">测试连接</div>
-        <div class="conn-result" id="connResultGopeed"></div>
-      </label>
-      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="testGopeedBtn" data-i18n="test">测试</button>
-    </div>
-    <div class="settings-row neatdm-only settings-hidden">
-      <label style="flex:1">
-        <div style="margin-bottom:4px" data-i18n="settingsTestConnection">测试连接</div>
-        <div class="settings-sub" data-i18n="settingsNeatdmSub">默认连接 `ws://127.0.0.1:10007/download`</div>
-        <div class="conn-result" id="connResultNeatdm"></div>
-      </label>
-      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="testNeatdmBtn" data-i18n="test">测试</button>
     </div>
   </div>
 
