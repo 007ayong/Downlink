@@ -46,7 +46,11 @@ function createElementStub(tagName = 'div') {
   };
   const element = {
     tagName: normalizedTagName,
-    style: {},
+    style: {
+      setProperty(name, value) {
+        this[name] = value;
+      },
+    },
     dataset: {},
     value: '',
     checked: false,
@@ -81,7 +85,7 @@ function createElementStub(tagName = 'div') {
         return true;
       },
       contains(token) {
-        return classes.has(token);
+        return hasClass(element, token);
       },
     },
     addEventListener(type, handler) {
@@ -89,6 +93,7 @@ function createElementStub(tagName = 'div') {
       listeners[type].push(handler);
     },
     appendChild(child) {
+      child.parentElement = this;
       this.children.push(child);
       return child;
     },
@@ -117,6 +122,14 @@ function createElementStub(tagName = 'div') {
     },
     querySelectorAll(selector) {
       return findAll(this, selector);
+    },
+    closest(selector) {
+      let current = this;
+      while (current) {
+        if (matchesSelector(current, selector)) return current;
+        current = current.parentElement;
+      }
+      return null;
     },
     _classes: classes,
     _listeners: listeners,
@@ -277,21 +290,14 @@ function loadPopupSettingsRuntime() {
     if (!elements.has(id)) {
       const listeners = {};
       listenersById.set(id, listeners);
-      elements.set(id, {
-        value: '',
-        checked: false,
-        style: {},
-        textContent: '',
-        classList: {
-          add() {},
-          remove() {},
-          toggle() {},
-        },
-        addEventListener(type, handler) {
-          listeners[type] = listeners[type] || [];
-          listeners[type].push(handler);
-        },
-      });
+      const element = createElementStub();
+      const originalAddEventListener = element.addEventListener;
+      element.addEventListener = function addEventListener(type, handler) {
+        listeners[type] = listeners[type] || [];
+        listeners[type].push(handler);
+        originalAddEventListener.call(this, type, handler);
+      };
+      elements.set(id, element);
     }
     return elements.get(id);
   };
@@ -303,6 +309,9 @@ function loadPopupSettingsRuntime() {
     document: {
       getElementById(id) {
         return getElement(id);
+      },
+      createElement(tagName) {
+        return createElementStub(tagName);
       },
     },
     chrome: {
@@ -455,6 +464,40 @@ test('aria2 pending confirmation can force single threaded download options', ()
     split: '1',
     'max-connection-per-server': '1',
     'min-split-size': '1024M',
+  });
+});
+
+test('aria2 pending confirmation sends selected custom save location', () => {
+  const popup = loadPopupRuntime();
+  Object.assign(popup.currentConfig, {
+    downloaderType: 'aria2',
+    aria2CustomSaveEnabled: true,
+    aria2SaveLocations: [
+      { name: '默认', path: '/downloads/default', color: '#ff9500' },
+      { name: '视频', path: '/downloads/video', color: '#007aff' },
+    ],
+  });
+  const pending = {
+    task1: {
+      key: 'task1',
+      url: 'https://example.com/file.zip',
+      filename: 'file.zip',
+      addedAt: 1,
+    },
+  };
+
+  popup.renderTasks({}, pending);
+  const card = popup.document.getElementById('pendingList').children[0];
+  const select = card.querySelector('.pending-save-location-select');
+  assert.equal(select.value, '/downloads/default');
+
+  select.value = '/downloads/video';
+  card.querySelector('.confirm-btn').click();
+
+  const message = popup.chrome._sentMessages.at(-1);
+  assert.equal(message.type, 'CONFIRM_DOWNLOAD');
+  assert.deepEqual(JSON.parse(JSON.stringify(message.opts)), {
+    dir: '/downloads/video',
   });
 });
 
@@ -695,6 +738,8 @@ test('aria2 test connection sends the current form config', () => {
     aria2Rpc: 'http://127.0.0.1:6800/jsonrpc',
     aria2Secret: 'bad-secret',
     aria2Silent: false,
+    aria2CustomSaveEnabled: false,
+    aria2SaveLocations: [],
     useMotrixNext: false,
     motrixBridgeAutoClose: false,
     motrixNextPort: '16801',
@@ -730,6 +775,8 @@ test('AB DM test connection sends the current form config', () => {
     aria2Rpc: 'http://localhost:6800/jsonrpc',
     aria2Secret: '',
     aria2Silent: false,
+    aria2CustomSaveEnabled: false,
+    aria2SaveLocations: [],
     useMotrixNext: false,
     motrixBridgeAutoClose: false,
     motrixNextPort: '16801',
@@ -851,6 +898,35 @@ test('motrix auto-close setting becomes enabled after bridge option is enabled',
   assert.equal(motrixRow.classList.contains('settings-disabled'), false);
 });
 
+test('aria2 custom save controls are disabled while silent downloads are enabled', () => {
+  const popup = loadPopupRuntime();
+  const customSaveRow = createElementStub();
+  const customSaveToggle = createElementStub();
+  const saveLocationsRow = createElementStub();
+  customSaveToggle.checked = true;
+  customSaveRow.querySelector = (selector) => (selector === '#cfgAria2CustomSaveEnabled' ? customSaveToggle : null);
+
+  popup.document.querySelectorAll = (selector) => {
+    if (selector === '.aria2-only') return [customSaveRow, saveLocationsRow];
+    if (selector === '.aria2-custom-save-control') return [customSaveRow];
+    if (selector === '.aria2-save-locations-config') return [saveLocationsRow];
+    if (selector === '.launcher-only' || selector === '.neatdm-only' || selector === '.motrixnext-only' || selector === '.gopeed-only' || selector === '.motrix-autoclose-only') return [];
+    return [];
+  };
+
+  Object.assign(popup.currentConfig, {
+    downloaderType: 'aria2',
+    aria2Silent: true,
+    aria2CustomSaveEnabled: true,
+  });
+  popup.updateSettingsVisibility('aria2');
+
+  assert.equal(customSaveToggle.disabled, true);
+  assert.equal(customSaveToggle.checked, false);
+  assert.equal(customSaveRow.classList.contains('settings-disabled'), true);
+  assert.equal(saveLocationsRow.classList.contains('settings-hidden'), true);
+});
+
 test('cfgUseMotrixNext only binds one change listener for autosave', () => {
   const { context, listenersById } = loadPopupSettingsRuntime();
   let scheduleCalls = 0;
@@ -923,6 +999,8 @@ test('settings controller collects every visible config field from the form', ()
     aria2Rpc: 'http://127.0.0.1:6800/jsonrpc',
     aria2Secret: 'secret',
     aria2Silent: true,
+    aria2CustomSaveEnabled: false,
+    aria2SaveLocations: [],
     useMotrixNext: true,
     motrixBridgeAutoClose: true,
     motrixNextPort: '16888',
@@ -939,6 +1017,113 @@ test('settings controller collects every visible config field from the form', ()
     skipSmallDownloads: true,
     smallDownloadThresholdBytes: 2.5 * 1024 * 1024,
   });
+});
+
+test('settings controller collects custom aria2 save locations in display order', () => {
+  const { context } = loadPopupSettingsRuntime();
+  const controller = context.PopupSettings.createSettingsController({
+    getCurrentConfig: () => ({}),
+    setCurrentConfig() {},
+    getCurrentState: () => ({ tasks: {}, pending: {} }),
+    getLoading: () => false,
+    setLoading() {},
+    getAutoSaveTimer: () => null,
+    setAutoSaveTimer() {},
+    getSaveFeedbackTimer: () => null,
+    setSaveFeedbackTimer() {},
+    syncGlobals() {},
+    updateSettingsVisibility() {},
+    updateDynamicLabels() {},
+    renderTasks() {},
+    requestAutoConnectionCheck() {},
+  });
+
+  controller.bindSettingsEvents();
+  context.document.getElementById('cfgAria2CustomSaveEnabled').checked = true;
+  controller.renderSaveLocations([
+    { name: '视频', path: '/downloads/video', color: '#007aff' },
+    { name: '默认', path: '/downloads/default', color: '#ff9500' },
+  ]);
+
+  const config = controller.collectSettingsFromForm();
+  assert.equal(config.aria2CustomSaveEnabled, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(config.aria2SaveLocations)), [
+    { name: '视频', path: '/downloads/video', color: '#007aff' },
+    { name: '默认', path: '/downloads/default', color: '#ff9500' },
+  ]);
+});
+
+test('settings controller updates save location color from built-in palette swatches', () => {
+  const { context, listenersById } = loadPopupSettingsRuntime();
+  const controller = context.PopupSettings.createSettingsController({
+    getCurrentConfig: () => ({}),
+    setCurrentConfig() {},
+    getCurrentState: () => ({ tasks: {}, pending: {} }),
+    getLoading: () => false,
+    setLoading() {},
+    getAutoSaveTimer: () => null,
+    setAutoSaveTimer() {},
+    getSaveFeedbackTimer: () => null,
+    setSaveFeedbackTimer() {},
+    syncGlobals() {},
+    updateSettingsVisibility() {},
+    updateDynamicLabels() {},
+    renderTasks() {},
+    requestAutoConnectionCheck() {},
+  });
+
+  controller.bindSettingsEvents();
+  context.document.getElementById('cfgAria2CustomSaveEnabled').checked = true;
+  controller.renderSaveLocations([
+    { name: '默认', path: '/downloads/default', color: '#ff9500' },
+  ]);
+
+  const list = context.document.getElementById('cfgAria2SaveLocations');
+  const blueSwatch = list.querySelectorAll('.save-location-swatch')
+    .find((swatch) => swatch.dataset.color === '#007aff');
+  assert.ok(blueSwatch);
+
+  for (const handler of listenersById.get('cfgAria2SaveLocations')?.click || []) {
+    handler({ target: blueSwatch });
+  }
+
+  assert.equal(list.querySelector('.save-location-color').value, '#007aff');
+  assert.deepEqual(JSON.parse(JSON.stringify(controller.collectSettingsFromForm().aria2SaveLocations)), [
+    { name: '默认', path: '/downloads/default', color: '#007aff' },
+  ]);
+});
+
+test('settings controller disables custom aria2 save locations when silent downloads are enabled', () => {
+  const { context } = loadPopupSettingsRuntime();
+  const controller = context.PopupSettings.createSettingsController({
+    getCurrentConfig: () => ({}),
+    setCurrentConfig() {},
+    getCurrentState: () => ({ tasks: {}, pending: {} }),
+    getLoading: () => false,
+    setLoading() {},
+    getAutoSaveTimer: () => null,
+    setAutoSaveTimer() {},
+    getSaveFeedbackTimer: () => null,
+    setSaveFeedbackTimer() {},
+    syncGlobals() {},
+    updateSettingsVisibility() {},
+    updateDynamicLabels() {},
+    renderTasks() {},
+    requestAutoConnectionCheck() {},
+  });
+
+  context.document.getElementById('cfgAria2Silent').checked = true;
+  context.document.getElementById('cfgAria2CustomSaveEnabled').checked = true;
+  controller.renderSaveLocations([
+    { name: '默认', path: '/downloads/default', color: '#ff9500' },
+  ]);
+
+  const config = controller.collectSettingsFromForm();
+  assert.equal(config.aria2Silent, true);
+  assert.equal(config.aria2CustomSaveEnabled, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(config.aria2SaveLocations)), [
+    { name: '默认', path: '/downloads/default', color: '#ff9500' },
+  ]);
 });
 
 test('settings load defaults keep MotrixNext port and autosave secret fields', async () => {
@@ -1036,6 +1221,7 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgRpc', 'http://127.0.0.1:6800/jsonrpc')).config.aria2Rpc, 'http://127.0.0.1:6800/jsonrpc');
   assert.equal((await applyChange('cfgSecret', 'new-secret')).config.aria2Secret, 'new-secret');
   assert.equal((await applyChange('cfgAria2Silent', true, 'checked')).config.aria2Silent, true);
+  assert.equal((await applyChange('cfgAria2CustomSaveEnabled', true, 'checked')).config.aria2CustomSaveEnabled, false);
   assert.equal((await applyChange('cfgMotrixNextPort', '16888')).config.motrixNextPort, '16888');
   assert.equal((await applyChange('cfgMotrixNextSecret', 'motrix-secret')).config.motrixNextSecret, 'motrix-secret');
   assert.equal((await applyChange('cfgLauncherHost', '10.0.0.8')).config.externalLauncherHost, '10.0.0.8');

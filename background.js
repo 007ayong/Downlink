@@ -20,6 +20,8 @@ const DEFAULT_CONFIG = {
   aria2Rpc: 'http://localhost:6800/jsonrpc',
   aria2Secret: '',
   aria2Silent: false,
+  aria2CustomSaveEnabled: false,
+  aria2SaveLocations: [],
   useMotrixNext: false,
   motrixBridgeAutoClose: false,
   motrixNextPort: '16801',
@@ -38,6 +40,7 @@ const DEFAULT_CONFIG = {
   skipSmallDownloads: false,
   smallDownloadThresholdBytes: 1048576,
 };
+const MACOS_TAG_COLORS = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#007aff', '#af52de', '#8e8e93'];
 const i18n = globalThis.Localization || {};
 const t = i18n.t || ((key, substitutions, fallback = key) => {
   if (fallback && substitutions !== undefined) {
@@ -193,9 +196,27 @@ function normalizeCaptureExtensionsConfig(value) {
   return value;
 }
 
+function normalizeLocationColor(color = '') {
+  const value = String(color || '').trim().toLowerCase();
+  return MACOS_TAG_COLORS.includes(value) ? value : '#ff9500';
+}
+
+function normalizeAria2SaveLocations(locations = []) {
+  if (!Array.isArray(locations)) return [];
+  return locations
+    .map((item) => ({
+      name: String(item?.name || '').trim(),
+      path: String(item?.path || '').trim(),
+      color: normalizeLocationColor(item?.color),
+    }))
+    .filter((item) => item.name && item.path);
+}
+
 function normalizeConfig(nextConfig = {}) {
   return {
     ...nextConfig,
+    aria2CustomSaveEnabled: !!nextConfig.aria2CustomSaveEnabled && !nextConfig.aria2Silent,
+    aria2SaveLocations: normalizeAria2SaveLocations(nextConfig.aria2SaveLocations),
     externalLauncherName: 'AB DM',
     mediaSniffing: nextConfig.mediaSniffing !== false,
     captureExtensions: normalizeCaptureExtensionsConfig(nextConfig.captureExtensions),

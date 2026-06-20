@@ -16,6 +16,8 @@ const POPUP_DEFAULT_CONFIG = {
   aria2Rpc: 'http://localhost:6800/jsonrpc',
   aria2Secret: '',
   aria2Silent: false,
+  aria2CustomSaveEnabled: false,
+  aria2SaveLocations: [],
   useMotrixNext: false,
   motrixBridgeAutoClose: false,
   motrixNextPort: '16801',
@@ -33,8 +35,29 @@ const POPUP_DEFAULT_CONFIG = {
   smallDownloadThresholdBytes: 1048576,
 };
 
+const MACOS_TAG_COLORS = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#007aff', '#af52de', '#8e8e93'];
+
 function normalizePopupConfig(cfg = {}) {
-  return { ...POPUP_DEFAULT_CONFIG, ...(cfg || {}) };
+  const next = { ...POPUP_DEFAULT_CONFIG, ...(cfg || {}) };
+  next.aria2CustomSaveEnabled = !!next.aria2CustomSaveEnabled && !next.aria2Silent;
+  next.aria2SaveLocations = normalizeAria2SaveLocations(next.aria2SaveLocations);
+  return next;
+}
+
+function normalizeLocationColor(color = '') {
+  const value = String(color || '').trim().toLowerCase();
+  return MACOS_TAG_COLORS.includes(value) ? value : '#ff9500';
+}
+
+function normalizeAria2SaveLocations(locations = []) {
+  if (!Array.isArray(locations)) return [];
+  return locations
+    .map((item) => ({
+      name: String(item?.name || '').trim(),
+      path: String(item?.path || '').trim(),
+      color: normalizeLocationColor(item?.color),
+    }))
+    .filter((item) => item.name && item.path);
 }
 
 let currentConfig = normalizePopupConfig();

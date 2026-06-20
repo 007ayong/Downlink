@@ -154,6 +154,7 @@ function mediaFactIcon(name) {
 }
 
 function buildPendingConfirmRenderKey(pendingVals) {
+  const saveLocations = currentConfig.aria2CustomSaveEnabled && !currentConfig.aria2Silent ? (currentConfig.aria2SaveLocations || []) : [];
   return pendingVals.map((item) => [
     item.key,
     item.url,
@@ -164,7 +165,9 @@ function buildPendingConfirmRenderKey(pendingVals) {
     + `|${popupAppT('aria2SingleThread', undefined, '单线程不分片下载')}`
     + `|${popupAppT('ignore', undefined, '忽略')}`
     + `|${getSendLabel(currentConfig)}`
-    + `|${currentConfig.downloaderType || ''}`;
+    + `|${currentConfig.downloaderType || ''}`
+    + `|${currentConfig.aria2CustomSaveEnabled && !currentConfig.aria2Silent ? '1' : '0'}`
+    + `|${JSON.stringify(saveLocations)}`;
 }
 
 function createPendingCard(item, { filename, canForceSingleThread }) {
@@ -186,6 +189,35 @@ function createPendingCard(item, { filename, canForceSingleThread }) {
   filenameRow.appendChild(filenameLabel);
   filenameRow.appendChild(filenameInput);
   card.appendChild(filenameRow);
+
+  const saveLocations = currentConfig.downloaderType === 'aria2' && currentConfig.aria2CustomSaveEnabled && !currentConfig.aria2Silent
+    ? (currentConfig.aria2SaveLocations || []).filter((location) => location?.name && location?.path)
+    : [];
+  if (saveLocations.length) {
+    const locationRow = document.createElement('div');
+    locationRow.className = 'pending-save-location';
+    locationRow.appendChild(createTextElement('label', '', popupAppT('saveLocation', undefined, '保存位置')));
+    const dot = document.createElement('span');
+    dot.className = 'pending-save-location-dot';
+    dot.style.background = saveLocations[0]?.color || '#ff9500';
+    locationRow.appendChild(dot);
+    const select = document.createElement('select');
+    select.className = 'pending-save-location-select';
+    saveLocations.forEach((location, index) => {
+      const option = document.createElement('option');
+      option.value = location.path;
+      option.textContent = location.name;
+      option.dataset.color = location.color || '';
+      if (index === 0) option.selected = true;
+      select.appendChild(option);
+    });
+    select.value = saveLocations[0]?.path || '';
+    select.addEventListener('change', () => {
+      dot.style.background = select.selectedOptions?.[0]?.dataset?.color || '#ff9500';
+    });
+    locationRow.appendChild(select);
+    card.appendChild(locationRow);
+  }
 
   if (canForceSingleThread) {
     const optionLabel = document.createElement('label');
@@ -527,7 +559,18 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
   const isGopeed = type === 'gopeed';
   const isNeatdm = type === 'neatdm';
   const motrixAutoCloseEnabled = !!currentConfig.motrixBridgeAutoClose;
+  const aria2SilentEnabled = !!currentConfig.aria2Silent;
+  const showAria2SaveLocations = isAria2 && !aria2SilentEnabled && !!currentConfig.aria2CustomSaveEnabled;
   document.querySelectorAll('.aria2-only').forEach((el) => el.classList.toggle('settings-hidden', !isAria2));
+  document.querySelectorAll('.aria2-custom-save-control').forEach((el) => {
+    const toggle = el.querySelector('#cfgAria2CustomSaveEnabled');
+    if (toggle) {
+      toggle.disabled = !isAria2 || aria2SilentEnabled;
+      if (aria2SilentEnabled) toggle.checked = false;
+    }
+    el.classList.toggle('settings-disabled', isAria2 && aria2SilentEnabled);
+  });
+  document.querySelectorAll('.aria2-save-locations-config').forEach((el) => el.classList.toggle('settings-hidden', !showAria2SaveLocations));
   document.querySelectorAll('.launcher-only').forEach((el) => el.classList.toggle('settings-hidden', !isAbDownload));
   document.querySelectorAll('.motrixnext-only').forEach((el) => el.classList.toggle('settings-hidden', !isMotrixNext));
   document.querySelectorAll('.gopeed-only').forEach((el) => el.classList.toggle('settings-hidden', !isGopeed));
@@ -591,6 +634,8 @@ function renderTasks(tasks, pending) {
         const opts = canForceSingleThread && card.querySelector('.aria2-single-thread')?.checked
           ? getSingleThreadOptions(currentConfig)
           : {};
+        const saveLocationPath = card.querySelector('.pending-save-location-select')?.value || '';
+        if (currentConfig.downloaderType === 'aria2' && saveLocationPath) opts.dir = saveLocationPath;
         chrome.runtime.sendMessage({ type: 'CONFIRM_DOWNLOAD', key: item.key, filename: fname, opts }, (res) => {
           if (res?.ok) {
             pendingFilenameDrafts.delete(item.key);

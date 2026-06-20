@@ -318,6 +318,32 @@
     }
     .pending-filename-row input:focus { border-color: var(--accent); }
 
+    .pending-save-location {
+      display: flex; gap: 6px; align-items: center;
+      margin: -1px 0 9px;
+    }
+    .pending-save-location label {
+      font-size: 11px; color: var(--text-3); white-space: nowrap;
+    }
+    .pending-save-location-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 1px solid rgba(0,0,0,0.12);
+      flex: 0 0 10px;
+    }
+    .pending-save-location select {
+      flex: 1;
+      font-size: 12px;
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+    }
+    .pending-save-location select:focus { border-color: var(--accent); }
+
     .pending-option {
       display: flex;
       align-items: center;
@@ -778,6 +804,97 @@
     .settings-row.settings-disabled {
       opacity: 0.55;
     }
+    .save-location-list {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      margin-top: 8px;
+    }
+    .save-location-row {
+      position: relative;
+      display: flex;
+      align-items: stretch;
+      gap: 7px;
+      padding: 7px;
+      border: 1px solid var(--save-location-color, var(--border));
+      border-radius: 7px;
+      background:
+        linear-gradient(90deg, var(--save-location-bg, var(--bg)) 0%, rgba(255,255,255,0.38) 100%),
+        var(--save-location-bg, var(--bg));
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.42);
+    }
+    .save-location-color {
+      display: none;
+    }
+    .save-location-fields {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .save-location-fields .settings-input {
+      width: 100%;
+      margin-top: 0;
+      background: rgba(255,255,255,0.46);
+      border-color: rgba(255,255,255,0.62);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.55),
+        0 1px 2px rgba(28,27,25,0.05);
+      backdrop-filter: blur(8px) saturate(1.2);
+      -webkit-backdrop-filter: blur(8px) saturate(1.2);
+    }
+    .save-location-fields .settings-input:focus {
+      background: rgba(255,255,255,0.68);
+      border-color: var(--save-location-color, var(--accent));
+    }
+    .save-location-palette {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .save-location-swatch {
+      width: 14px;
+      height: 14px;
+      padding: 0;
+      border: 1px solid rgba(28, 27, 25, 0.16);
+      border-radius: 999px;
+      cursor: pointer;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35);
+    }
+    .save-location-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .save-location-btn {
+      width: 24px;
+      height: 22px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg2);
+      color: var(--text-2);
+      cursor: pointer;
+      line-height: 1;
+    }
+    .save-location-btn:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+    .add-save-location-btn {
+      width: 100%;
+      margin-top: 8px;
+      padding: 7px 0;
+      border: 1px dashed var(--accent-bd);
+      border-radius: 7px;
+      background: var(--accent-bg);
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+    }
 
     /* Toggle */
     .toggle {
@@ -986,6 +1103,15 @@
     <div class="settings-row aria2-only">
       <label><span data-i18n="settingsAria2Silent">普通任务静默下载</span> <span class="settings-sub" data-i18n="settingsAria2SilentSub">默认下载前需手动二次确认；开启后自动开始下载，无需二次确认</span></label>
       <label class="toggle"><input type="checkbox" id="cfgAria2Silent"><div class="toggle-track"></div></label>
+    </div>
+    <div class="settings-row aria2-only aria2-custom-save-control">
+      <label><span data-i18n="settingsAria2CustomSave">自定义保存位置</span> <span class="settings-sub" data-i18n="settingsAria2CustomSaveSub">开启后可在任务确认页选择保存目录，第一项作为默认</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgAria2CustomSaveEnabled"><div class="toggle-track"></div></label>
+    </div>
+    <div class="settings-row col aria2-only aria2-save-locations-config settings-hidden">
+      <label><span data-i18n="settingsAria2SaveLocations">保存位置列表</span> <span class="settings-sub" data-i18n="settingsAria2SaveLocationsSub">每项包含名称、路径和颜色标签，可调整顺序</span></label>
+      <div class="save-location-list" id="cfgAria2SaveLocations"></div>
+      <button class="add-save-location-btn" type="button" id="addAria2SaveLocationBtn" data-i18n="addSaveLocation">添加保存位置</button>
     </div>
     <div class="settings-row aria2-only">
       <label><span data-i18n="settingsUseMotrixNext">使用 MotrixNext 管理</span> <span class="settings-sub" data-i18n="settingsUseMotrixNextSub">在任务面板显示“Motrix中查看”，默认关闭</span></label>
