@@ -55,6 +55,14 @@ The repository is currently split into 4 separate workflows:
 - `downlink-vX.Y.Z-firefox.xpi`
 - `downlink-firefox-updates.json`
 
+The Firefox self-hosted build uses `downlink@winapps.cc` by default. When packaging a listed AMO build manually, use a different add-on ID to avoid colliding with the self-hosted submission:
+
+```bash
+FIREFOX_ADDON_ID="downlink-amo@winapps.cc" node scripts/package-extension.mjs firefox
+```
+
+The `Publish to Firefox Add-ons` workflow defaults to `downlink-amo@winapps.cc`, and can be overridden with the `FIREFOX_LISTED_ADDON_ID` GitHub Variable.
+
 Before publishing, configure these GitHub Secrets:
 
 - `CHROME_PUBLISHER_ID`

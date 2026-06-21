@@ -55,6 +55,14 @@ Downlink 是一个浏览器扩展，用来在浏览器确认下载响应后接�
 - `downlink-vX.Y.Z-firefox.xpi`
 - `downlink-firefox-updates.json`
 
+Firefox 自托管版本默认使用附加组件 ID `downlink@winapps.cc`。如果要手动打包 AMO 公开商店版，避免和自托管提交的 ID 冲突，需要指定另一个 ID：
+
+```bash
+FIREFOX_ADDON_ID="downlink-amo@winapps.cc" node scripts/package-extension.mjs firefox
+```
+
+`Publish to Firefox Add-ons` workflow 默认使用 `downlink-amo@winapps.cc`，也可以通过 GitHub Variables 的 `FIREFOX_LISTED_ADDON_ID` 覆盖。
+
 发布前需要在 GitHub Secrets 中配置：
 
 - `CHROME_PUBLISHER_ID`

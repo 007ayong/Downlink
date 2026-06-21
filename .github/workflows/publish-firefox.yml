@@ -37,6 +37,7 @@ jobs:
         run: echo "firefox_source_dir=$(node scripts/package-extension.mjs firefox --no-zip)" >> "$GITHUB_OUTPUT"
         env:
           RELEASE_TAG: ${{ inputs.ref }}
+          FIREFOX_ADDON_ID: ${{ vars.FIREFOX_LISTED_ADDON_ID || 'downlink-amo@winapps.cc' }}
 
       - name: Prepare AMO metadata
         run: |

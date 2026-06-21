@@ -76,6 +76,10 @@ if (releaseTag && /^\d/.test(releaseTag) && releaseTag !== manifestVersion) {
   fail(`Tag version (${releaseTag}) does not match manifest version (${manifestVersion})`);
 }
 const buildTargets = target === 'all' ? ['chromium', 'firefox'] : [target];
+const firefoxAddonId = String(process.env.FIREFOX_ADDON_ID || 'downlink@winapps.cc').trim();
+if (!firefoxAddonId) {
+  fail('FIREFOX_ADDON_ID must not be empty');
+}
 const firefoxUpdateUrl = String(process.env.FIREFOX_UPDATE_URL || '').trim();
 if (firefoxUpdateUrl && !firefoxUpdateUrl.startsWith('https://')) {
   fail('FIREFOX_UPDATE_URL must start with https://');
@@ -84,7 +88,7 @@ if (firefoxUpdateUrl && !firefoxUpdateUrl.startsWith('https://')) {
 function manifestForTarget(baseManifest, buildTarget) {
   if (buildTarget !== 'firefox') return baseManifest;
   const geckoSettings = {
-    id: 'downlink@winapps.cc',
+    id: firefoxAddonId,
     strict_min_version: '113.0',
     data_collection_permissions: {
       required: ['none'],
