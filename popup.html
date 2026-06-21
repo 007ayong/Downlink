@@ -78,6 +78,26 @@
       font-weight: 600;
       color: var(--text);
       letter-spacing: -0.01em;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      min-width: 0;
+    }
+    .header-title-text {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .header-version {
+      color: var(--text-3);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0;
+      white-space: nowrap;
+      flex: 0 0 auto;
     }
     .header-status {
       font-size: 11px;
@@ -1173,7 +1193,10 @@
       <img id="headerLogo" src="icons/icon48.png" alt="Downlink logo"/>
   </div>
   <div class="header-info">
-    <div class="header-title" data-i18n="appTitle">Downlink</div>
+    <div class="header-title">
+      <span class="header-title-text" data-i18n="appTitle">Downlink</span>
+      <span class="header-version" id="extensionVersionValue">—</span>
+    </div>
     <div class="header-status">
       <div class="status-dot" id="statusDot"></div>
       <span id="statusText" data-i18n="statusChecking">检测中…</span>

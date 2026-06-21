@@ -474,7 +474,22 @@ function syncPopupGlobals() {
 function applyLocaleFromConfig(cfg = currentConfig) {
   popupAppI18n.setLocalePreference?.(cfg?.language || 'auto');
   popupAppI18n.applyTranslations?.(document);
+  renderExtensionVersion();
   renderHeaderStatus({ ...headerStatusState, cfg });
+}
+
+function getExtensionVersion() {
+  try {
+    return chrome.runtime.getManifest?.()?.version || '—';
+  } catch {
+    return '—';
+  }
+}
+
+function renderExtensionVersion() {
+  const value = document.getElementById('extensionVersionValue');
+  if (!value) return;
+  value.textContent = getExtensionVersion();
 }
 
 function updateHeaderLogo(cfg = currentConfig) {
@@ -488,7 +503,7 @@ function updateHeaderLogo(cfg = currentConfig) {
 }
 
 function updateDynamicLabels(cfg = currentConfig) {
-  const title = document.querySelector('.header-title');
+  const title = document.querySelector('.header-title-text');
   if (title) title.textContent = popupAppT('appTitle', undefined, 'Downlink');
   updateHeaderLogo(cfg);
   document.querySelectorAll('.confirm-btn, .media-send-btn').forEach((btn) => {

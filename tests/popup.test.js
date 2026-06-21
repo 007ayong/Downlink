@@ -223,6 +223,9 @@ function loadPopupRuntime(options = {}) {
       getURL(value) {
         return value;
       },
+      getManifest() {
+        return { version: options.manifestVersion || '1.3.3' };
+      },
       getBrowserInfo: options.browserInfo ? (() => Promise.resolve(options.browserInfo)) : undefined,
       onMessage: {
         addListener(callback) {
@@ -411,6 +414,12 @@ test('global media sniffing off greys media tab and disables media controls', as
   assert.equal(toggleSniffingBtn.disabled, true);
   assert.equal(clearMediaBtn.disabled, true);
   assert.equal(mediaSummary.textContent, '全局嗅探已关闭，请在设置中开启后再刷新媒体资源');
+});
+
+test('header shows extension version for debug information', () => {
+  const popup = loadPopupRuntime({ manifestVersion: '9.8.7' });
+
+  assert.equal(popup.document.getElementById('extensionVersionValue').textContent, '9.8.7');
 });
 
 test('pending confirmation filename edit survives state re-render', () => {
