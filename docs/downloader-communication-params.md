@@ -24,6 +24,8 @@
 | `aria2Rpc` | `http://localhost:6800/jsonrpc` | Aria2 JSON-RPC 地址 |
 | `aria2Secret` | 空 | RPC 密钥，可不填 |
 | `aria2Silent` | `false` | 自动捕获普通下载时是否跳过确认面板直接发送 |
+| `aria2CustomSaveEnabled` | `false` | 是否启用自定义保存位置，`aria2Silent` 为 `true` 时强制关闭 |
+| `aria2SaveLocations` | `[]` | 自定义保存位置列表，每项含 `name`、`path`、`color`，第一项为默认 |
 | `useMotrixNext` | `false` | 仅用于任务面板中快速跳转 MotrixNext 查看，不改变 Aria2 通讯方式 |
 
 ### 请求格式
@@ -75,6 +77,7 @@ Content-Type: application/json
 | `split` | 确认面板选项 | 否 | 单线程下载时为 `"1"` |
 | `max-connection-per-server` | 确认面板选项 | 否 | 单线程下载时为 `"1"` |
 | `min-split-size` | 确认面板选项 | 否 | 单线程下载时为 `"1024M"` |
+| `dir` | 确认面板保存位置选择 | 否 | 自定义保存位置，指定下载目录 |
 
 ### 连接检测
 
