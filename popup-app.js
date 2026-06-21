@@ -14,6 +14,11 @@ const pendingFilenameDrafts = new Map();
 const mediaFilenameDrafts = new Map();
 let lastRenderedPendingKey = '';
 
+function closeAllSaveLocationMenus() {
+  document.querySelectorAll('.pending-save-location-menu.open').forEach((m) => m.classList.remove('open'));
+}
+document.addEventListener?.('click', () => closeAllSaveLocationMenus());
+
 function getAria2SingleThreadOptions() {
   return {
     split: '1',
@@ -162,7 +167,7 @@ function buildPendingConfirmRenderKey(pendingVals) {
   ].join('\u0001')).join('\u0002')
     + `|${popupAppT('pendingDownload', undefined, '待确认下载')}`
     + `|${popupAppT('fileName', undefined, '文件名')}`
-    + `|${popupAppT('aria2SingleThread', undefined, '单线程不分片下载')}`
+    + `|${popupAppT('aria2SingleThreadShort', undefined, '单线程下载')}`
     + `|${popupAppT('ignore', undefined, '忽略')}`
     + `|${getSendLabel(currentConfig)}`
     + `|${currentConfig.downloaderType || ''}`
@@ -173,8 +178,24 @@ function buildPendingConfirmRenderKey(pendingVals) {
 function createPendingCard(item, { filename, canForceSingleThread }) {
   const card = document.createElement('div');
   card.className = 'pending-card';
-  card.appendChild(createTextElement('div', 'pending-label', popupAppT('pendingDownload', undefined, '待确认下载')));
-  card.appendChild(createTextElement('div', 'pending-url', item.url || ''));
+
+  const header = document.createElement('div');
+  header.className = 'pending-head';
+  const iconWrap = document.createElement('div');
+  iconWrap.className = 'pending-icon';
+  iconWrap.appendChild(createIconImage(getFileIcon({ name: filename, mime: item.mime, kind: item.kind })));
+  const headerText = document.createElement('div');
+  headerText.className = 'pending-heading';
+  headerText.appendChild(createTextElement('div', 'pending-label', popupAppT('pendingDownload', undefined, '待确认下载')));
+  const urlRow = document.createElement('div');
+  urlRow.className = 'pending-url-row';
+  const urlText = createTextElement('div', 'pending-url', item.url || '');
+  urlText.title = item.url || '';
+  urlRow.appendChild(urlText);
+  headerText.appendChild(urlRow);
+  header.appendChild(iconWrap);
+  header.appendChild(headerText);
+  card.appendChild(header);
 
   const filenameRow = document.createElement('div');
   filenameRow.className = 'pending-filename-row';
@@ -193,41 +214,87 @@ function createPendingCard(item, { filename, canForceSingleThread }) {
   const saveLocations = currentConfig.downloaderType === 'aria2' && currentConfig.aria2CustomSaveEnabled && !currentConfig.aria2Silent
     ? (currentConfig.aria2SaveLocations || []).filter((location) => location?.name && location?.path)
     : [];
-  if (saveLocations.length) {
-    const locationRow = document.createElement('div');
-    locationRow.className = 'pending-save-location';
-    locationRow.appendChild(createTextElement('label', '', popupAppT('saveLocation', undefined, '保存位置')));
-    const dot = document.createElement('span');
-    dot.className = 'pending-save-location-dot';
-    dot.style.background = saveLocations[0]?.color || '#ff9500';
-    locationRow.appendChild(dot);
-    const select = document.createElement('select');
-    select.className = 'pending-save-location-select';
-    saveLocations.forEach((location, index) => {
-      const option = document.createElement('option');
-      option.value = location.path;
-      option.textContent = location.name;
-      option.dataset.color = location.color || '';
-      if (index === 0) option.selected = true;
-      select.appendChild(option);
-    });
-    select.value = saveLocations[0]?.path || '';
-    select.addEventListener('change', () => {
-      dot.style.background = select.selectedOptions?.[0]?.dataset?.color || '#ff9500';
-    });
-    locationRow.appendChild(select);
-    card.appendChild(locationRow);
-  }
 
-  if (canForceSingleThread) {
-    const optionLabel = document.createElement('label');
-    optionLabel.className = 'pending-option';
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'force-single-thread aria2-single-thread';
-    optionLabel.appendChild(checkbox);
-    optionLabel.appendChild(createTextElement('span', '', popupAppT('aria2SingleThread', undefined, '单线程不分片下载')));
-    card.appendChild(optionLabel);
+  if (saveLocations.length || canForceSingleThread) {
+    const optionsRow = document.createElement('div');
+    optionsRow.className = 'pending-options-row';
+
+    if (saveLocations.length) {
+      const locationGroup = document.createElement('div');
+      locationGroup.className = 'pending-options-group';
+      const locationLabel = createTextElement('span', 'pending-save-location-label', popupAppT('saveLocation', undefined, '保存位置'));
+      locationGroup.appendChild(locationLabel);
+
+      const locationWrapper = document.createElement('div');
+      locationWrapper.className = 'pending-save-location';
+
+      const trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'pending-save-location-trigger';
+      const triggerDot = document.createElement('span');
+      triggerDot.className = 'pending-save-location-dot';
+      triggerDot.style.background = saveLocations[0]?.color || '#ff9500';
+      const triggerText = createTextElement('span', 'pending-save-location-text', saveLocations[0]?.name || '');
+      trigger.appendChild(triggerDot);
+      trigger.appendChild(triggerText);
+      const arrow = createTextElement('span', 'pending-save-location-arrow', '');
+      trigger.appendChild(arrow);
+
+      const menu = document.createElement('div');
+      menu.className = 'pending-save-location-menu';
+      menu.dataset.value = saveLocations[0]?.path || '';
+      saveLocations.forEach((location, index) => {
+        const menuItem = document.createElement('div');
+        menuItem.className = 'pending-save-location-item' + (index === 0 ? ' active' : '');
+        menuItem.dataset.path = location.path;
+        menuItem.dataset.color = location.color || '';
+        const itemDot = document.createElement('span');
+        itemDot.className = 'pending-save-location-dot';
+        itemDot.style.background = location.color || '#ff9500';
+        menuItem.appendChild(itemDot);
+        menuItem.appendChild(createTextElement('span', 'pending-save-location-name', location.name));
+        menu.appendChild(menuItem);
+      });
+
+      trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = menu.classList.contains('open');
+        closeAllSaveLocationMenus();
+        if (!isOpen) menu.classList.add('open');
+      });
+
+      menu.addEventListener('click', (e) => {
+        const item = e.target.closest('.pending-save-location-item');
+        if (!item) return;
+        menu.querySelectorAll('.pending-save-location-item').forEach((el) => el.classList.remove('active'));
+        item.classList.add('active');
+        menu.dataset.value = item.dataset.path;
+        triggerDot.style.background = item.dataset.color || '#ff9500';
+        triggerText.textContent = item.querySelector('.pending-save-location-name')?.textContent || '';
+        menu.classList.remove('open');
+      });
+
+      locationWrapper.appendChild(trigger);
+      locationWrapper.appendChild(menu);
+      locationGroup.appendChild(locationWrapper);
+      optionsRow.appendChild(locationGroup);
+    }
+
+    if (canForceSingleThread) {
+      const threadGroup = document.createElement('div');
+      threadGroup.className = 'pending-options-group';
+      const optionLabel = document.createElement('label');
+      optionLabel.className = 'pending-option';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'force-single-thread aria2-single-thread';
+      optionLabel.appendChild(checkbox);
+      optionLabel.appendChild(createTextElement('span', '', popupAppT('aria2SingleThreadShort', undefined, '单线程下载')));
+      threadGroup.appendChild(optionLabel);
+      optionsRow.appendChild(threadGroup);
+    }
+
+    card.appendChild(optionsRow);
   }
 
   const actions = document.createElement('div');
@@ -236,8 +303,8 @@ function createPendingCard(item, { filename, canForceSingleThread }) {
   confirmBtn.dataset.key = item.key || '';
   const rejectBtn = createTextElement('button', 'btn btn-ghost reject-btn', popupAppT('ignore', undefined, '忽略'));
   rejectBtn.dataset.key = item.key || '';
-  actions.appendChild(confirmBtn);
   actions.appendChild(rejectBtn);
+  actions.appendChild(confirmBtn);
   card.appendChild(actions);
 
   return card;
@@ -637,7 +704,7 @@ function renderTasks(tasks, pending) {
         const opts = canForceSingleThread && card.querySelector('.aria2-single-thread')?.checked
           ? getSingleThreadOptions(currentConfig)
           : {};
-        const saveLocationPath = card.querySelector('.pending-save-location-select')?.value || '';
+        const saveLocationPath = card.querySelector('.pending-save-location-menu')?.dataset.value || '';
         if (currentConfig.downloaderType === 'aria2' && saveLocationPath) opts.dir = saveLocationPath;
         chrome.runtime.sendMessage({ type: 'CONFIRM_DOWNLOAD', key: item.key, filename: fname, opts }, (res) => {
           if (res?.ok) {

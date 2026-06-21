@@ -488,10 +488,13 @@ test('aria2 pending confirmation sends selected custom save location', () => {
 
   popup.renderTasks({}, pending);
   const card = popup.document.getElementById('pendingList').children[0];
-  const select = card.querySelector('.pending-save-location-select');
-  assert.equal(select.value, '/downloads/default');
+  const menu = card.querySelector('.pending-save-location-menu');
+  assert.equal(menu.dataset.value, '/downloads/default');
 
-  select.value = '/downloads/video';
+  const items = card.querySelectorAll('.pending-save-location-item');
+  assert.equal(items.length, 2);
+  menu._listeners.click[0]({ target: items[1] });
+  assert.equal(menu.dataset.value, '/downloads/video');
   card.querySelector('.confirm-btn').click();
 
   const message = popup.chrome._sentMessages.at(-1);
