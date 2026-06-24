@@ -880,25 +880,33 @@ function loadMediaMetadata(item, card) {
   });
 }
 
-function renderMedia(mediaByTab, pausedTabs = []) {
+function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []) {
   const listEl = document.getElementById('mediaList');
   const emptyEl = document.getElementById('mediaEmpty');
+  const emptyImageEl = document.getElementById('mediaEmptyImage');
   const summaryEl = document.getElementById('mediaSummary');
   const mediaBadge = document.getElementById('mediaBadge');
   const mediaTab = document.getElementById('mediaTab');
   const toggleSniffingBtn = document.getElementById('toggleSniffingBtn');
   const clearMediaBtn = document.getElementById('clearMediaBtn');
+  const addSiteToMediaBlacklistBtn = document.getElementById('addSiteToMediaBlacklistBtn');
   renderInlineAlert('mediaAlert');
   const media = currentTabId == null ? [] : (mediaByTab?.[currentTabId] || []);
   const mediaKey = buildMediaRenderKey(media);
   const mediaCount = media.length;
-  const isGlobalSniffingDisabled = currentConfig.mediaSniffing === false;
-  const globalSniffingDisabledLabel = popupAppT('mediaSniffingDisabled', undefined, '全局嗅探已关闭，请在设置中开启后再刷新媒体资源');
+  const isBlacklistBlocked = currentTabId != null && mediaBlacklistBlockedTabs.includes(currentTabId);
+  const blacklistBlockedLabel = popupAppT('mediaSniffingBlocked', undefined, '当前网站已在媒体嗅探黑名单中');
   const isPaused = currentTabId != null && pausedTabs.includes(currentTabId);
+  const isEffectivelyPaused = isPaused || isBlacklistBlocked;
 
   emptyEl.style.display = media.length ? 'none' : 'flex';
-  if (isGlobalSniffingDisabled) {
-    summaryEl.textContent = globalSniffingDisabledLabel;
+  if (emptyImageEl) {
+    emptyImageEl.src = isBlacklistBlocked
+      ? 'assets/empty-media-sniffing-disabled.png'
+      : 'assets/empty-media.png';
+  }
+  if (isBlacklistBlocked) {
+    summaryEl.textContent = blacklistBlockedLabel;
   } else if (isPaused) {
     summaryEl.textContent = popupAppT('sniffingPaused', undefined, '已暂停嗅探，直播资源不再刷新');
   } else {
@@ -914,24 +922,30 @@ function renderMedia(mediaByTab, pausedTabs = []) {
   }
 
   if (toggleSniffingBtn) {
-    const label = isPaused
+    const label = isEffectivelyPaused
       ? popupAppT('resumeSniffing', undefined, '恢复嗅探')
       : popupAppT('pauseSniffing', undefined, '暂停嗅探');
-    toggleSniffingBtn.replaceChildren(getSniffingToggleIcon(isPaused));
-    toggleSniffingBtn.title = isGlobalSniffingDisabled ? globalSniffingDisabledLabel : label;
-    toggleSniffingBtn.disabled = isGlobalSniffingDisabled;
+    toggleSniffingBtn.replaceChildren(getSniffingToggleIcon(isEffectivelyPaused));
+    toggleSniffingBtn.title = isBlacklistBlocked ? blacklistBlockedLabel : label;
+    toggleSniffingBtn.disabled = isBlacklistBlocked;
     if (typeof toggleSniffingBtn.setAttribute === 'function') {
-      toggleSniffingBtn.setAttribute('aria-label', isGlobalSniffingDisabled ? globalSniffingDisabledLabel : label);
+      toggleSniffingBtn.setAttribute('aria-label', isBlacklistBlocked ? blacklistBlockedLabel : label);
     } else {
-      toggleSniffingBtn.ariaLabel = isGlobalSniffingDisabled ? globalSniffingDisabledLabel : label;
+      toggleSniffingBtn.ariaLabel = isBlacklistBlocked ? blacklistBlockedLabel : label;
     }
-    toggleSniffingBtn.classList.toggle('btn-primary', isPaused);
-    toggleSniffingBtn.classList.toggle('btn-ghost', !isPaused);
+    toggleSniffingBtn.classList.toggle('btn-primary', isEffectivelyPaused);
+    toggleSniffingBtn.classList.toggle('btn-ghost', !isEffectivelyPaused);
   }
-  if (clearMediaBtn) clearMediaBtn.disabled = isGlobalSniffingDisabled;
+  if (clearMediaBtn) clearMediaBtn.disabled = isBlacklistBlocked;
+  if (addSiteToMediaBlacklistBtn) {
+    addSiteToMediaBlacklistBtn.disabled = currentTabId == null;
+    addSiteToMediaBlacklistBtn.textContent = isBlacklistBlocked
+      ? popupAppT('removeSiteFromMediaBlacklist', undefined, '从黑名单中删除')
+      : popupAppT('addSiteToMediaBlacklist', undefined, '将本站加入黑名单');
+  }
   if (mediaTab) {
-    mediaTab.classList.toggle('disabled', isGlobalSniffingDisabled);
-    mediaTab.title = isGlobalSniffingDisabled ? globalSniffingDisabledLabel : '';
+    mediaTab.classList.toggle('disabled', isBlacklistBlocked);
+    mediaTab.title = isBlacklistBlocked ? blacklistBlockedLabel : '';
   }
 
   const pendingCount = Object.values(currentState.pending || {}).length;
@@ -1074,11 +1088,12 @@ function renderState(state) {
     pending: state.pending || {},
     media: state.media || {},
     pausedTabs: state.pausedTabs || [],
+    mediaBlacklistBlockedTabs: state.mediaBlacklistBlockedTabs || [],
     uiAlert: state.uiAlert || null,
   };
   syncPopupGlobals();
   renderTasks(currentState.tasks, currentState.pending);
-  renderMedia(currentState.media, currentState.pausedTabs);
+  renderMedia(currentState.media, currentState.pausedTabs, currentState.mediaBlacklistBlockedTabs);
 }
 
 async function refreshAll() {
@@ -1145,7 +1160,7 @@ document.getElementById('cfgLanguage').addEventListener('change', () => {
   applyLocaleFromConfig(currentConfig);
   updateDynamicLabels(currentConfig);
   renderTasks(currentState.tasks, currentState.pending);
-  renderMedia(currentState.media);
+  renderMedia(currentState.media, currentState.pausedTabs, currentState.mediaBlacklistBlockedTabs);
   syncPopupGlobals();
 });
 
@@ -1287,16 +1302,37 @@ document.getElementById('clearMediaBtn').addEventListener('click', () => {
   });
 });
 
+document.getElementById('addSiteToMediaBlacklistBtn').addEventListener('click', (event) => {
+  const button = event.currentTarget;
+  const isBlacklistBlocked = currentState.mediaBlacklistBlockedTabs?.includes(currentTabId);
+  button.disabled = true;
+  chrome.runtime.sendMessage({
+    type: isBlacklistBlocked ? 'REMOVE_SITE_FROM_MEDIA_BLACKLIST' : 'ADD_SITE_TO_MEDIA_BLACKLIST',
+    tabId: currentTabId,
+  }, (res) => {
+    if (!res?.ok) {
+      button.disabled = false;
+      showToast(res?.error || popupAppT('mediaBlacklistSiteUnavailable', undefined, '当前页面无法加入媒体嗅探黑名单'));
+      return;
+    }
+    showToast(isBlacklistBlocked
+      ? popupAppT('siteRemovedFromMediaBlacklist', [res.hostname], `已将 ${res.hostname} 从媒体嗅探黑名单中删除`)
+      : popupAppT('siteAddedToMediaBlacklist', [res.hostname], `已将 ${res.hostname} 加入媒体嗅探黑名单`));
+  });
+});
+
 document.getElementById('toggleSniffingBtn').addEventListener('click', () => {
-  if (currentConfig.mediaSniffing === false) {
-    showToast(popupAppT('sniffingResumeBlockedByGlobalOff', undefined, '请先在设置中开启全局嗅探'));
+  if (currentState.mediaBlacklistBlockedTabs?.includes(currentTabId)) {
+    showToast(popupAppT('sniffingResumeBlockedByBlacklist', undefined, '当前网站已在媒体嗅探黑名单中'));
     return;
   }
   const isPaused = currentState.pausedTabs?.includes(currentTabId);
   const msgType = isPaused ? 'RESUME_MEDIA_SNIFFING' : 'PAUSE_MEDIA_SNIFFING';
   chrome.runtime.sendMessage({ type: msgType, tabId: currentTabId }, (res) => {
     if (res?.disabled) {
-      showToast(popupAppT('sniffingResumeBlockedByCaptureOff', undefined, '请先开启拦截'));
+      showToast(res?.blacklisted
+        ? popupAppT('sniffingResumeBlockedByBlacklist', undefined, '当前网站已在媒体嗅探黑名单中')
+        : popupAppT('sniffingResumeBlockedByCaptureOff', undefined, '请先开启拦截'));
       return;
     }
     showToast(isPaused && res?.ok !== false

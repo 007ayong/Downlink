@@ -203,6 +203,7 @@ function loadPopupRuntime(options = {}) {
             pending: options.state?.pending || {},
             media: options.state?.media || {},
             pausedTabs: options.state?.pausedTabs || [],
+            mediaBlacklistBlockedTabs: options.state?.mediaBlacklistBlockedTabs || [],
             config: options.state?.config || {},
             hiddenTaskGids: options.state?.hiddenTaskGids || [],
             uiAlert: options.state?.uiAlert || null,
@@ -395,10 +396,11 @@ test('does not auto-switch when there are pending confirmation cards', () => {
   );
 });
 
-test('global media sniffing off greys media tab and disables media controls', async () => {
+test('blacklisted current website greys media tab and disables media controls', async () => {
   const popup = loadPopupRuntime({
     state: {
-      config: { mediaSniffing: false },
+      config: { mediaSniffingBlacklist: 'youtube.com' },
+      mediaBlacklistBlockedTabs: [1],
     },
   });
 
@@ -408,12 +410,63 @@ test('global media sniffing off greys media tab and disables media controls', as
   const mediaTab = popup.document.getElementById('mediaTab');
   const toggleSniffingBtn = popup.document.getElementById('toggleSniffingBtn');
   const clearMediaBtn = popup.document.getElementById('clearMediaBtn');
+  const addSiteToMediaBlacklistBtn = popup.document.getElementById('addSiteToMediaBlacklistBtn');
   const mediaSummary = popup.document.getElementById('mediaSummary');
+  const mediaEmptyImage = popup.document.getElementById('mediaEmptyImage');
 
   assert.equal(mediaTab.classList.contains('disabled'), true);
   assert.equal(toggleSniffingBtn.disabled, true);
+  assert.equal(toggleSniffingBtn.classList.contains('btn-primary'), true);
+  assert.equal(toggleSniffingBtn.classList.contains('btn-ghost'), false);
+  assert.equal(
+    toggleSniffingBtn.children[0].children[0].d,
+    'M5.4 3.5c0-.7.76-1.13 1.36-.76l5.6 3.5c.56.35.56 1.17 0 1.52l-5.6 3.5c-.6.37-1.36-.06-1.36-.76v-7Z'
+  );
   assert.equal(clearMediaBtn.disabled, true);
-  assert.equal(mediaSummary.textContent, '全局嗅探已关闭，请在设置中开启后再刷新媒体资源');
+  assert.equal(addSiteToMediaBlacklistBtn.disabled, false);
+  assert.equal(addSiteToMediaBlacklistBtn.textContent, '从黑名单中删除');
+  assert.equal(mediaSummary.textContent, '当前网站已在媒体嗅探黑名单中');
+  assert.equal(mediaEmptyImage.src, 'assets/empty-media-sniffing-disabled.png');
+});
+
+test('media tab can add the current site to the sniffing blacklist', async () => {
+  const popup = loadPopupRuntime({
+    messageResponses: {
+      ADD_SITE_TO_MEDIA_BLACKLIST: { ok: true, hostname: 'example.com' },
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  popup.document.getElementById('addSiteToMediaBlacklistBtn').click();
+
+  const message = popup.chrome._sentMessages.findLast((item) => item?.type === 'ADD_SITE_TO_MEDIA_BLACKLIST');
+  assert.deepEqual(JSON.parse(JSON.stringify(message)), {
+    type: 'ADD_SITE_TO_MEDIA_BLACKLIST',
+    tabId: 1,
+  });
+});
+
+test('media tab can remove the current site from the sniffing blacklist', async () => {
+  const popup = loadPopupRuntime({
+    state: {
+      mediaBlacklistBlockedTabs: [1],
+      config: { mediaSniffingBlacklist: 'example.com' },
+    },
+    messageResponses: {
+      REMOVE_SITE_FROM_MEDIA_BLACKLIST: { ok: true, hostname: 'example.com' },
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  popup.document.getElementById('addSiteToMediaBlacklistBtn').click();
+
+  const message = popup.chrome._sentMessages.findLast((item) => item?.type === 'REMOVE_SITE_FROM_MEDIA_BLACKLIST');
+  assert.deepEqual(JSON.parse(JSON.stringify(message)), {
+    type: 'REMOVE_SITE_FROM_MEDIA_BLACKLIST',
+    tabId: 1,
+  });
 });
 
 test('header shows extension version for debug information', () => {
@@ -763,7 +816,7 @@ test('aria2 test connection sends the current form config', () => {
     externalLauncherPort: '15151',
     abDownloadSilent: false,
     autoCapture: false,
-    mediaSniffing: false,
+    mediaSniffingBlacklist: '',
     captureExtensions: '',
     skipSmallDownloads: false,
     smallDownloadThresholdBytes: 1048576,
@@ -799,7 +852,7 @@ test('AB DM test connection sends the current form config', () => {
     externalLauncherPort: '17000',
     abDownloadSilent: true,
     autoCapture: false,
-    mediaSniffing: false,
+    mediaSniffingBlacklist: '',
     captureExtensions: '',
     skipSmallDownloads: false,
     smallDownloadThresholdBytes: 1048576,
@@ -998,7 +1051,7 @@ test('settings controller collects every visible config field from the form', ()
   context.document.getElementById('cfgLauncherPort').value = '17000';
   context.document.getElementById('cfgAbDownloadSilent').checked = true;
   context.document.getElementById('cfgAutoCapture').checked = true;
-  context.document.getElementById('cfgMediaSniffing').checked = false;
+  context.document.getElementById('cfgMediaSniffingBlacklist').value = 'x.com,youtube.com';
   context.document.getElementById('cfgExts').value = 'zip,mp4';
   context.document.getElementById('cfgSkipSmallDownloads').checked = true;
   context.document.getElementById('cfgSmallDownloadThresholdMb').value = '2.5';
@@ -1022,7 +1075,7 @@ test('settings controller collects every visible config field from the form', ()
     externalLauncherPort: '17000',
     abDownloadSilent: true,
     autoCapture: true,
-    mediaSniffing: false,
+    mediaSniffingBlacklist: 'x.com,youtube.com',
     captureExtensions: 'zip,mp4',
     skipSmallDownloads: true,
     smallDownloadThresholdBytes: 2.5 * 1024 * 1024,
@@ -1148,7 +1201,7 @@ test('settings load defaults keep MotrixNext port and autosave secret fields', a
     externalLauncherHost: 'legacy-host',
     externalLauncherPort: '15151',
     autoCapture: true,
-    mediaSniffing: true,
+    mediaSniffingBlacklist: 'x.com,youtube.com',
     smallDownloadThresholdBytes: 1048576,
   };
   const controller = context.PopupSettings.createSettingsController({
@@ -1178,7 +1231,7 @@ test('settings load defaults keep MotrixNext port and autosave secret fields', a
   assert.equal(context.document.getElementById('cfgMotrixNextPort').value, '16801');
   assert.equal(context.document.getElementById('cfgGopeedApi').value, 'http://127.0.0.1:9999');
   assert.equal(context.document.getElementById('cfgLauncherPort').value, '15151');
-  assert.equal(context.document.getElementById('cfgMediaSniffing').checked, true);
+  assert.equal(context.document.getElementById('cfgMediaSniffingBlacklist').value, 'x.com,youtube.com');
   assert.equal(currentConfig.externalLauncherHost, 'localhost');
 
   controller.bindSettingsEvents();
@@ -1239,7 +1292,7 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgExts', 'zip,mp4')).config.captureExtensions, 'zip,mp4');
   assert.equal((await applyChange('cfgSmallDownloadThresholdMb', '2')).config.smallDownloadThresholdBytes, 2 * 1024 * 1024);
   assert.equal((await applyChange('cfgAutoCapture', true, 'checked')).config.autoCapture, true);
-  assert.equal((await applyChange('cfgMediaSniffing', false, 'checked')).config.mediaSniffing, false);
+  assert.equal((await applyChange('cfgMediaSniffingBlacklist', '*')).config.mediaSniffingBlacklist, '*');
   assert.equal((await applyChange('cfgSkipSmallDownloads', true, 'checked')).config.skipSmallDownloads, true);
   assert.equal((await applyChange('cfgUseMotrixNext', true, 'checked')).config.useMotrixNext, true);
   assert.equal((await applyChange('cfgMotrixBridgeAutoClose', true, 'checked')).config.motrixBridgeAutoClose, true);

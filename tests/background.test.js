@@ -3779,11 +3779,12 @@ test('enabling auto capture resumes tabs paused by the auto capture switch', asy
   assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeBackgroundColor.at(-1))), { color: '#e05c2a', tabId: 12 });
 });
 
-test('disabling global media sniffing pauses active tab sniffing without disabling capture', async () => {
+test('legacy disabled global media sniffing migrates to wildcard blacklist', async () => {
   const background = loadBackgroundRuntime({
     autoCapture: true,
     mediaSniffing: true,
-    __activeTabs: [{ id: 12, windowId: 3, active: true }],
+    __activeTabs: [{ id: 12, windowId: 3, active: true, url: 'https://example.com/watch' }],
+    __tabsById: { 12: { id: 12, windowId: 3, url: 'https://example.com/watch' } },
   });
 
   const result = await invokeBackgroundMessage(background, {
@@ -3796,16 +3797,17 @@ test('disabling global media sniffing pauses active tab sniffing without disabli
   assert.equal(result.ok, true);
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(state.config.autoCapture, true);
-  assert.equal(state.config.mediaSniffing, false);
-  assert.deepEqual(JSON.parse(JSON.stringify(state.pausedTabs)), [12]);
+  assert.equal(state.config.mediaSniffingBlacklist, '*');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.mediaBlacklistBlockedTabs)), [12]);
   assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeText.at(-1))), { text: '', tabId: 12 });
 });
 
-test('global media sniffing switch blocks media responses only', async () => {
+test('wildcard media sniffing blacklist blocks media responses only', async () => {
   const background = loadBackgroundRuntime({
     autoCapture: true,
-    mediaSniffing: false,
+    mediaSniffingBlacklist: '*',
     __activeTabs: [{ id: 12, windowId: 3, active: true }],
+    __tabsById: { 12: { id: 12, windowId: 3, url: 'https://example.com/watch' } },
   });
 
   await invokeResponseHeaders(background, {
@@ -3824,11 +3826,12 @@ test('global media sniffing switch blocks media responses only', async () => {
   assert.deepEqual(JSON.parse(JSON.stringify(state.media)), {});
 });
 
-test('auto capture switch updates the badge while global media sniffing is disabled', async () => {
+test('auto capture switch updates the badge while wildcard media sniffing blacklist is active', async () => {
   const background = loadBackgroundRuntime({
     autoCapture: true,
-    mediaSniffing: false,
-    __activeTabs: [{ id: 12, windowId: 3, active: true }],
+    mediaSniffingBlacklist: '*',
+    __activeTabs: [{ id: 12, windowId: 3, active: true, url: 'https://example.com/watch' }],
+    __tabsById: { 12: { id: 12, windowId: 3, url: 'https://example.com/watch' } },
   });
 
   let result = await invokeBackgroundMessage(background, {
@@ -3841,7 +3844,7 @@ test('auto capture switch updates the badge while global media sniffing is disab
   assert.equal(result.ok, true);
   let state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(state.config.autoCapture, false);
-  assert.equal(state.config.mediaSniffing, false);
+  assert.equal(state.config.mediaSniffingBlacklist, '*');
   assert.deepEqual(JSON.parse(JSON.stringify(state.pausedTabs)), [12]);
   assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeText.at(-1))), { text: '✕', tabId: 12 });
 
@@ -3855,9 +3858,189 @@ test('auto capture switch updates the badge while global media sniffing is disab
   assert.equal(result.ok, true);
   state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(state.config.autoCapture, true);
-  assert.equal(state.config.mediaSniffing, false);
-  assert.deepEqual(JSON.parse(JSON.stringify(state.pausedTabs)), [12]);
+  assert.equal(state.config.mediaSniffingBlacklist, '*');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.mediaBlacklistBlockedTabs)), [12]);
   assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeText.at(-1))), { text: '', tabId: 12 });
+});
+
+test('media sniffing blacklist matches configured domains and subdomains only', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    mediaSniffingBlacklist: 'x.com, youtube.com',
+    __tabsById: {
+      12: { id: 12, windowId: 3, url: 'https://music.youtube.com/watch?v=1' },
+      13: { id: 13, windowId: 3, url: 'https://example.com/watch' },
+    },
+  });
+
+  const response = {
+    frameId: 0,
+    url: 'https://cdn.example.net/video.mp4',
+    statusCode: 200,
+    responseHeaders: [{ name: 'content-type', value: 'video/mp4' }],
+  };
+  await invokeResponseHeaders(background, { ...response, tabId: 12 });
+  await invokeResponseHeaders(background, { ...response, tabId: 13 });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.media[12], undefined);
+  assert.equal(state.media[13].length, 1);
+});
+
+test('default media sniffing blacklist includes x.com and youtube.com', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    __tabsById: {
+      12: { id: 12, windowId: 3, url: 'https://x.com/user/status/1' },
+    },
+  });
+
+  await invokeResponseHeaders(background, {
+    tabId: 12,
+    frameId: 0,
+    url: 'https://video.twimg.com/video.mp4',
+    statusCode: 200,
+    responseHeaders: [{ name: 'content-type', value: 'video/mp4' }],
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.mediaSniffingBlacklist, 'x.com,youtube.com');
+  assert.equal(state.media[12], undefined);
+});
+
+test('removing a domain from media sniffing blacklist restores sniffing for that website', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    mediaSniffingBlacklist: 'youtube.com',
+    __activeTabs: [{ id: 12, windowId: 3, active: true, url: 'https://www.youtube.com/watch?v=1' }],
+    __tabsById: {
+      12: { id: 12, windowId: 3, url: 'https://www.youtube.com/watch?v=1' },
+    },
+  });
+
+  let state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.deepEqual(JSON.parse(JSON.stringify(state.mediaBlacklistBlockedTabs)), [12]);
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'SAVE_CONFIG',
+    config: {
+      mediaSniffingBlacklist: '',
+    },
+  });
+  assert.equal(result.ok, true);
+
+  await invokeResponseHeaders(background, {
+    tabId: 12,
+    frameId: 0,
+    url: 'https://cdn.example.net/video.mp4',
+    statusCode: 200,
+    responseHeaders: [{ name: 'content-type', value: 'video/mp4' }],
+  });
+
+  state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.mediaSniffingBlacklist, '');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.mediaBlacklistBlockedTabs)), []);
+  assert.equal(state.media[12].length, 1);
+});
+
+test('media sniffing blacklist preserves commas while editing', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    mediaSniffingBlacklist: 'x.com',
+    __activeTabs: [{ id: 12, windowId: 3, active: true, url: 'https://x.com/user/status/1' }],
+    __tabsById: {
+      12: { id: 12, windowId: 3, url: 'https://x.com/user/status/1' },
+    },
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'SAVE_CONFIG',
+    config: {
+      mediaSniffingBlacklist: 'x.com,',
+    },
+  });
+  assert.equal(result.ok, true);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.mediaSniffingBlacklist, 'x.com,');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.mediaBlacklistBlockedTabs)), [12]);
+});
+
+test('adding current site to media blacklist persists it and blocks sniffing immediately', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    mediaSniffingBlacklist: 'x.com,',
+    __activeTabs: [{ id: 12, windowId: 3, active: true, url: 'https://video.example.com/watch' }],
+    __tabsById: {
+      12: { id: 12, windowId: 3, url: 'https://video.example.com/watch' },
+    },
+  });
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_12',
+    tabId: 12,
+    resourceUrl: 'https://cdn.example.com/video.mp4',
+    filename: 'video.mp4',
+    mime: 'video/mp4',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_SITE_TO_MEDIA_BLACKLIST',
+    tabId: 12,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.hostname, 'video.example.com');
+  assert.equal(result.mediaSniffingBlacklist, 'x.com,video.example.com');
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.mediaSniffingBlacklist, 'x.com,video.example.com');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.mediaBlacklistBlockedTabs)), [12]);
+  assert.equal(state.media[12], undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeText.at(-1))), { text: '', tabId: 12 });
+});
+
+test('removing current site from media blacklist persists it and restores sniffing immediately', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    mediaSniffingBlacklist: 'x.com,example.com',
+    __activeTabs: [{ id: 12, windowId: 3, active: true, url: 'https://video.example.com/watch' }],
+    __tabsById: {
+      12: { id: 12, windowId: 3, url: 'https://video.example.com/watch' },
+    },
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'REMOVE_SITE_FROM_MEDIA_BLACKLIST',
+    tabId: 12,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.mediaSniffingBlacklist, 'x.com');
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.mediaSniffingBlacklist, 'x.com');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.mediaBlacklistBlockedTabs)), []);
+});
+
+test('wildcard blacklist cannot remove only the current site', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    mediaSniffingBlacklist: '*',
+    __activeTabs: [{ id: 12, windowId: 3, active: true, url: 'https://example.com/watch' }],
+    __tabsById: {
+      12: { id: 12, windowId: 3, url: 'https://example.com/watch' },
+    },
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'REMOVE_SITE_FROM_MEDIA_BLACKLIST',
+    tabId: 12,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.globalDisabled, true);
+  assert.equal(result.error, '媒体嗅探已全局禁用，请在设置中删除 * 后再恢复');
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.mediaSniffingBlacklist, '*');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.mediaBlacklistBlockedTabs)), [12]);
 });
 
 test('storage auto capture changes pause active tab sniffing and update the badge', async () => {

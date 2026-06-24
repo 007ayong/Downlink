@@ -29,7 +29,7 @@ const POPUP_DEFAULT_CONFIG = {
   externalLauncherPort: '15151',
   abDownloadSilent: false,
   autoCapture: true,
-  mediaSniffing: true,
+  mediaSniffingBlacklist: 'x.com,youtube.com',
   captureExtensions: '',
   skipSmallDownloads: false,
   smallDownloadThresholdBytes: 1048576,
@@ -66,7 +66,7 @@ let isLoadingSettings = false;
 let autoSaveTimer = null;
 let saveFeedbackTimer = null;
 let toastTimer = null;
-let currentState = { tasks: {}, pending: {}, media: {} };
+let currentState = { tasks: {}, pending: {}, media: {}, pausedTabs: [], mediaBlacklistBlockedTabs: [] };
 let savedConfig = normalizePopupConfig();
 let currentTabId = null;
 let lastRenderedMediaKey = '';

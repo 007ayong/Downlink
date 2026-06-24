@@ -13,6 +13,7 @@ try {
 
 const LEGACY_DEFAULT_CAPTURE_EXTENSIONS = 'zip,rar,7z,tar,gz,bz2,xz,iso,dmg,exe,msi,deb,pkg,apk,mp4,m4s,mkv,avi,mov,webm,mp3,flac,wav,pdf,torrent';
 const DEFAULT_CAPTURE_EXTENSIONS = `${LEGACY_DEFAULT_CAPTURE_EXTENSIONS},esd,cab,msu,wim`;
+const DEFAULT_MEDIA_SNIFFING_BLACKLIST = 'x.com,youtube.com';
 
 const DEFAULT_CONFIG = {
   language: 'auto',
@@ -34,7 +35,7 @@ const DEFAULT_CONFIG = {
   externalLauncherPath: '/start-headless-download',
   abDownloadSilent: false,
   autoCapture: true,
-  mediaSniffing: true,
+  mediaSniffingBlacklist: DEFAULT_MEDIA_SNIFFING_BLACKLIST,
   captureExtensions: DEFAULT_CAPTURE_EXTENSIONS,
   captureMime: true,
   skipSmallDownloads: false,
@@ -77,6 +78,7 @@ let uiAlert = null;
 let taskSurfaceOpenPromise = null;
 let autoCaptureTogglePromise = Promise.resolve();
 const autoCapturePausedTabs = new Set();
+const mediaBlacklistBlockedTabs = new Set();
 
 const markedUrls = new Map();
 const downloadClickIntents = new Map();
@@ -196,6 +198,69 @@ function normalizeCaptureExtensionsConfig(value) {
   return value;
 }
 
+function normalizeMediaSniffingBlacklist(value) {
+  const entries = String(value || '')
+    .split(/[\s,;]+/)
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean)
+    .map((entry) => {
+      if (entry === '*') return entry;
+      try {
+        return new URL(entry.includes('://') ? entry : `https://${entry}`).hostname.toLowerCase().replace(/^\.+|\.+$/g, '');
+      } catch {
+        return entry.replace(/^\.+|\.+$/g, '').split('/')[0].split(':')[0];
+      }
+    })
+    .filter(Boolean);
+  return [...new Set(entries)].join(',');
+}
+
+function isMediaSniffingBlockedForUrl(url, nextConfig = config) {
+  const blacklist = normalizeMediaSniffingBlacklist(nextConfig.mediaSniffingBlacklist);
+  if (!blacklist) return false;
+  const entries = blacklist.split(',');
+  if (entries.includes('*')) return true;
+  let hostname = '';
+  try {
+    hostname = new URL(String(url || '')).hostname.toLowerCase().replace(/\.$/, '');
+  } catch {
+    return false;
+  }
+  return entries.some((entry) => hostname === entry || hostname.endsWith(`.${entry}`));
+}
+
+function hostnameFromUrl(url) {
+  try {
+    const parsed = new URL(String(url || ''));
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    return parsed.hostname.toLowerCase().replace(/\.$/, '');
+  } catch {
+    return '';
+  }
+}
+
+function addHostnameToMediaSniffingBlacklist(value, hostname) {
+  const current = String(value || '').trim();
+  if (!hostname || normalizeMediaSniffingBlacklist(current).split(',').some((entry) => (
+    entry === '*' || hostname === entry || hostname.endsWith(`.${entry}`)
+  ))) return current;
+  if (!current) return hostname;
+  return /[\s,;]$/.test(current) ? `${current}${hostname}` : `${current},${hostname}`;
+}
+
+function removeHostnameFromMediaSniffingBlacklist(value, hostname) {
+  if (!hostname) return String(value || '').trim();
+  return String(value || '')
+    .split(/[\s,;]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .filter((entry) => {
+      const normalized = normalizeMediaSniffingBlacklist(entry);
+      return !(hostname === normalized || hostname.endsWith(`.${normalized}`));
+    })
+    .join(',');
+}
+
 function normalizeLocationColor(color = '') {
   const value = String(color || '').trim().toLowerCase();
   return MACOS_TAG_COLORS.includes(value) ? value : '#ff9500';
@@ -213,19 +278,23 @@ function normalizeAria2SaveLocations(locations = []) {
 }
 
 function normalizeConfig(nextConfig = {}) {
-  return {
+  const normalized = {
     ...nextConfig,
     aria2CustomSaveEnabled: !!nextConfig.aria2CustomSaveEnabled && !nextConfig.aria2Silent,
     aria2SaveLocations: normalizeAria2SaveLocations(nextConfig.aria2SaveLocations),
     externalLauncherName: 'AB DM',
     externalLauncherHost: 'localhost',
-    mediaSniffing: nextConfig.mediaSniffing !== false,
+    mediaSniffingBlacklist: nextConfig.mediaSniffing === false
+      ? '*'
+      : String(nextConfig.mediaSniffingBlacklist || '').trim(),
     captureExtensions: normalizeCaptureExtensionsConfig(nextConfig.captureExtensions),
   };
+  delete normalized.mediaSniffing;
+  return normalized;
 }
 
 function isMediaSniffingEnabled(nextConfig = config) {
-  return nextConfig.autoCapture !== false && nextConfig.mediaSniffing !== false;
+  return nextConfig.autoCapture !== false;
 }
 
 function applyLocaleFromConfig(nextConfig = config) {
@@ -235,10 +304,21 @@ function applyLocaleFromConfig(nextConfig = config) {
 async function saveConfigAndSync(nextConfig) {
   const previousMediaSniffingEnabled = isMediaSniffingEnabled(config);
   const previousAutoCapture = config.autoCapture;
-  await saveStoredConfig(nextConfig);
+  const previousMediaSniffingBlacklist = config.mediaSniffingBlacklist;
+  let storedConfig = nextConfig;
+  if (nextConfig.mediaSniffing === false) {
+    storedConfig = { ...nextConfig, mediaSniffing: true, mediaSniffingBlacklist: '*' };
+  } else if (Object.prototype.hasOwnProperty.call(nextConfig, 'mediaSniffingBlacklist')) {
+    storedConfig = { ...nextConfig, mediaSniffing: true };
+  }
+  await saveStoredConfig(storedConfig);
   config = normalizeConfig({ ...config, ...nextConfig });
   applyLocaleFromConfig(config);
-  if (previousAutoCapture !== config.autoCapture || previousMediaSniffingEnabled !== isMediaSniffingEnabled(config)) {
+  if (
+    previousAutoCapture !== config.autoCapture ||
+    previousMediaSniffingEnabled !== isMediaSniffingEnabled(config) ||
+    previousMediaSniffingBlacklist !== config.mediaSniffingBlacklist
+  ) {
     await syncMediaSniffingStateForActiveTabs();
     broadcastUpdate();
   }
@@ -881,8 +961,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   applyLocaleFromConfig(config);
   if (changes.language) refreshContextMenus();
   const autoCaptureChanged = changes.autoCapture && previousAutoCapture !== config.autoCapture;
-  const mediaSniffingEnabledChanged = (changes.autoCapture || changes.mediaSniffing) && previousMediaSniffingEnabled !== isMediaSniffingEnabled(config);
-  if (autoCaptureChanged || mediaSniffingEnabledChanged) {
+  const mediaSniffingEnabledChanged = changes.autoCapture && previousMediaSniffingEnabled !== isMediaSniffingEnabled(config);
+  if (autoCaptureChanged || mediaSniffingEnabledChanged || changes.mediaSniffingBlacklist || changes.mediaSniffing) {
     syncMediaSniffingStateForActiveTabs().then(() => {
       broadcastUpdate();
     }).catch(() => {});
@@ -958,6 +1038,7 @@ function broadcastUpdate() {
     pending: pendingDownloads,
     media: mediaState.media,
     pausedTabs: mediaState.pausedTabs,
+    mediaBlacklistBlockedTabs: Array.from(mediaBlacklistBlockedTabs),
     hiddenTaskGids: Object.keys(hiddenTaskGids),
     uiAlert,
     config,
@@ -1058,7 +1139,7 @@ function getActiveTabs() {
   });
 }
 
-function syncMediaSniffingStateForTab(tabId) {
+async function syncMediaSniffingStateForTab(tabId, tabUrl = '') {
   if (typeof tabId !== 'number' || tabId < 0) return;
   if (!isMediaSniffingEnabled(config)) {
     mediaManager.pauseSniffing(tabId);
@@ -1067,13 +1148,24 @@ function syncMediaSniffingStateForTab(tabId) {
     mediaManager.resumeSniffing(tabId);
     autoCapturePausedTabs.delete(tabId);
   }
+  const snapshot = tabUrl ? { url: tabUrl } : await getTabSnapshot(tabId);
+  if (isMediaSniffingBlockedForUrl(snapshot.url, config)) {
+    mediaBlacklistBlockedTabs.add(tabId);
+    mediaManager.clearMediaResources(tabId);
+  } else {
+    mediaBlacklistBlockedTabs.delete(tabId);
+  }
   const nextState = mediaManager.getState();
-  updateActionBadgeForTab(tabId, nextState.media[tabId]?.length || 0, nextState.pausedTabs.includes(tabId));
+  updateActionBadgeForTab(
+    tabId,
+    nextState.media[tabId]?.length || 0,
+    nextState.pausedTabs.includes(tabId) || mediaBlacklistBlockedTabs.has(tabId)
+  );
 }
 
 async function syncMediaSniffingStateForActiveTabs() {
   const tabs = await getActiveTabs();
-  for (const tab of tabs) syncMediaSniffingStateForTab(tab?.id);
+  for (const tab of tabs) await syncMediaSniffingStateForTab(tab?.id, tab?.url || '');
 }
 
 function getTabSnapshot(tabId) {
@@ -1339,8 +1431,14 @@ chrome.webRequest.onHeadersReceived.addListener(
 );
 
 chrome.webRequest.onHeadersReceived.addListener(
-  (details) => {
+  async (details) => {
     if (!isMediaSniffingEnabled(config)) return;
+    const tabSnapshot = await getTabSnapshot(details.tabId);
+    if (isMediaSniffingBlockedForUrl(tabSnapshot.url || details.initiator || '', config)) {
+      mediaBlacklistBlockedTabs.add(details.tabId);
+      return;
+    }
+    mediaBlacklistBlockedTabs.delete(details.tabId);
     return mediaManager.handleMediaResponse(details);
   },
   { urls: ['<all_urls>'] },
@@ -1484,7 +1582,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     switch (msg.type) {
       case 'GET_STATE':
-        sendResponse({ tasks, pending: pendingDownloads, media: mediaManager.getState().media, pausedTabs: mediaManager.getState().pausedTabs, config, hiddenTaskGids: Object.keys(hiddenTaskGids), uiAlert });
+        sendResponse({ tasks, pending: pendingDownloads, media: mediaManager.getState().media, pausedTabs: mediaManager.getState().pausedTabs, mediaBlacklistBlockedTabs: Array.from(mediaBlacklistBlockedTabs), config, hiddenTaskGids: Object.keys(hiddenTaskGids), uiAlert });
         break;
       case 'TRACK_DOWNLOAD_CLICK':
         sendResponse({
@@ -1607,6 +1705,42 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         broadcastUpdate();
         sendResponse({ ok: true });
         break;
+      case 'ADD_SITE_TO_MEDIA_BLACKLIST': {
+        const tabSnapshot = await getTabSnapshot(msg.tabId);
+        const hostname = hostnameFromUrl(tabSnapshot.url);
+        if (!hostname) {
+          sendResponse({ ok: false, error: t('mediaBlacklistSiteUnavailable', undefined, '当前页面无法加入媒体嗅探黑名单') });
+          break;
+        }
+        const mediaSniffingBlacklist = addHostnameToMediaSniffingBlacklist(config.mediaSniffingBlacklist, hostname);
+        await saveConfigAndSync({ mediaSniffingBlacklist });
+        await syncMediaSniffingStateForTab(msg.tabId, tabSnapshot.url);
+        broadcastUpdate();
+        sendResponse({ ok: true, hostname, mediaSniffingBlacklist });
+        break;
+      }
+      case 'REMOVE_SITE_FROM_MEDIA_BLACKLIST': {
+        const tabSnapshot = await getTabSnapshot(msg.tabId);
+        const hostname = hostnameFromUrl(tabSnapshot.url);
+        if (!hostname) {
+          sendResponse({ ok: false, error: t('mediaBlacklistSiteUnavailable', undefined, '当前页面无法修改媒体嗅探黑名单') });
+          break;
+        }
+        if (normalizeMediaSniffingBlacklist(config.mediaSniffingBlacklist).split(',').includes('*')) {
+          sendResponse({
+            ok: false,
+            globalDisabled: true,
+            error: t('mediaBlacklistGlobalDisabled', undefined, '媒体嗅探已全局禁用，请在设置中删除 * 后再恢复'),
+          });
+          break;
+        }
+        const mediaSniffingBlacklist = removeHostnameFromMediaSniffingBlacklist(config.mediaSniffingBlacklist, hostname);
+        await saveConfigAndSync({ mediaSniffingBlacklist });
+        await syncMediaSniffingStateForTab(msg.tabId, tabSnapshot.url);
+        broadcastUpdate();
+        sendResponse({ ok: true, hostname, mediaSniffingBlacklist });
+        break;
+      }
       case 'PAUSE_MEDIA_SNIFFING':
         mediaManager.pauseSniffing(msg.tabId);
         autoCapturePausedTabs.delete(msg.tabId);
@@ -1616,9 +1750,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       case 'RESUME_MEDIA_SNIFFING':
         if (!isMediaSniffingEnabled(config)) {
-          syncMediaSniffingStateForTab(msg.tabId);
+          await syncMediaSniffingStateForTab(msg.tabId);
           broadcastUpdate();
           sendResponse({ ok: false, disabled: true });
+          break;
+        }
+        await syncMediaSniffingStateForTab(msg.tabId);
+        if (mediaBlacklistBlockedTabs.has(msg.tabId)) {
+          broadcastUpdate();
+          sendResponse({ ok: false, disabled: true, blacklisted: true });
           break;
         }
         mediaManager.resumeSniffing(msg.tabId);
@@ -1750,22 +1890,22 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   autoCapturePausedTabs.delete(tabId);
+  mediaBlacklistBlockedTabs.delete(tabId);
   mediaManager.clearTabState(tabId);
   mediaManager.clearPreviewRule(tabId);
 });
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  syncMediaSniffingStateForTab(tabId);
-  broadcastUpdate();
+  syncMediaSniffingStateForTab(tabId).then(() => broadcastUpdate()).catch(() => {});
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status !== 'loading') return;
   mediaManager.clearTabState(tabId);
   autoCapturePausedTabs.delete(tabId);
-  syncMediaSniffingStateForTab(tabId);
+  mediaBlacklistBlockedTabs.delete(tabId);
+  syncMediaSniffingStateForTab(tabId).then(() => broadcastUpdate()).catch(() => {});
   mediaManager.clearPreviewRule(tabId);
-  broadcastUpdate();
 });
 
 chrome.runtime.onStartup.addListener(async () => {

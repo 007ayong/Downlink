@@ -703,26 +703,50 @@
       box-shadow: var(--shadow);
     }
     .media-toolbar {
-      padding: 2px 1px 9px;
+      padding: 2px 1px 10px;
       margin-bottom: 6px;
       border-bottom: 1px solid var(--border);
     }
     .media-toolbar-top {
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      gap: 8px;
-      margin-bottom: 4px;
+      min-height: 24px;
     }
     .media-toolbar-title {
       font-size: 11px;
-      font-weight: 500;
+      font-weight: 600;
       color: var(--text-2);
+    }
+    .media-toolbar-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 32px auto;
+      gap: 6px;
+      align-items: stretch;
+      margin-top: 8px;
+    }
+    .media-blacklist-btn {
+      width: 100%;
+      min-width: 0;
+      padding: 6px 10px;
+      font-size: 10.5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .media-toolbar-actions .compact-icon {
+      width: 32px;
+      min-width: 32px;
+      padding: 6px;
+    }
+    .media-toolbar-actions #clearMediaBtn {
+      min-width: 48px;
+      padding: 6px 10px;
     }
     .media-toolbar-sub {
       font-size: 10.5px;
       color: var(--text-3);
       line-height: 1.5;
+      min-height: 16px;
     }
     .media-list {
       display: flex;
@@ -1247,21 +1271,22 @@
   <div class="media-toolbar">
     <div class="media-toolbar-top">
       <div class="media-toolbar-title" data-i18n="mediaToolbarTitle">当前页面媒体资源</div>
-      <div style="display:flex;gap:5px">
-        <button class="btn btn-ghost compact-icon" id="toggleSniffingBtn" title="暂停/恢复嗅探" aria-label="暂停嗅探">
-          <svg class="control-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-            <path d="M5.25 3.25h1.5c.55 0 1 .45 1 1v7.5c0 .55-.45 1-1 1h-1.5c-.55 0-1-.45-1-1v-7.5c0-.55.45-1 1-1Zm5 0h1.5c.55 0 1 .45 1 1v7.5c0 .55-.45 1-1 1h-1.5c-.55 0-1-.45-1-1v-7.5c0-.55.45-1 1-1Z" fill="currentColor"/>
-          </svg>
-        </button>
-        <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 12px" id="clearMediaBtn" data-i18n="clear">清空</button>
-      </div>
     </div>
     <div class="media-toolbar-sub" id="mediaSummary" data-i18n="waitingMediaRequests">等待页面发起音视频请求…</div>
+    <div class="media-toolbar-actions">
+      <button class="btn btn-ghost media-blacklist-btn" id="addSiteToMediaBlacklistBtn" data-i18n="addSiteToMediaBlacklist">将本站加入黑名单</button>
+      <button class="btn btn-ghost compact-icon" id="toggleSniffingBtn" title="暂停/恢复嗅探" aria-label="暂停嗅探">
+        <svg class="control-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path d="M5.25 3.25h1.5c.55 0 1 .45 1 1v7.5c0 .55-.45 1-1 1h-1.5c-.55 0-1-.45-1-1v-7.5c0-.55.45-1 1-1Zm5 0h1.5c.55 0 1 .45 1 1v7.5c0 .55-.45 1-1 1h-1.5c-.55 0-1-.45-1-1v-7.5c0-.55.45-1 1-1Z" fill="currentColor"/>
+        </svg>
+      </button>
+      <button class="btn btn-ghost" id="clearMediaBtn" data-i18n="clear">清空</button>
+    </div>
   </div>
   <div class="task-alert" id="mediaAlert"></div>
   <div class="empty" id="mediaEmpty">
     <div class="empty-icon">
-      <img src="assets/empty-media.png" alt="" loading="lazy"/>
+      <img id="mediaEmptyImage" src="assets/empty-media.png" alt="" loading="lazy"/>
     </div>
     <div class="empty-title" data-i18n="mediaEmptyTitle">暂无直链媒体</div>
     <div class="empty-sub" data-i18n="mediaEmptySub">打开页面中的音频或视频后会显示在这里</div>
@@ -1376,9 +1401,9 @@
 
   <div class="settings-group">
     <div class="settings-group-title" data-i18n="settingsCaptureGroup">拦截规则</div>
-    <div class="settings-row">
-      <label><span data-i18n="settingsMediaSniffing">全局媒体嗅探</span> <span class="settings-sub" data-i18n="settingsMediaSniffingSub">关闭后不再从任何网页刷新媒体资源列表；单个网页的暂停状态仍会保留</span></label>
-      <label class="toggle"><input type="checkbox" id="cfgMediaSniffing"><div class="toggle-track"></div></label>
+    <div class="settings-row col">
+      <label><span data-i18n="settingsMediaSniffingBlacklist">媒体嗅探黑名单</span> <span class="settings-sub" data-i18n="settingsMediaSniffingBlacklistSub">逗号分隔网站域名，匹配域名及其子域；输入 * 关闭所有网站的媒体嗅探</span></label>
+      <input class="settings-input wide" id="cfgMediaSniffingBlacklist" type="text" placeholder="x.com,youtube.com" data-i18n-placeholder="settingsMediaSniffingBlacklistPlaceholder"/>
     </div>
     <div class="settings-row col">
       <label><span data-i18n="settingsCaptureExtensions">拦截文件类型</span> <span class="settings-sub" data-i18n="settingsCaptureExtensionsSub">逗号分隔，留空拦截所有</span></label>
