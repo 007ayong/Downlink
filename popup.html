@@ -1009,6 +1009,14 @@
     }
     .settings-input:focus { border-color: var(--accent); }
     .settings-input.wide { width: 100%; margin-top: 4px; }
+    .settings-input-action {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+      margin-top: 4px;
+    }
+    .settings-input-action .settings-input.wide { margin-top: 0; }
+    .settings-input-action .btn { flex: 0 0 auto; padding: 6px 12px; }
     .settings-row.col { flex-direction: column; align-items: stretch; }
     .settings-test-row {
       align-items: stretch;
@@ -1406,8 +1414,11 @@
       <input class="settings-input wide" id="cfgMediaSniffingBlacklist" type="text" placeholder="x.com,youtube.com" data-i18n-placeholder="settingsMediaSniffingBlacklistPlaceholder"/>
     </div>
     <div class="settings-row col">
-      <label><span data-i18n="settingsCaptureExtensions">拦截文件类型</span> <span class="settings-sub" data-i18n="settingsCaptureExtensionsSub">逗号分隔，留空拦截所有</span></label>
-      <input class="settings-input wide" id="cfgExts" type="text" placeholder="zip,rar,mp4,exe..." data-i18n-placeholder="settingsCaptureExtensionsPlaceholder"/>
+      <label><span data-i18n="settingsCaptureExtensions">拦截文件类型</span> <span class="settings-sub" data-i18n="settingsCaptureExtensionsSub">逗号分隔，输入 * 拦截所有</span></label>
+      <div class="settings-input-action">
+        <input class="settings-input wide" id="cfgExts" type="text" placeholder="zip,rar,mp4,exe..." data-i18n-placeholder="settingsCaptureExtensionsPlaceholder"/>
+        <button class="btn btn-ghost" type="button" id="restoreDefaultCaptureExtensionsBtn" data-i18n="restoreDefaultCaptureExtensions">恢复默认</button>
+      </div>
     </div>
     <div class="settings-row">
       <label><span data-i18n="settingsAutoCaptureShortcut">拦截快捷键</span> <span class="settings-sub" data-i18n="settingsAutoCaptureShortcutSub">默认 Ctrl+Shift+D，可在浏览器扩展管理页中自定义</span></label>
@@ -1433,6 +1444,7 @@
 </div>
 
   <script src="filename-logic.js"></script>
+  <script src="lib/config-defaults.js"></script>
   <script src="lib/i18n.js"></script>
   <script src="lib/popup-ui.js"></script>
   <script src="lib/popup-settings.js"></script>

@@ -114,6 +114,7 @@ function manifestForTarget(baseManifest, buildTarget) {
     background: {
       scripts: [
         'filename-logic.js',
+        'lib/config-defaults.js',
         'lib/i18n.js',
         'lib/background-shared.js',
         'lib/background-downloaders.js',

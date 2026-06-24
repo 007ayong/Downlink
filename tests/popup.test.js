@@ -275,6 +275,8 @@ function loadPopupRuntime(options = {}) {
   context.self = context;
   context.window = context;
 
+  const configDefaultsScript = fs.readFileSync(path.join(__dirname, '..', 'lib', 'config-defaults.js'), 'utf8');
+  vm.runInNewContext(configDefaultsScript, context, { filename: 'lib/config-defaults.js' });
   const popupUiScript = fs.readFileSync(path.join(__dirname, '..', 'lib', 'popup-ui.js'), 'utf8');
   vm.runInNewContext(popupUiScript, context, { filename: 'lib/popup-ui.js' });
   const script = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
@@ -1297,4 +1299,34 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgUseMotrixNext', true, 'checked')).config.useMotrixNext, true);
   assert.equal((await applyChange('cfgMotrixBridgeAutoClose', true, 'checked')).config.motrixBridgeAutoClose, true);
   assert.equal((await applyChange('cfgAbDownloadSilent', true, 'checked')).config.abDownloadSilent, true);
+});
+
+test('restore default capture extensions button fills defaults and autosaves', async () => {
+  const { context, sentMessages } = loadPopupSettingsRuntime();
+  const defaults = 'zip,rar,7z,exe,esd';
+  const controller = context.PopupSettings.createSettingsController({
+    defaultCaptureExtensions: defaults,
+    getCurrentConfig: () => ({}),
+    setCurrentConfig() {},
+    getCurrentState: () => ({ tasks: {}, pending: {} }),
+    getLoading: () => false,
+    setLoading() {},
+    getAutoSaveTimer: () => null,
+    setAutoSaveTimer() {},
+    getSaveFeedbackTimer: () => null,
+    setSaveFeedbackTimer() {},
+    syncGlobals() {},
+    updateSettingsVisibility() {},
+    updateDynamicLabels() {},
+    renderTasks() {},
+    requestAutoConnectionCheck() {},
+  });
+
+  controller.bindSettingsEvents();
+  context.document.getElementById('cfgExts').value = '*';
+  context.document.getElementById('restoreDefaultCaptureExtensionsBtn').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(context.document.getElementById('cfgExts').value, defaults);
+  assert.equal(sentMessages.at(-1).config.captureExtensions, defaults);
 });

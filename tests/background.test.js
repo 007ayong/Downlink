@@ -1431,6 +1431,58 @@ test('empty capture extension config captures downloads with any extension', asy
   assert.equal(pending[0].captureReason, 'extension');
 });
 
+test('wildcard capture extension config captures downloads with any extension', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: '*',
+  });
+
+  const url = 'https://example.com/releases/package.custom';
+  await invokeDownloadCreated(background, {
+    id: 43,
+    url,
+    finalUrl: url,
+    filename: 'package.custom',
+    mime: 'application/octet-stream',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [43]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].captureReason, 'extension');
+});
+
+test('wildcard capture extension config captures extensionless binary downloads', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: '*',
+  });
+
+  const url = 'https://example.com/download';
+  await invokeDownloadCreated(background, {
+    id: 44,
+    url,
+    finalUrl: url,
+    filename: 'download',
+    mime: 'application/octet-stream',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [44]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].captureReason, 'mime');
+});
+
 test('capture extension config still checks filename when URL extension differs', async () => {
   const background = loadBackgroundRuntime({
     captureExtensions: 'zip',

@@ -10,6 +10,8 @@ const t = i18n.t || ((key, substitutions, fallback = key) => {
   return fallback || key;
 });
 
+const POPUP_DEFAULT_CAPTURE_EXTENSIONS = globalThis.ConfigDefaults.DEFAULT_CAPTURE_EXTENSIONS;
+
 const POPUP_DEFAULT_CONFIG = {
   language: 'auto',
   downloaderType: 'aria2',
@@ -30,7 +32,7 @@ const POPUP_DEFAULT_CONFIG = {
   abDownloadSilent: false,
   autoCapture: true,
   mediaSniffingBlacklist: 'x.com,youtube.com',
-  captureExtensions: '',
+  captureExtensions: POPUP_DEFAULT_CAPTURE_EXTENSIONS,
   skipSmallDownloads: false,
   smallDownloadThresholdBytes: 1048576,
 };

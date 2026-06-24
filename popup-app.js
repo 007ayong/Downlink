@@ -1110,6 +1110,7 @@ async function refreshAll() {
 }
 
 const settingsController = popupSettings.createSettingsController({
+  defaultCaptureExtensions: POPUP_DEFAULT_CAPTURE_EXTENSIONS,
   getCurrentConfig: () => currentConfig,
   setCurrentConfig: (next) => { currentConfig = next; },
   getSavedConfig: () => savedConfig,

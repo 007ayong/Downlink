@@ -4,6 +4,7 @@
 try {
   importScripts(
     'filename-logic.js',
+    'lib/config-defaults.js',
     'lib/i18n.js',
     'lib/background-shared.js',
     'lib/background-downloaders.js',
@@ -11,8 +12,10 @@ try {
   );
 } catch {}
 
-const LEGACY_DEFAULT_CAPTURE_EXTENSIONS = 'zip,rar,7z,tar,gz,bz2,xz,iso,dmg,exe,msi,deb,pkg,apk,mp4,m4s,mkv,avi,mov,webm,mp3,flac,wav,pdf,torrent';
-const DEFAULT_CAPTURE_EXTENSIONS = `${LEGACY_DEFAULT_CAPTURE_EXTENSIONS},esd,cab,msu,wim`;
+const {
+  LEGACY_DEFAULT_CAPTURE_EXTENSIONS,
+  DEFAULT_CAPTURE_EXTENSIONS,
+} = globalThis.ConfigDefaults;
 const DEFAULT_MEDIA_SNIFFING_BLACKLIST = 'x.com,youtube.com';
 
 const DEFAULT_CONFIG = {
