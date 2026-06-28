@@ -39,7 +39,8 @@ Open the extensions page in a Chromium-based browser, enable Developer mode, the
 ## Store Links
 
 [![Chrome Web Store:](./assets/chrome-support.png)](https://chromewebstore.google.com/detail/eepjgbffnmmhpinlmlncdfnhjccpigcg)
-[![Chrome Web Store:](./assets/edge-support.png)](https://microsoftedge.microsoft.com/addons/detail/klkhmcdcnnhggpiipgedlafhpobojpgl)
+[![Edge Web Store:](./assets/edge-support.png)](https://microsoftedge.microsoft.com/addons/detail/klkhmcdcnnhggpiipgedlafhpobojpgl)
+[![Firefox Add-ons:](./assets/firefox-support.png)](https://addons.mozilla.org/en-US/firefox/addon/downlink/)
 
 ## Automated Publishing
 

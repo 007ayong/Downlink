@@ -199,6 +199,7 @@ function buildOnce({ quiet = false } = {}) {
       '*.DS_Store',
       'assets/chrome-support.png',
       'assets/edge-support.png',
+      'assets/firefox-support.png',
     ], buildDir);
     resultPaths.push(outputPath);
   }

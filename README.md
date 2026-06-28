@@ -39,7 +39,8 @@ Downlink 是一个浏览器扩展，用来在浏览器确认下载响应后接�
 ## 商店地址
 
 [![Chrome Web Store:](./assets/chrome-support.png)](https://chromewebstore.google.com/detail/eepjgbffnmmhpinlmlncdfnhjccpigcg)
-[![Chrome Web Store:](./assets/edge-support.png)](https://microsoftedge.microsoft.com/addons/detail/klkhmcdcnnhggpiipgedlafhpobojpgl)
+[![Edge Web Store:](./assets/edge-support.png)](https://microsoftedge.microsoft.com/addons/detail/klkhmcdcnnhggpiipgedlafhpobojpgl)
+[![Firefox Add-ons:](./assets/firefox-support.png)](https://addons.mozilla.org/zh-CN/firefox/addon/downlink/)
 
 ## 自动发布
 
