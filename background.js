@@ -86,6 +86,7 @@ const mediaBlacklistBlockedTabs = new Set();
 const markedUrls = new Map();
 const downloadClickIntents = new Map();
 const responseCaptureClaims = new Map();
+const pendingBrowserDownloadCaptures = new Map();
 const requestHeadersCache = new Map();
 const responseHeadersCache = new Map();
 const redirectIntents = new Map();
@@ -628,6 +629,131 @@ function firstKnownSize(...values) {
     if (Number.isFinite(size) && size > 0) return size;
   }
   return 0;
+}
+
+function shouldDeferBrowserDownloadCaptureForFilename(item = {}, filenames = {}) {
+  if (isFirefoxRuntime || typeof item.id !== 'number') return false;
+  if (item.filename) return false;
+  if (filenames.headerPreferredFilename || filenames.markedPreferredFilename || filenames.browserFilename) return false;
+  return Boolean(chrome.downloads.onDeterminingFilename?.addListener);
+}
+
+function isBenignBrowserDownloadCancelResult(result = {}) {
+  if (result.cancelled) return true;
+  const reason = String(result.reason || '');
+  if (reason === 'not-in-progress' || reason === 'not-active-on-recheck') return true;
+  const error = String(result.error || '').toLowerCase();
+  return error.includes('download must be in progress');
+}
+
+async function captureBrowserDownloadItem(item = {}, reason = 'browser-download:onCreated:capture', { allowFilenameDefer = false } = {}) {
+  if (!config.autoCapture || !isDownloadInProgress(item)) return false;
+  if (isRestoredBrowserDownloadItem(item)) return false;
+
+  const url = item.finalUrl || item.url;
+  const marked = markedUrls.get(url) || markedUrls.get(item.url);
+
+  const browserFilename = item.filename ? decodeHttpFilename(item.filename.split(/[\\/]/).pop()) : '';
+  const urlFilename = filenameFromUrl(url);
+  const urlPreferredFilename = preferredUrlFilename(urlFilename);
+  const cachedResponse = getCachedResponseHeaders(url, item.url);
+  const headerFilename = filenameFromCD(marked?.contentDisposition || cachedResponse.contentDisposition || '');
+  const headerPreferredFilename = preferredUrlFilename(headerFilename);
+  const markedPreferredFilename = preferredUrlFilename(marked?.filename || '');
+  const sourceFilename = marked?.sourceFilename || requestHeadersCache.get(url)?.sourceFilename || requestHeadersCache.get(item.url)?.sourceFilename || cachedResponse.sourceFilename || '';
+  const classification = classifyDownloadCandidate(config, {
+    url,
+    filename: headerPreferredFilename || urlPreferredFilename || browserFilename || headerFilename,
+    mime: item.mime || cachedResponse.contentType || '',
+    contentDisposition: marked?.contentDisposition || cachedResponse.contentDisposition || '',
+    source: 'browser-download',
+  });
+  if (!marked && !classification.shouldCapture) return false;
+  if (shouldSkipSmallDownloadSize(firstKnownSize(item.totalBytes, marked?.size, cachedResponse.totalBytes), config)) {
+    if (marked) {
+      markedUrls.delete(url);
+      markedUrls.delete(item.url);
+    }
+    return false;
+  }
+
+  if (allowFilenameDefer && shouldDeferBrowserDownloadCaptureForFilename(item, {
+    headerPreferredFilename,
+    markedPreferredFilename,
+    browserFilename,
+  })) {
+    pendingBrowserDownloadCaptures.set(item.id, {
+      url,
+      itemUrl: item.url,
+      finalUrl: item.finalUrl,
+      expiresAt: Date.now() + 30000,
+    });
+    cleanExpired(pendingBrowserDownloadCaptures);
+    console.info('[Downlink][browser-download] defer capture until browser determines filename', {
+      ...describeBrowserDownloadItem(item),
+      reason,
+    });
+    return true;
+  }
+
+  pendingBrowserDownloadCaptures.delete(item.id);
+  const cancelResult = await cancelBrowserDownloadItem(item, reason);
+  if (!isBenignBrowserDownloadCancelResult(cancelResult)) {
+    console.warn('[Downlink][browser-download] skip captured task because browser download was not cancelled', {
+      ...describeBrowserDownloadItem(item),
+      reason,
+      cancelResult,
+    });
+    if (marked) {
+      markedUrls.delete(url);
+      markedUrls.delete(item.url);
+    }
+    return false;
+  }
+
+  const requestMeta = requestHeadersCache.get(url) || requestHeadersCache.get(item.url) || {};
+  const reqHeaders = requestMeta.headers || {};
+  const filename = resolveCapturedFilename(
+    headerPreferredFilename || urlPreferredFilename || browserFilename || markedPreferredFilename || classification.filename || headerFilename || urlFilename || '',
+    {
+      sourceFilename,
+      mime: marked?.mime || cachedResponse.contentType || item.mime || classification.mime || '',
+      candidates: [urlPreferredFilename, headerPreferredFilename, browserFilename, markedPreferredFilename, classification.filename, headerFilename, urlFilename],
+    }
+  );
+
+  if (marked) {
+    markedUrls.delete(url);
+    markedUrls.delete(item.url);
+  }
+
+  const key = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const taskInfo = {
+    key,
+    url,
+    filename,
+    size: firstKnownSize(item.totalBytes, marked?.size, cachedResponse.totalBytes),
+    mime: marked?.mime || cachedResponse.contentType || item.mime || classification.mime || '',
+    contentDisposition: marked?.contentDisposition || cachedResponse.contentDisposition || '',
+    captureSource: marked?.captureSource || classification.source,
+    captureReason: marked?.captureReason || classification.reason,
+    headers: reqHeaders,
+    method: requestMeta.method || 'GET',
+    origin: reqHeaders.origin || deriveOrigin(url, reqHeaders.referer || ''),
+    referrer: reqHeaders.referer || '',
+    sourceTabId: typeof marked?.sourceTabId === 'number' ? marked.sourceTabId : requestMeta.sourceTabId || cachedResponse.sourceTabId,
+    sourceWindowId: typeof marked?.sourceWindowId === 'number' ? marked.sourceWindowId : requestMeta.sourceWindowId || cachedResponse.sourceWindowId,
+    sourceFilename,
+    addedAt: Date.now(),
+  };
+
+  if (shouldConfirmBeforeSend()) {
+    await enqueuePendingDownload(taskInfo);
+    return true;
+  }
+
+  await sendTask(taskInfo, {}, { openPopupOnFailure: true });
+  return true;
 }
 
 function getResponseCaptureClaim(...urls) {
@@ -1267,7 +1393,7 @@ const requestHeaderExtraInfoSpec = isFirefoxRuntime
   : ['requestHeaders', 'extraHeaders'];
 const responseHeaderExtraInfoSpec = isFirefoxRuntime
   ? ['responseHeaders', 'blocking']
-  : ['responseHeaders'];
+  : ['responseHeaders', 'extraHeaders'];
 
 chrome.webRequest.onSendHeaders.addListener(
   (details) => {
@@ -1450,8 +1576,15 @@ chrome.webRequest.onHeadersReceived.addListener(
 
 if (!isFirefoxRuntime && chrome.downloads.onDeterminingFilename?.addListener) {
   chrome.downloads.onDeterminingFilename.addListener(async (item, suggest) => {
-    if (!config.autoCapture || !isDownloadInProgress(item)) {
+    let didSuggest = false;
+    const safeSuggest = () => {
+      if (didSuggest) return;
+      didSuggest = true;
       suggest?.();
+    };
+
+    if (!config.autoCapture || !isDownloadInProgress(item)) {
+      safeSuggest();
       return;
     }
 
@@ -1468,16 +1601,31 @@ if (!isFirefoxRuntime && chrome.downloads.onDeterminingFilename?.addListener) {
         openPendingSurfaceForResponseClaim(responseClaim, 'response-claim:onDeterminingFilename:immediate');
         markedUrls.delete(url);
         markedUrls.delete(item.url);
-        suggest?.();
         return;
       }
-      await responseClaim.promise;
-      cancelBrowserDownloadItem(item, 'response-claim:onDeterminingFilename:after-claim');
+      safeSuggest();
+      responseClaim.promise.then(() => {
+        cancelBrowserDownloadItem(item, 'response-claim:onDeterminingFilename:after-claim');
+      });
       markedUrls.delete(url);
       markedUrls.delete(item.url);
+      return;
     }
 
-    suggest?.();
+    const pendingBrowserCapture = pendingBrowserDownloadCaptures.get(item.id);
+    if (pendingBrowserCapture) {
+      try {
+        await captureBrowserDownloadItem(item, 'browser-download:onDeterminingFilename:capture');
+      } catch (error) {
+        console.warn('[Downlink][browser-download] deferred filename capture failed', {
+          ...describeBrowserDownloadItem(item),
+          error: error?.message || String(error),
+        });
+      }
+      return;
+    }
+
+    safeSuggest();
   });
 }
 
@@ -1509,74 +1657,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
     return;
   }
 
-  const browserFilename = item.filename ? decodeHttpFilename(item.filename.split(/[\\/]/).pop()) : '';
-  const urlFilename = filenameFromUrl(url);
-  const urlPreferredFilename = preferredUrlFilename(urlFilename);
-  const cachedResponse = getCachedResponseHeaders(url, item.url);
-  const headerFilename = filenameFromCD(marked?.contentDisposition || cachedResponse.contentDisposition || '');
-  const headerPreferredFilename = preferredUrlFilename(headerFilename);
-  const markedPreferredFilename = preferredUrlFilename(marked?.filename || '');
-  const sourceFilename = marked?.sourceFilename || requestHeadersCache.get(url)?.sourceFilename || requestHeadersCache.get(item.url)?.sourceFilename || cachedResponse.sourceFilename || '';
-  const classification = classifyDownloadCandidate(config, {
-    url,
-    filename: headerPreferredFilename || urlPreferredFilename || browserFilename || headerFilename,
-    mime: item.mime || cachedResponse.contentType || '',
-    contentDisposition: marked?.contentDisposition || cachedResponse.contentDisposition || '',
-    source: 'browser-download',
-  });
-  if (!marked && !classification.shouldCapture) return;
-  if (shouldSkipSmallDownloadSize(firstKnownSize(item.totalBytes, marked?.size, cachedResponse.totalBytes), config)) {
-    if (marked) {
-      markedUrls.delete(url);
-      markedUrls.delete(item.url);
-    }
-    return;
-  }
-
-  cancelBrowserDownloadItem(item, 'browser-download:onCreated:capture');
-
-  const requestMeta = requestHeadersCache.get(url) || requestHeadersCache.get(item.url) || {};
-  const reqHeaders = requestMeta.headers || {};
-  const filename = resolveCapturedFilename(
-    headerPreferredFilename || urlPreferredFilename || browserFilename || markedPreferredFilename || classification.filename || headerFilename || urlFilename || '',
-    {
-      sourceFilename,
-      mime: marked?.mime || cachedResponse.contentType || item.mime || classification.mime || '',
-      candidates: [urlPreferredFilename, headerPreferredFilename, browserFilename, markedPreferredFilename, classification.filename, headerFilename, urlFilename],
-    }
-  );
-
-  if (marked) {
-    markedUrls.delete(url);
-    markedUrls.delete(item.url);
-  }
-
-  const key = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  const taskInfo = {
-    key,
-    url,
-    filename,
-    size: firstKnownSize(item.totalBytes, marked?.size, cachedResponse.totalBytes),
-    mime: marked?.mime || cachedResponse.contentType || '',
-    contentDisposition: marked?.contentDisposition || cachedResponse.contentDisposition || '',
-    captureSource: marked?.captureSource || classification.source,
-    captureReason: marked?.captureReason || classification.reason,
-    headers: reqHeaders,
-    method: requestMeta.method || 'GET',
-    origin: reqHeaders.origin || deriveOrigin(url, reqHeaders.referer || ''),
-    referrer: reqHeaders.referer || '',
-    sourceTabId: typeof marked?.sourceTabId === 'number' ? marked.sourceTabId : requestMeta.sourceTabId || cachedResponse.sourceTabId,
-    sourceWindowId: typeof marked?.sourceWindowId === 'number' ? marked.sourceWindowId : requestMeta.sourceWindowId || cachedResponse.sourceWindowId,
-    sourceFilename,
-    addedAt: Date.now(),
-  };
-
-  if (shouldConfirmBeforeSend()) {
-    await enqueuePendingDownload(taskInfo);
-    return;
-  }
-
-  await sendTask(taskInfo, {}, { openPopupOnFailure: true });
+  await captureBrowserDownloadItem(item, 'browser-download:onCreated:capture', { allowFilenameDefer: true });
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

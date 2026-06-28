@@ -710,6 +710,132 @@ test('browser download interception prefers content-disposition filename over Ch
   assert.equal(pending[0].contentDisposition, "attachment; filename*=UTF-8''server%2B%2Bfile.zip");
 });
 
+test('browser download interception decodes tiktok content-disposition filename', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  const url = 'https://example.com/download/tiktok';
+  const contentDisposition = 'attachment; filename="TikTok_ASD+Vibe_@tkdashen.zip"; filename*=UTF-8\'\'TikTok_ASD%2BVibe_%40tkdashen.zip';
+  await invokeResponseHeaders(background, {
+    url,
+    tabId: 1,
+    responseHeaders: [
+      { name: 'content-disposition', value: contentDisposition },
+      { name: 'content-type', value: 'application/zip' },
+      { name: 'content-length', value: '2038816' },
+    ],
+  });
+  await invokeDownloadCreated(background, {
+    id: 93,
+    url,
+    finalUrl: url,
+    filename: '/Downloads/download.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 2038816,
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].filename, 'TikTok_ASD+Vibe_@tkdashen.zip');
+  assert.equal(pending[0].contentDisposition, contentDisposition);
+});
+
+test('browser download interception waits for determined filename when created item is empty', async () => {
+  const order = [];
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+  const originalCancel = background.chrome.downloads.cancel;
+  const originalOpenPopup = background.chrome.action.openPopup;
+  background.chrome.downloads.cancel = (id, callback) => {
+    order.push('cancel');
+    originalCancel(id, () => {
+      order.push('cancel-callback');
+      callback?.();
+    });
+  };
+  background.chrome.action.openPopup = () => {
+    order.push('open-popup');
+    return originalOpenPopup();
+  };
+
+  const url = 'https://web.telegram.org/k/d/1715544219';
+  await invokeDownloadCreated(background, {
+    id: 1847,
+    url,
+    finalUrl: url,
+    filename: '',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 2038816,
+    danger: 'safe',
+    exists: true,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  let state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+
+  const suggested = await invokeDeterminingFilename(background, {
+    id: 1847,
+    url,
+    finalUrl: url,
+    filename: '/Downloads/TikTok_ASD+Vibe_@tkdashen.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 2038816,
+    danger: 'safe',
+    exists: true,
+  });
+
+  assert.equal(suggested, false);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [1847]);
+  state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].filename, 'TikTok_ASD+Vibe_@tkdashen.zip');
+  assert.deepEqual(order, ['cancel', 'cancel-callback', 'open-popup']);
+});
+
+test('browser download interception skips Downlink task when cancel fails unexpectedly', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+  background.chrome.downloads.cancel = (_id, callback) => {
+    background.chrome._downloadCalls.cancel.push(_id);
+    background.chrome.runtime.lastError = { message: 'Permission denied' };
+    callback?.();
+    background.chrome.runtime.lastError = null;
+  };
+
+  await invokeDownloadCreated(background, {
+    id: 1848,
+    url: 'https://example.com/file.zip',
+    finalUrl: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [1848]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+});
+
 test('browser download interception uses content-disposition when URL path has no extension', async () => {
   const background = loadBackgroundRuntime({
     downloaderType: 'aria2',
@@ -804,6 +930,15 @@ test('response header capture enters pending queue before browser download is cr
   assert.equal(pending[0].filename, 'response-only.zip');
   assert.equal(pending[0].size, 2048);
   assert.equal(pending[0].captureSource, 'headers');
+});
+
+test('Chromium response header capture requests extra headers', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._listeners.webRequestOnHeadersReceivedSpecs[0])), ['responseHeaders', 'extraHeaders']);
 });
 
 test('Firefox response header capture blocks the browser download before its panel opens', async () => {
@@ -1010,7 +1145,7 @@ test('Aria2 pending response capture cancels before browser filename prompt', as
     totalBytes: 4096,
   });
 
-  assert.equal(suggested, true);
+  assert.equal(suggested, false);
   assert.deepEqual(background.chrome._downloadCalls.cancel, [24]);
   assert.deepEqual(background.chrome._downloadCalls.erase.map(item => ({ ...item })), [{ id: 24 }]);
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
@@ -1054,7 +1189,7 @@ test('direct response capture cancels before browser filename prompt after send 
     totalBytes: 4096,
   });
 
-  assert.equal(suggested, true);
+  assert.equal(suggested, false);
   assert.equal(requestBody.url, url);
   assert.deepEqual(background.chrome._downloadCalls.cancel, [25]);
   assert.deepEqual(background.chrome._downloadCalls.erase.map(item => ({ ...item })), [{ id: 25 }]);
@@ -1093,7 +1228,7 @@ test('failed response capture still cancels browser filename prompt', async () =
     totalBytes: 4096,
   });
 
-  assert.equal(suggested, true);
+  assert.equal(suggested, false);
   assert.deepEqual(background.chrome._downloadCalls.cancel, [26]);
   assert.deepEqual(background.chrome._downloadCalls.erase.map(item => ({ ...item })), [{ id: 26 }]);
 });
@@ -1178,7 +1313,7 @@ test('AB DM response capture cancels browser filename prompt before connection r
     totalBytes: 4096,
   });
 
-  assert.equal(suggested, true);
+  assert.equal(suggested, false);
   assert.deepEqual(background.chrome._downloadCalls.cancel, [28]);
   assert.deepEqual(background.chrome._downloadCalls.erase.map(item => ({ ...item })), [{ id: 28 }]);
 
@@ -1483,6 +1618,59 @@ test('wildcard capture extension config captures extensionless binary downloads'
   assert.equal(pending[0].captureReason, 'mime');
 });
 
+test('wildcard capture extension config captures application binary downloads', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: '*',
+  });
+
+  const url = 'https://example.com/download';
+  await invokeDownloadCreated(background, {
+    id: 45,
+    url,
+    finalUrl: url,
+    filename: 'download',
+    mime: 'application/binary',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [45]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].captureReason, 'mime');
+});
+
+test('captures iTunes IPA mime downloads without filename extension', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+
+  const url = 'https://example.com/download';
+  await invokeDownloadCreated(background, {
+    id: 46,
+    url,
+    finalUrl: url,
+    filename: 'download',
+    mime: 'application/x-itunes-ipa',
+    state: 'in_progress',
+    totalBytes: 4096,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [46]);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].captureReason, 'mime');
+  assert.equal(pending[0].mime, 'application/x-itunes-ipa');
+});
+
 test('capture extension config still checks filename when URL extension differs', async () => {
   const background = loadBackgroundRuntime({
     captureExtensions: 'zip',
@@ -1543,7 +1731,7 @@ test('empty capture extension config cancels redirected downloads before browser
     totalBytes: 4096,
   });
 
-  assert.equal(suggested, true);
+  assert.equal(suggested, false);
   assert.deepEqual(background.chrome._downloadCalls.cancel, [42]);
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   const pending = Object.values(state.pending || {});
@@ -1716,7 +1904,7 @@ test('POST redirect final response capture cancels browser filename prompt for r
     totalBytes: 4096,
   });
 
-  assert.equal(suggested, true);
+  assert.equal(suggested, false);
   assert.deepEqual(background.chrome._downloadCalls.cancel, [28]);
 });
 
@@ -1767,7 +1955,7 @@ test('POST redirect final response capture cancels browser filename prompt for o
     totalBytes: 6018724448,
   });
 
-  assert.equal(suggested, true);
+  assert.equal(suggested, false);
   assert.deepEqual(background.chrome._downloadCalls.cancel, [29]);
 });
 
@@ -1819,7 +2007,7 @@ test('Aria2 pending response claim cancels browser filename prompt before popup 
     totalBytes: 6018724448,
   });
 
-  assert.equal(suggested, true);
+  assert.equal(suggested, false);
   assert.deepEqual(background.chrome._downloadCalls.cancel, [30]);
 });
 
@@ -2694,9 +2882,10 @@ test('NeatDM response capture waits for browser download cancel before sending',
     suggested = true;
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.equal(suggested, true);
-  assert.deepEqual(order, ['cancel', 'cancel-callback', 'suggest']);
+  assert.equal(suggested, false);
+  assert.deepEqual(order, ['cancel', 'cancel-callback']);
   assert.deepEqual(background.chrome._downloadCalls.cancel, [31]);
   assert.equal(sockets.length, 1);
   assert.equal(sockets[0].url, 'ws://127.0.0.1:10007/download');
