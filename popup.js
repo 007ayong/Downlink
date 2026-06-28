@@ -11,6 +11,8 @@ const t = i18n.t || ((key, substitutions, fallback = key) => {
 });
 
 const POPUP_DEFAULT_CAPTURE_EXTENSIONS = globalThis.ConfigDefaults.DEFAULT_CAPTURE_EXTENSIONS;
+const POPUP_DEFAULT_MEDIA_SNIFFING_BLACKLIST = 'x.com,youtube.com';
+const POPUP_DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST = 'web.telegram.org';
 
 const POPUP_DEFAULT_CONFIG = {
   language: 'auto',
@@ -31,7 +33,8 @@ const POPUP_DEFAULT_CONFIG = {
   externalLauncherPort: '15151',
   abDownloadSilent: false,
   autoCapture: true,
-  mediaSniffingBlacklist: 'x.com,youtube.com',
+  mediaSniffingBlacklist: POPUP_DEFAULT_MEDIA_SNIFFING_BLACKLIST,
+  downloadInterceptionBlacklist: POPUP_DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST,
   captureExtensions: POPUP_DEFAULT_CAPTURE_EXTENSIONS,
   skipSmallDownloads: false,
   smallDownloadThresholdBytes: 1048576,

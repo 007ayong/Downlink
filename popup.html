@@ -1411,7 +1411,17 @@
     <div class="settings-group-title" data-i18n="settingsCaptureGroup">拦截规则</div>
     <div class="settings-row col">
       <label><span data-i18n="settingsMediaSniffingBlacklist">媒体嗅探黑名单</span> <span class="settings-sub" data-i18n="settingsMediaSniffingBlacklistSub">逗号分隔网站域名，匹配域名及其子域；输入 * 关闭所有网站的媒体嗅探</span></label>
-      <input class="settings-input wide" id="cfgMediaSniffingBlacklist" type="text" placeholder="x.com,youtube.com" data-i18n-placeholder="settingsMediaSniffingBlacklistPlaceholder"/>
+      <div class="settings-input-action">
+        <input class="settings-input wide" id="cfgMediaSniffingBlacklist" type="text" placeholder="x.com,youtube.com" data-i18n-placeholder="settingsMediaSniffingBlacklistPlaceholder"/>
+        <button class="btn btn-ghost" type="button" id="restoreDefaultMediaSniffingBlacklistBtn" data-i18n="restoreDefaultMediaSniffingBlacklist">恢复默认</button>
+      </div>
+    </div>
+    <div class="settings-row col">
+      <label><span data-i18n="settingsDownloadInterceptionBlacklist">下载拦截黑名单</span> <span class="settings-sub" data-i18n="settingsDownloadInterceptionBlacklistSub">逗号分隔网站域名，匹配域名及其子域；命中后不接管该网站的下载</span></label>
+      <div class="settings-input-action">
+        <input class="settings-input wide" id="cfgDownloadInterceptionBlacklist" type="text" placeholder="web.telegram.org" data-i18n-placeholder="settingsDownloadInterceptionBlacklistPlaceholder"/>
+        <button class="btn btn-ghost" type="button" id="restoreDefaultDownloadInterceptionBlacklistBtn" data-i18n="restoreDefaultDownloadInterceptionBlacklist">恢复默认</button>
+      </div>
     </div>
     <div class="settings-row col">
       <label><span data-i18n="settingsCaptureExtensions">拦截文件类型</span> <span class="settings-sub" data-i18n="settingsCaptureExtensionsSub">逗号分隔，输入 * 拦截所有</span></label>

@@ -17,6 +17,7 @@ const {
   DEFAULT_CAPTURE_EXTENSIONS,
 } = globalThis.ConfigDefaults;
 const DEFAULT_MEDIA_SNIFFING_BLACKLIST = 'x.com,youtube.com';
+const DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST = 'web.telegram.org';
 
 const DEFAULT_CONFIG = {
   language: 'auto',
@@ -39,6 +40,7 @@ const DEFAULT_CONFIG = {
   abDownloadSilent: false,
   autoCapture: true,
   mediaSniffingBlacklist: DEFAULT_MEDIA_SNIFFING_BLACKLIST,
+  downloadInterceptionBlacklist: DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST,
   captureExtensions: DEFAULT_CAPTURE_EXTENSIONS,
   captureMime: true,
   skipSmallDownloads: false,
@@ -202,7 +204,7 @@ function normalizeCaptureExtensionsConfig(value) {
   return value;
 }
 
-function normalizeMediaSniffingBlacklist(value) {
+function normalizeDomainBlacklist(value) {
   const entries = String(value || '')
     .split(/[\s,;]+/)
     .map((entry) => entry.trim().toLowerCase())
@@ -219,8 +221,16 @@ function normalizeMediaSniffingBlacklist(value) {
   return [...new Set(entries)].join(',');
 }
 
-function isMediaSniffingBlockedForUrl(url, nextConfig = config) {
-  const blacklist = normalizeMediaSniffingBlacklist(nextConfig.mediaSniffingBlacklist);
+function normalizeMediaSniffingBlacklist(value) {
+  return normalizeDomainBlacklist(value);
+}
+
+function normalizeDownloadInterceptionBlacklist(value) {
+  return normalizeDomainBlacklist(value);
+}
+
+function isUrlBlockedByDomainBlacklist(url, blacklistValue) {
+  const blacklist = normalizeDomainBlacklist(blacklistValue);
   if (!blacklist) return false;
   const entries = blacklist.split(',');
   if (entries.includes('*')) return true;
@@ -231,6 +241,18 @@ function isMediaSniffingBlockedForUrl(url, nextConfig = config) {
     return false;
   }
   return entries.some((entry) => hostname === entry || hostname.endsWith(`.${entry}`));
+}
+
+function isMediaSniffingBlockedForUrl(url, nextConfig = config) {
+  return isUrlBlockedByDomainBlacklist(url, nextConfig.mediaSniffingBlacklist);
+}
+
+function isDownloadInterceptionBlockedForUrl(url, nextConfig = config) {
+  return isUrlBlockedByDomainBlacklist(url, nextConfig.downloadInterceptionBlacklist);
+}
+
+function isDownloadInterceptionBlockedForSource(...urls) {
+  return urls.some((url) => isDownloadInterceptionBlockedForUrl(url, config));
 }
 
 function hostnameFromUrl(url) {
@@ -291,6 +313,7 @@ function normalizeConfig(nextConfig = {}) {
     mediaSniffingBlacklist: nextConfig.mediaSniffing === false
       ? '*'
       : String(nextConfig.mediaSniffingBlacklist || '').trim(),
+    downloadInterceptionBlacklist: String(nextConfig.downloadInterceptionBlacklist || '').trim(),
     captureExtensions: normalizeCaptureExtensionsConfig(nextConfig.captureExtensions),
   };
   delete normalized.mediaSniffing;
@@ -420,13 +443,14 @@ function resolveCapturedFilename(primaryFilename = '', { sourceFilename = '', mi
   return primary;
 }
 
-function rememberDownloadClickIntent({ url, tabId, windowId, filename } = {}) {
+function rememberDownloadClickIntent({ url, tabId, windowId, filename, pageUrl } = {}) {
   const normalizedUrl = normalizeIntentUrl(url);
   if (!normalizedUrl || typeof tabId !== 'number' || tabId < 0) return false;
   downloadClickIntents.set(normalizedUrl, {
     tabId,
     windowId: typeof windowId === 'number' ? windowId : undefined,
     filename: normalizeSourceFilename(filename),
+    pageUrl: String(pageUrl || ''),
     expiresAt: Date.now() + 30000,
   });
   cleanExpired(downloadClickIntents);
@@ -652,11 +676,18 @@ async function captureBrowserDownloadItem(item = {}, reason = 'browser-download:
 
   const url = item.finalUrl || item.url;
   const marked = markedUrls.get(url) || markedUrls.get(item.url);
+  const cachedResponse = getCachedResponseHeaders(url, item.url);
+  const requestMeta = requestHeadersCache.get(url) || requestHeadersCache.get(item.url) || {};
+  if (isDownloadInterceptionBlockedForSource(
+    marked?.sourcePageUrl,
+    requestMeta.sourcePageUrl,
+    cachedResponse.sourcePageUrl,
+    item.referrer
+  )) return false;
 
   const browserFilename = item.filename ? decodeHttpFilename(item.filename.split(/[\\/]/).pop()) : '';
   const urlFilename = filenameFromUrl(url);
   const urlPreferredFilename = preferredUrlFilename(urlFilename);
-  const cachedResponse = getCachedResponseHeaders(url, item.url);
   const headerFilename = filenameFromCD(marked?.contentDisposition || cachedResponse.contentDisposition || '');
   const headerPreferredFilename = preferredUrlFilename(headerFilename);
   const markedPreferredFilename = preferredUrlFilename(marked?.filename || '');
@@ -686,6 +717,7 @@ async function captureBrowserDownloadItem(item = {}, reason = 'browser-download:
       url,
       itemUrl: item.url,
       finalUrl: item.finalUrl,
+      sourcePageUrl: marked?.sourcePageUrl || requestMeta.sourcePageUrl || cachedResponse.sourcePageUrl || item.referrer || '',
       expiresAt: Date.now() + 30000,
     });
     cleanExpired(pendingBrowserDownloadCaptures);
@@ -711,7 +743,6 @@ async function captureBrowserDownloadItem(item = {}, reason = 'browser-download:
     return false;
   }
 
-  const requestMeta = requestHeadersCache.get(url) || requestHeadersCache.get(item.url) || {};
   const reqHeaders = requestMeta.headers || {};
   const filename = resolveCapturedFilename(
     headerPreferredFilename || urlPreferredFilename || browserFilename || markedPreferredFilename || classification.filename || headerFilename || urlFilename || '',
@@ -877,6 +908,7 @@ function rememberRedirectIntent(sourceUrl = '', redirectUrl = '', details = {}) 
     sourceTabId: requestMeta.sourceTabId,
     sourceWindowId: requestMeta.sourceWindowId,
     sourceFilename: requestMeta.sourceFilename,
+    sourcePageUrl: requestMeta.sourcePageUrl || details.initiator || requestMeta.headers?.referer || '',
     expiresAt: Date.now() + 30000,
   };
   redirectIntents.set(redirectUrl, intent);
@@ -1408,6 +1440,7 @@ chrome.webRequest.onSendHeaders.addListener(
       sourceTabId: clickIntent?.tabId,
       sourceWindowId: clickIntent?.windowId,
       sourceFilename: clickIntent?.filename,
+      sourcePageUrl: clickIntent?.pageUrl || details.initiator || headers.referer || '',
       expiresAt: Date.now() + 60000,
     });
     cleanExpired(requestHeadersCache);
@@ -1424,6 +1457,7 @@ chrome.webRequest.onHeadersReceived.addListener(
     const contentType = getResponseHeaderValue(details.responseHeaders, 'content-type');
     const redirectUrl = resolveRedirectUrl(details.url, getResponseHeaderValue(details.responseHeaders, 'location'));
     const totalBytes = parseResponseSize(details.responseHeaders);
+    const requestMeta = requestHeadersCache.get(details.url) || {};
 
     if (contentDisposition || contentType) {
       responseHeadersCache.set(details.url, {
@@ -1431,9 +1465,10 @@ chrome.webRequest.onHeadersReceived.addListener(
         contentType,
         totalBytes,
         tabId: details.tabId,
-        sourceTabId: requestHeadersCache.get(details.url)?.sourceTabId,
-        sourceWindowId: requestHeadersCache.get(details.url)?.sourceWindowId,
-        sourceFilename: requestHeadersCache.get(details.url)?.sourceFilename,
+        sourceTabId: requestMeta.sourceTabId,
+        sourceWindowId: requestMeta.sourceWindowId,
+        sourceFilename: requestMeta.sourceFilename,
+        sourcePageUrl: requestMeta.sourcePageUrl || details.initiator || requestMeta.headers?.referer || '',
         expiresAt: Date.now() + 60000,
       });
       cleanExpired(responseHeadersCache);
@@ -1450,7 +1485,7 @@ chrome.webRequest.onHeadersReceived.addListener(
         deleteRedirectIntent(details.url);
         return;
       }
-      if (typeof requestHeadersCache.get(details.url)?.sourceTabId === 'number') {
+      if (typeof requestMeta.sourceTabId === 'number') {
         rememberRedirectIntent(details.url, redirectUrl, details);
         return;
       }
@@ -1463,6 +1498,16 @@ chrome.webRequest.onHeadersReceived.addListener(
     }
 
     if (details.statusCode && ![200, 206].includes(details.statusCode)) return;
+    const redirectIntent = getRedirectIntent(details.url);
+    if (isDownloadInterceptionBlockedForSource(
+      redirectIntent?.sourcePageUrl,
+      requestMeta.sourcePageUrl,
+      details.initiator,
+      requestMeta.headers?.referer
+    )) {
+      if (redirectIntent) deleteRedirectIntent(details.url, redirectIntent.sourceUrl, redirectIntent.redirectUrl);
+      return;
+    }
 
     const classification = classifyDownloadCandidate(config, {
       url: details.url,
@@ -1471,7 +1516,6 @@ chrome.webRequest.onHeadersReceived.addListener(
       source: 'headers',
     });
     if (!classification.shouldCapture) return;
-    const redirectIntent = getRedirectIntent(details.url);
 
     const markedInfo = {
       filename: classification.filename,
@@ -1480,9 +1524,10 @@ chrome.webRequest.onHeadersReceived.addListener(
       captureSource: redirectIntent ? 'redirect' : classification.source,
       captureReason: classification.reason,
       tabId: typeof redirectIntent?.tabId === 'number' ? redirectIntent.tabId : details.tabId,
-      sourceTabId: typeof redirectIntent?.sourceTabId === 'number' ? redirectIntent.sourceTabId : requestHeadersCache.get(details.url)?.sourceTabId,
-      sourceWindowId: typeof redirectIntent?.sourceWindowId === 'number' ? redirectIntent.sourceWindowId : requestHeadersCache.get(details.url)?.sourceWindowId,
-      sourceFilename: redirectIntent?.sourceFilename || requestHeadersCache.get(details.url)?.sourceFilename,
+      sourceTabId: typeof redirectIntent?.sourceTabId === 'number' ? redirectIntent.sourceTabId : requestMeta.sourceTabId,
+      sourceWindowId: typeof redirectIntent?.sourceWindowId === 'number' ? redirectIntent.sourceWindowId : requestMeta.sourceWindowId,
+      sourceFilename: redirectIntent?.sourceFilename || requestMeta.sourceFilename,
+      sourcePageUrl: redirectIntent?.sourcePageUrl || requestMeta.sourcePageUrl || details.initiator || requestMeta.headers?.referer || '',
       size: totalBytes,
       expiresAt: Date.now() + 30000,
     };
@@ -1496,9 +1541,9 @@ chrome.webRequest.onHeadersReceived.addListener(
       const existingClaim = getResponseCaptureClaim(details.url);
       if (existingClaim) return undefined;
 
-      const reqHeaders = requestHeadersCache.get(details.url)?.headers || redirectIntent?.headers || {};
+      const reqHeaders = requestMeta.headers || redirectIntent?.headers || {};
       const key = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const responseSourceFilename = redirectIntent?.sourceFilename || requestHeadersCache.get(details.url)?.sourceFilename;
+      const responseSourceFilename = redirectIntent?.sourceFilename || requestMeta.sourceFilename;
       const responseUrlFilename = filenameFromUrl(details.url);
       const responsePrimaryFilename = classification.filename || preferredUrlFilename(responseUrlFilename) || responseUrlFilename || '';
       const taskInfo = {
@@ -1515,13 +1560,14 @@ chrome.webRequest.onHeadersReceived.addListener(
         captureSource: redirectIntent ? 'redirect' : classification.source,
         captureReason: classification.reason,
         headers: reqHeaders,
-        method: redirectIntent?.method || requestHeadersCache.get(details.url)?.method || 'GET',
+        method: redirectIntent?.method || requestMeta.method || 'GET',
         origin: reqHeaders.origin || deriveOrigin(details.url, reqHeaders.referer || redirectIntent?.sourceUrl || ''),
         referrer: reqHeaders.referer || redirectIntent?.sourceUrl || '',
         downloadTabId: typeof redirectIntent?.tabId === 'number' ? redirectIntent.tabId : details.tabId,
-        sourceTabId: typeof redirectIntent?.sourceTabId === 'number' ? redirectIntent.sourceTabId : requestHeadersCache.get(details.url)?.sourceTabId,
-        sourceWindowId: typeof redirectIntent?.sourceWindowId === 'number' ? redirectIntent.sourceWindowId : requestHeadersCache.get(details.url)?.sourceWindowId,
+        sourceTabId: typeof redirectIntent?.sourceTabId === 'number' ? redirectIntent.sourceTabId : requestMeta.sourceTabId,
+        sourceWindowId: typeof redirectIntent?.sourceWindowId === 'number' ? redirectIntent.sourceWindowId : requestMeta.sourceWindowId,
         sourceFilename: responseSourceFilename,
+        sourcePageUrl: redirectIntent?.sourcePageUrl || requestMeta.sourcePageUrl || details.initiator || reqHeaders.referer || '',
         addedAt: Date.now(),
       };
 
@@ -1589,6 +1635,11 @@ if (!isFirefoxRuntime && chrome.downloads.onDeterminingFilename?.addListener) {
     }
 
     const url = item.finalUrl || item.url;
+    const pendingBrowserCapture = pendingBrowserDownloadCaptures.get(item.id);
+    if (isDownloadInterceptionBlockedForSource(item.referrer, pendingBrowserCapture?.sourcePageUrl)) {
+      safeSuggest();
+      return;
+    }
     const marked = markedUrls.get(url) || markedUrls.get(item.url);
 
     const responseClaim = getResponseCaptureClaim(url, item.url, item.finalUrl);
@@ -1612,7 +1663,6 @@ if (!isFirefoxRuntime && chrome.downloads.onDeterminingFilename?.addListener) {
       return;
     }
 
-    const pendingBrowserCapture = pendingBrowserDownloadCaptures.get(item.id);
     if (pendingBrowserCapture) {
       try {
         await captureBrowserDownloadItem(item, 'browser-download:onDeterminingFilename:capture');
@@ -1635,6 +1685,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
   if (isRestoredBrowserDownloadItem(item)) return;
 
   const url = item.finalUrl || item.url;
+  if (isDownloadInterceptionBlockedForSource(item.referrer)) return;
   const marked = markedUrls.get(url) || markedUrls.get(item.url);
 
   const responseClaim = getResponseCaptureClaim(url, item.url, item.finalUrl);
@@ -1675,6 +1726,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             filename: msg.filename,
             tabId: sender?.tab?.id,
             windowId: sender?.tab?.windowId,
+            pageUrl: sender?.tab?.url,
           }),
         });
         break;

@@ -819,6 +819,7 @@ test('aria2 test connection sends the current form config', () => {
     abDownloadSilent: false,
     autoCapture: false,
     mediaSniffingBlacklist: '',
+    downloadInterceptionBlacklist: '',
     captureExtensions: '',
     skipSmallDownloads: false,
     smallDownloadThresholdBytes: 1048576,
@@ -855,6 +856,7 @@ test('AB DM test connection sends the current form config', () => {
     abDownloadSilent: true,
     autoCapture: false,
     mediaSniffingBlacklist: '',
+    downloadInterceptionBlacklist: '',
     captureExtensions: '',
     skipSmallDownloads: false,
     smallDownloadThresholdBytes: 1048576,
@@ -1054,6 +1056,7 @@ test('settings controller collects every visible config field from the form', ()
   context.document.getElementById('cfgAbDownloadSilent').checked = true;
   context.document.getElementById('cfgAutoCapture').checked = true;
   context.document.getElementById('cfgMediaSniffingBlacklist').value = 'x.com,youtube.com';
+  context.document.getElementById('cfgDownloadInterceptionBlacklist').value = 'web.telegram.org';
   context.document.getElementById('cfgExts').value = 'zip,mp4';
   context.document.getElementById('cfgSkipSmallDownloads').checked = true;
   context.document.getElementById('cfgSmallDownloadThresholdMb').value = '2.5';
@@ -1078,6 +1081,7 @@ test('settings controller collects every visible config field from the form', ()
     abDownloadSilent: true,
     autoCapture: true,
     mediaSniffingBlacklist: 'x.com,youtube.com',
+    downloadInterceptionBlacklist: 'web.telegram.org',
     captureExtensions: 'zip,mp4',
     skipSmallDownloads: true,
     smallDownloadThresholdBytes: 2.5 * 1024 * 1024,
@@ -1204,6 +1208,7 @@ test('settings load defaults keep MotrixNext port and autosave secret fields', a
     externalLauncherPort: '15151',
     autoCapture: true,
     mediaSniffingBlacklist: 'x.com,youtube.com',
+    downloadInterceptionBlacklist: 'web.telegram.org',
     smallDownloadThresholdBytes: 1048576,
   };
   const controller = context.PopupSettings.createSettingsController({
@@ -1234,6 +1239,7 @@ test('settings load defaults keep MotrixNext port and autosave secret fields', a
   assert.equal(context.document.getElementById('cfgGopeedApi').value, 'http://127.0.0.1:9999');
   assert.equal(context.document.getElementById('cfgLauncherPort').value, '15151');
   assert.equal(context.document.getElementById('cfgMediaSniffingBlacklist').value, 'x.com,youtube.com');
+  assert.equal(context.document.getElementById('cfgDownloadInterceptionBlacklist').value, 'web.telegram.org');
   assert.equal(currentConfig.externalLauncherHost, 'localhost');
 
   controller.bindSettingsEvents();
@@ -1295,17 +1301,22 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgSmallDownloadThresholdMb', '2')).config.smallDownloadThresholdBytes, 2 * 1024 * 1024);
   assert.equal((await applyChange('cfgAutoCapture', true, 'checked')).config.autoCapture, true);
   assert.equal((await applyChange('cfgMediaSniffingBlacklist', '*')).config.mediaSniffingBlacklist, '*');
+  assert.equal((await applyChange('cfgDownloadInterceptionBlacklist', 'web.telegram.org')).config.downloadInterceptionBlacklist, 'web.telegram.org');
   assert.equal((await applyChange('cfgSkipSmallDownloads', true, 'checked')).config.skipSmallDownloads, true);
   assert.equal((await applyChange('cfgUseMotrixNext', true, 'checked')).config.useMotrixNext, true);
   assert.equal((await applyChange('cfgMotrixBridgeAutoClose', true, 'checked')).config.motrixBridgeAutoClose, true);
   assert.equal((await applyChange('cfgAbDownloadSilent', true, 'checked')).config.abDownloadSilent, true);
 });
 
-test('restore default capture extensions button fills defaults and autosaves', async () => {
+test('restore default buttons fill defaults and autosave', async () => {
   const { context, sentMessages } = loadPopupSettingsRuntime();
-  const defaults = 'zip,rar,7z,exe,esd';
+  const extensionDefaults = 'zip,rar,7z,exe,esd';
+  const mediaDefaults = 'x.com,youtube.com';
+  const interceptionDefaults = 'web.telegram.org';
   const controller = context.PopupSettings.createSettingsController({
-    defaultCaptureExtensions: defaults,
+    defaultCaptureExtensions: extensionDefaults,
+    defaultMediaSniffingBlacklist: mediaDefaults,
+    defaultDownloadInterceptionBlacklist: interceptionDefaults,
     getCurrentConfig: () => ({}),
     setCurrentConfig() {},
     getCurrentState: () => ({ tasks: {}, pending: {} }),
@@ -1327,6 +1338,20 @@ test('restore default capture extensions button fills defaults and autosaves', a
   context.document.getElementById('restoreDefaultCaptureExtensionsBtn').click();
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.equal(context.document.getElementById('cfgExts').value, defaults);
-  assert.equal(sentMessages.at(-1).config.captureExtensions, defaults);
+  assert.equal(context.document.getElementById('cfgExts').value, extensionDefaults);
+  assert.equal(sentMessages.at(-1).config.captureExtensions, extensionDefaults);
+
+  context.document.getElementById('cfgMediaSniffingBlacklist').value = '*';
+  context.document.getElementById('restoreDefaultMediaSniffingBlacklistBtn').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(context.document.getElementById('cfgMediaSniffingBlacklist').value, mediaDefaults);
+  assert.equal(sentMessages.at(-1).config.mediaSniffingBlacklist, mediaDefaults);
+
+  context.document.getElementById('cfgDownloadInterceptionBlacklist').value = 'example.com';
+  context.document.getElementById('restoreDefaultDownloadInterceptionBlacklistBtn').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(context.document.getElementById('cfgDownloadInterceptionBlacklist').value, interceptionDefaults);
+  assert.equal(sentMessages.at(-1).config.downloadInterceptionBlacklist, interceptionDefaults);
 });

@@ -1111,6 +1111,8 @@ async function refreshAll() {
 
 const settingsController = popupSettings.createSettingsController({
   defaultCaptureExtensions: POPUP_DEFAULT_CAPTURE_EXTENSIONS,
+  defaultMediaSniffingBlacklist: POPUP_DEFAULT_MEDIA_SNIFFING_BLACKLIST,
+  defaultDownloadInterceptionBlacklist: POPUP_DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST,
   getCurrentConfig: () => currentConfig,
   setCurrentConfig: (next) => { currentConfig = next; },
   getSavedConfig: () => savedConfig,

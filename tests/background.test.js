@@ -768,7 +768,7 @@ test('browser download interception waits for determined filename when created i
     return originalOpenPopup();
   };
 
-  const url = 'https://web.telegram.org/k/d/1715544219';
+  const url = 'https://files.example.com/k/d/1715544219';
   await invokeDownloadCreated(background, {
     id: 1847,
     url,
@@ -4147,6 +4147,135 @@ test('default media sniffing blacklist includes x.com and youtube.com', async ()
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(state.config.mediaSniffingBlacklist, 'x.com,youtube.com');
   assert.equal(state.media[12], undefined);
+});
+
+test('default download interception blacklist includes web.telegram.org and skips browser download capture', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+  });
+
+  await invokeDownloadCreated(background, {
+    id: 51,
+    url: 'https://web.telegram.org/k/download/file.zip',
+    finalUrl: 'https://web.telegram.org/k/download/file.zip',
+    referrer: 'https://web.telegram.org/k/',
+    filename: 'file.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.downloadInterceptionBlacklist, 'web.telegram.org');
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.pending)), {});
+});
+
+test('download interception blacklist matches the current website instead of redirected resource URL', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    captureExtensions: 'zip',
+  });
+  const sourceUrl = 'https://web.telegram.org/k/download/123';
+  const cdnUrl = 'https://cdn.telegram-cdn.example/file.zip';
+
+  const tracked = await invokeBackgroundMessage(
+    background,
+    {
+      type: 'TRACK_DOWNLOAD_CLICK',
+      url: sourceUrl,
+      filename: 'telegram-file',
+    },
+    { tab: { id: 12, windowId: 34, url: 'https://web.telegram.org/k/' } }
+  );
+  assert.equal(tracked.ok, true);
+
+  await invokeSendHeaders(background, {
+    url: sourceUrl,
+    tabId: 44,
+    method: 'GET',
+    requestHeaders: [],
+  });
+  await invokeResponseHeaders(background, {
+    url: sourceUrl,
+    tabId: 44,
+    type: 'main_frame',
+    statusCode: 302,
+    responseHeaders: [
+      { name: 'location', value: cdnUrl },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    url: cdnUrl,
+    tabId: 44,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="file.zip"' },
+      { name: 'content-type', value: 'application/zip' },
+    ],
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.deepEqual(JSON.parse(JSON.stringify(state.pending)), {});
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+});
+
+test('download interception blacklist does not block media sniffing', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    __tabsById: {
+      12: { id: 12, windowId: 3, url: 'https://web.telegram.org/k/' },
+    },
+  });
+
+  await invokeSendHeaders(background, {
+    tabId: 12,
+    frameId: 0,
+    url: 'https://cdn.example.net/video.mp4',
+    method: 'GET',
+    requestHeaders: [
+      { name: 'Referer', value: 'https://web.telegram.org/k/' },
+      { name: 'Cookie', value: 'session=live' },
+    ],
+  });
+  await invokeResponseHeaders(background, {
+    tabId: 12,
+    frameId: 0,
+    url: 'https://cdn.example.net/video.mp4',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'video/mp4' },
+      { name: 'content-length', value: '2048' },
+    ],
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.downloadInterceptionBlacklist, 'web.telegram.org');
+  assert.equal(state.media[12].length, 1);
+  assert.equal(state.media[12][0].headers.referer, 'https://web.telegram.org/k/');
+  assert.equal(state.media[12][0].headers.cookie, 'session=live');
+});
+
+test('media sniffing blacklist does not block download interception', async () => {
+  const background = loadBackgroundRuntime({
+    autoCapture: true,
+    mediaSniffingBlacklist: 'example.com',
+    downloadInterceptionBlacklist: '',
+  });
+
+  await invokeDownloadCreated(background, {
+    id: 52,
+    url: 'https://example.com/file.zip',
+    finalUrl: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    mime: 'application/zip',
+    state: 'in_progress',
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [52]);
+  assert.equal(Object.keys(state.pending).length, 1);
 });
 
 test('removing a domain from media sniffing blacklist restores sniffing for that website', async () => {
