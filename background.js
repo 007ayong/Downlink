@@ -265,6 +265,14 @@ function hostnameFromUrl(url) {
   }
 }
 
+function isBrowserLocalDownloadUrl(url = '') {
+  try {
+    return ['blob:', 'data:', 'filesystem:'].includes(new URL(String(url || '')).protocol);
+  } catch {
+    return /^(blob|data|filesystem):/i.test(String(url || ''));
+  }
+}
+
 function addHostnameToMediaSniffingBlacklist(value, hostname) {
   const current = String(value || '').trim();
   if (!hostname || normalizeMediaSniffingBlacklist(current).split(',').some((entry) => (
@@ -675,6 +683,10 @@ async function captureBrowserDownloadItem(item = {}, reason = 'browser-download:
   if (isRestoredBrowserDownloadItem(item)) return false;
 
   const url = item.finalUrl || item.url;
+  if (isBrowserLocalDownloadUrl(url) || isBrowserLocalDownloadUrl(item.url)) {
+    pendingBrowserDownloadCaptures.delete(item.id);
+    return false;
+  }
   const marked = markedUrls.get(url) || markedUrls.get(item.url);
   const cachedResponse = getCachedResponseHeaders(url, item.url);
   const requestMeta = requestHeadersCache.get(url) || requestHeadersCache.get(item.url) || {};
@@ -1665,12 +1677,14 @@ if (!isFirefoxRuntime && chrome.downloads.onDeterminingFilename?.addListener) {
 
     if (pendingBrowserCapture) {
       try {
-        await captureBrowserDownloadItem(item, 'browser-download:onDeterminingFilename:capture');
+        const captured = await captureBrowserDownloadItem(item, 'browser-download:onDeterminingFilename:capture');
+        if (!captured) safeSuggest();
       } catch (error) {
         console.warn('[Downlink][browser-download] deferred filename capture failed', {
           ...describeBrowserDownloadItem(item),
           error: error?.message || String(error),
         });
+        safeSuggest();
       }
       return;
     }

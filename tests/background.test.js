@@ -806,6 +806,79 @@ test('browser download interception waits for determined filename when created i
   assert.deepEqual(order, ['cancel', 'cancel-callback', 'open-popup']);
 });
 
+test('browser download interception leaves blob downloads in the browser', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'mp4',
+  });
+
+  const url = 'blob:https://ffmpeg.bmmmd.com/52158164-af08-4b5e-b4d2-05589db9f298';
+  await invokeDownloadCreated(background, {
+    id: 1911,
+    url,
+    finalUrl: url,
+    filename: '',
+    mime: 'video/mp4',
+    state: 'in_progress',
+    totalBytes: 2038816,
+    danger: 'safe',
+    exists: true,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  let state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+
+  const suggested = await invokeDeterminingFilename(background, {
+    id: 1911,
+    url,
+    finalUrl: url,
+    filename: '/Downloads/KQRLg1xrXcSBvNH_.mp4',
+    mime: 'video/mp4',
+    state: 'in_progress',
+    totalBytes: 2038816,
+    danger: 'safe',
+    exists: true,
+  });
+
+  assert.equal(suggested, true);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  assert.deepEqual(background.chrome._downloadCalls.erase, []);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+  state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('browser download interception leaves data URL downloads in the browser', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'mp4',
+  });
+
+  const url = 'data:video/mp4;base64,AAAA';
+  await invokeDownloadCreated(background, {
+    id: 1912,
+    url,
+    finalUrl: url,
+    filename: '/Downloads/generated.mp4',
+    mime: 'video/mp4',
+    state: 'in_progress',
+    totalBytes: 4,
+    danger: 'safe',
+    exists: true,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  assert.deepEqual(background.chrome._downloadCalls.erase, []);
+  assert.equal(background.chrome._actionCalls.openPopup, 0);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
 test('browser download interception skips Downlink task when cancel fails unexpectedly', async () => {
   const background = loadBackgroundRuntime({
     downloaderType: 'aria2',
