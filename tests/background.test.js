@@ -2749,6 +2749,11 @@ test('Aria2 silent intercepted downloads send immediately', async () => {
       aria2Rpc: 'http://localhost:6800/jsonrpc',
       autoCapture: true,
       aria2Silent: true,
+      aria2CustomSaveEnabled: true,
+      aria2SaveLocations: [
+        { name: '默认', path: '/downloads/default', color: '#ff9500' },
+        { name: '视频', path: '/downloads/video', color: '#007aff' },
+      ],
       captureExtensions: 'zip',
     },
     {
@@ -2774,6 +2779,7 @@ test('Aria2 silent intercepted downloads send immediately', async () => {
 
   assert.equal(requestBody.method, 'aria2.addUri');
   assert.deepEqual(requestBody.params[0], ['https://example.com/file.zip']);
+  assert.equal(requestBody.params[1].dir, '/downloads/default');
   assert.equal(background.chrome._actionCalls.openPopup, 0);
 
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });

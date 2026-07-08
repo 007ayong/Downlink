@@ -314,7 +314,7 @@ function normalizeAria2SaveLocations(locations = []) {
 function normalizeConfig(nextConfig = {}) {
   const normalized = {
     ...nextConfig,
-    aria2CustomSaveEnabled: !!nextConfig.aria2CustomSaveEnabled && !nextConfig.aria2Silent,
+    aria2CustomSaveEnabled: !!nextConfig.aria2CustomSaveEnabled,
     aria2SaveLocations: normalizeAria2SaveLocations(nextConfig.aria2SaveLocations),
     externalLauncherName: 'AB DM',
     externalLauncherHost: 'localhost',

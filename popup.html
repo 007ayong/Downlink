@@ -481,6 +481,12 @@
     }
     .pending-save-location-menu.open {
       display: block;
+      position: fixed;
+      left: var(--pending-save-location-menu-left);
+      top: var(--pending-save-location-menu-top);
+      right: auto;
+      width: var(--pending-save-location-menu-width);
+      z-index: 1000;
     }
     .pending-save-location-item {
       display: flex; align-items: center; gap: 6px;
@@ -1073,6 +1079,26 @@
       flex-direction: column;
       gap: 5px;
     }
+    .save-location-name-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .save-location-name-row .save-location-name {
+      flex: 1;
+      min-width: 0;
+    }
+    .save-location-default-badge {
+      flex: 0 0 auto;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: rgba(28,27,25,0.72);
+      color: #fff;
+      font-size: 10.5px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
     .save-location-fields .settings-input {
       width: 100%;
       margin-top: 0;
@@ -1385,7 +1411,7 @@
       <label class="toggle"><input type="checkbox" id="cfgAria2Silent"><div class="toggle-track"></div></label>
     </div>
     <div class="settings-row aria2-only aria2-custom-save-control">
-      <label><span data-i18n="settingsAria2CustomSave">自定义保存位置</span> <span class="settings-sub" data-i18n="settingsAria2CustomSaveSub">开启后可在任务确认页选择保存目录，第一项作为默认</span></label>
+      <label><span data-i18n="settingsAria2CustomSave">自定义保存位置</span> <span class="settings-sub" data-i18n="settingsAria2CustomSaveSub">开启后可在任务确认页选择保存目录；静默下载时仅使用第一项默认位置</span></label>
       <label class="toggle"><input type="checkbox" id="cfgAria2CustomSaveEnabled"><div class="toggle-track"></div></label>
     </div>
     <div class="settings-row col aria2-only aria2-save-locations-config settings-hidden">

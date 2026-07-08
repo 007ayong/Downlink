@@ -15,9 +15,22 @@ const mediaFilenameDrafts = new Map();
 let lastRenderedPendingKey = '';
 
 function closeAllSaveLocationMenus() {
-  document.querySelectorAll('.pending-save-location-menu.open').forEach((m) => m.classList.remove('open'));
+  document.querySelectorAll('.pending-save-location-menu.open').forEach((m) => {
+    m.classList.remove('open');
+    m.style.removeProperty('--pending-save-location-menu-left');
+    m.style.removeProperty('--pending-save-location-menu-top');
+    m.style.removeProperty('--pending-save-location-menu-width');
+  });
 }
 document.addEventListener?.('click', () => closeAllSaveLocationMenus());
+
+function positionSaveLocationMenu(trigger, menu) {
+  const triggerRect = trigger?.getBoundingClientRect?.();
+  if (!triggerRect || !menu?.style?.setProperty) return;
+  menu.style.setProperty('--pending-save-location-menu-left', `${Math.round(triggerRect.left)}px`);
+  menu.style.setProperty('--pending-save-location-menu-top', `${Math.round(triggerRect.bottom + 4)}px`);
+  menu.style.setProperty('--pending-save-location-menu-width', `${Math.round(triggerRect.width)}px`);
+}
 
 function getAria2SingleThreadOptions() {
   return {
@@ -159,7 +172,7 @@ function mediaFactIcon(name) {
 }
 
 function buildPendingConfirmRenderKey(pendingVals) {
-  const saveLocations = currentConfig.aria2CustomSaveEnabled && !currentConfig.aria2Silent ? (currentConfig.aria2SaveLocations || []) : [];
+  const saveLocations = currentConfig.aria2CustomSaveEnabled ? (currentConfig.aria2SaveLocations || []) : [];
   return pendingVals.map((item) => [
     item.key,
     item.url,
@@ -171,7 +184,7 @@ function buildPendingConfirmRenderKey(pendingVals) {
     + `|${popupAppT('ignore', undefined, '忽略')}`
     + `|${getSendLabel(currentConfig)}`
     + `|${currentConfig.downloaderType || ''}`
-    + `|${currentConfig.aria2CustomSaveEnabled && !currentConfig.aria2Silent ? '1' : '0'}`
+    + `|${currentConfig.aria2CustomSaveEnabled ? '1' : '0'}`
     + `|${JSON.stringify(saveLocations)}`;
 }
 
@@ -211,7 +224,7 @@ function createPendingCard(item, { filename, canForceSingleThread }) {
   filenameRow.appendChild(filenameInput);
   card.appendChild(filenameRow);
 
-  const saveLocations = currentConfig.downloaderType === 'aria2' && currentConfig.aria2CustomSaveEnabled && !currentConfig.aria2Silent
+  const saveLocations = currentConfig.downloaderType === 'aria2' && currentConfig.aria2CustomSaveEnabled
     ? (currentConfig.aria2SaveLocations || []).filter((location) => location?.name && location?.path)
     : [];
 
@@ -260,7 +273,10 @@ function createPendingCard(item, { filename, canForceSingleThread }) {
         e.stopPropagation();
         const isOpen = menu.classList.contains('open');
         closeAllSaveLocationMenus();
-        if (!isOpen) menu.classList.add('open');
+        if (!isOpen) {
+          positionSaveLocationMenu(trigger, menu);
+          menu.classList.add('open');
+        }
       });
 
       menu.addEventListener('click', (e) => {
@@ -641,16 +657,12 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
   const isGopeed = type === 'gopeed';
   const isNeatdm = type === 'neatdm';
   const motrixAutoCloseEnabled = !!currentConfig.motrixBridgeAutoClose;
-  const aria2SilentEnabled = !!currentConfig.aria2Silent;
-  const showAria2SaveLocations = isAria2 && !aria2SilentEnabled && !!currentConfig.aria2CustomSaveEnabled;
+  const showAria2SaveLocations = isAria2 && !!currentConfig.aria2CustomSaveEnabled;
   document.querySelectorAll('.aria2-only').forEach((el) => el.classList.toggle('settings-hidden', !isAria2));
   document.querySelectorAll('.aria2-custom-save-control').forEach((el) => {
     const toggle = el.querySelector('#cfgAria2CustomSaveEnabled');
-    if (toggle) {
-      toggle.disabled = !isAria2 || aria2SilentEnabled;
-      if (aria2SilentEnabled) toggle.checked = false;
-    }
-    el.classList.toggle('settings-disabled', isAria2 && aria2SilentEnabled);
+    if (toggle) toggle.disabled = !isAria2;
+    el.classList.toggle('settings-disabled', false);
   });
   document.querySelectorAll('.aria2-save-locations-config').forEach((el) => el.classList.toggle('settings-hidden', !showAria2SaveLocations));
   document.querySelectorAll('.launcher-only').forEach((el) => el.classList.toggle('settings-hidden', !isAbDownload));

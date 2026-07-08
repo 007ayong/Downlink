@@ -966,7 +966,7 @@ test('motrix auto-close setting becomes enabled after bridge option is enabled',
   assert.equal(motrixRow.classList.contains('settings-disabled'), false);
 });
 
-test('aria2 custom save controls are disabled while silent downloads are enabled', () => {
+test('aria2 custom save controls stay enabled while silent downloads are enabled', () => {
   const popup = loadPopupRuntime();
   const customSaveRow = createElementStub();
   const customSaveToggle = createElementStub();
@@ -989,10 +989,10 @@ test('aria2 custom save controls are disabled while silent downloads are enabled
   });
   popup.updateSettingsVisibility('aria2');
 
-  assert.equal(customSaveToggle.disabled, true);
-  assert.equal(customSaveToggle.checked, false);
-  assert.equal(customSaveRow.classList.contains('settings-disabled'), true);
-  assert.equal(saveLocationsRow.classList.contains('settings-hidden'), true);
+  assert.equal(customSaveToggle.disabled, false);
+  assert.equal(customSaveToggle.checked, true);
+  assert.equal(customSaveRow.classList.contains('settings-disabled'), false);
+  assert.equal(saveLocationsRow.classList.contains('settings-hidden'), false);
 });
 
 test('cfgUseMotrixNext only binds one change listener for autosave', () => {
@@ -1116,6 +1116,7 @@ test('settings controller collects custom aria2 save locations in display order'
 
   const config = controller.collectSettingsFromForm();
   assert.equal(config.aria2CustomSaveEnabled, true);
+  assert.equal(context.document.getElementById('cfgAria2SaveLocations').querySelector('.save-location-default-badge').textContent, '默认');
   assert.deepEqual(JSON.parse(JSON.stringify(config.aria2SaveLocations)), [
     { name: '视频', path: '/downloads/video', color: '#007aff' },
     { name: '默认', path: '/downloads/default', color: '#ff9500' },
@@ -1162,7 +1163,7 @@ test('settings controller updates save location color from built-in palette swat
   ]);
 });
 
-test('settings controller disables custom aria2 save locations when silent downloads are enabled', () => {
+test('settings controller keeps custom aria2 save locations when silent downloads are enabled', () => {
   const { context } = loadPopupSettingsRuntime();
   const controller = context.PopupSettings.createSettingsController({
     getCurrentConfig: () => ({}),
@@ -1189,7 +1190,7 @@ test('settings controller disables custom aria2 save locations when silent downl
 
   const config = controller.collectSettingsFromForm();
   assert.equal(config.aria2Silent, true);
-  assert.equal(config.aria2CustomSaveEnabled, false);
+  assert.equal(config.aria2CustomSaveEnabled, true);
   assert.deepEqual(JSON.parse(JSON.stringify(config.aria2SaveLocations)), [
     { name: '默认', path: '/downloads/default', color: '#ff9500' },
   ]);
@@ -1293,7 +1294,7 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgRpc', 'http://127.0.0.1:6800/jsonrpc')).config.aria2Rpc, 'http://127.0.0.1:6800/jsonrpc');
   assert.equal((await applyChange('cfgSecret', 'new-secret')).config.aria2Secret, 'new-secret');
   assert.equal((await applyChange('cfgAria2Silent', true, 'checked')).config.aria2Silent, true);
-  assert.equal((await applyChange('cfgAria2CustomSaveEnabled', true, 'checked')).config.aria2CustomSaveEnabled, false);
+  assert.equal((await applyChange('cfgAria2CustomSaveEnabled', true, 'checked')).config.aria2CustomSaveEnabled, true);
   assert.equal((await applyChange('cfgMotrixNextPort', '16888')).config.motrixNextPort, '16888');
   assert.equal((await applyChange('cfgMotrixNextSecret', 'motrix-secret')).config.motrixNextSecret, 'motrix-secret');
   assert.equal((await applyChange('cfgLauncherPort', '17000')).config.externalLauncherPort, '17000');
