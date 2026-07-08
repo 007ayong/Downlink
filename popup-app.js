@@ -12,7 +12,16 @@ const popupAppT = popupAppI18n.t || ((key, substitutions, fallback = key) => {
 });
 const pendingFilenameDrafts = new Map();
 const mediaFilenameDrafts = new Map();
+const MEDIA_HOVER_PREVIEW_DELAY_MS = 280;
+const MEDIA_HOVER_PREVIEW_HIDE_DELAY_MS = 120;
 let lastRenderedPendingKey = '';
+let mediaHoverPreviewState = {
+  itemId: '',
+  timer: null,
+  hideTimer: null,
+  popover: null,
+  mediaEl: null,
+};
 
 function closeAllSaveLocationMenus() {
   document.querySelectorAll('.pending-save-location-menu.open').forEach((m) => {
@@ -23,6 +32,119 @@ function closeAllSaveLocationMenus() {
   });
 }
 document.addEventListener?.('click', () => closeAllSaveLocationMenus());
+
+function clearMediaHoverPreviewTimers() {
+  if (mediaHoverPreviewState.timer) clearTimeout(mediaHoverPreviewState.timer);
+  if (mediaHoverPreviewState.hideTimer) clearTimeout(mediaHoverPreviewState.hideTimer);
+  mediaHoverPreviewState.timer = null;
+  mediaHoverPreviewState.hideTimer = null;
+}
+
+function closeMediaHoverPreview() {
+  const { itemId, popover, mediaEl } = mediaHoverPreviewState;
+  clearMediaHoverPreviewTimers();
+  try {
+    mediaEl?.pause?.();
+  } catch {}
+  popover?.remove?.();
+  if (itemId) chrome.runtime.sendMessage({ type: 'CLEAR_MEDIA_HOVER_PREVIEW', id: itemId }, () => {});
+  mediaHoverPreviewState = {
+    itemId: '',
+    timer: null,
+    hideTimer: null,
+    popover: null,
+    mediaEl: null,
+  };
+}
+
+function scheduleCloseMediaHoverPreview() {
+  if (mediaHoverPreviewState.timer) {
+    clearTimeout(mediaHoverPreviewState.timer);
+    mediaHoverPreviewState.timer = null;
+  }
+  if (!mediaHoverPreviewState.popover) return;
+  if (mediaHoverPreviewState.hideTimer) clearTimeout(mediaHoverPreviewState.hideTimer);
+  mediaHoverPreviewState.hideTimer = setTimeout(closeMediaHoverPreview, MEDIA_HOVER_PREVIEW_HIDE_DELAY_MS);
+}
+
+function positionMediaHoverPreview(card, popover) {
+  const rect = card?.getBoundingClientRect?.();
+  if (!rect || !popover?.style) return;
+  const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 420;
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 620;
+  const previewWidth = Math.min(320, Math.max(260, viewportWidth - 20));
+  const previewHeight = popover.offsetHeight || (card?.dataset?.mediaKind === 'audio' ? 112 : 236);
+  const left = Math.max(10, Math.min(rect.left, viewportWidth - previewWidth - 10));
+  const belowTop = rect.bottom + 8;
+  const top = belowTop + previewHeight <= viewportHeight - 10
+    ? belowTop
+    : Math.max(10, rect.top - previewHeight - 8);
+  popover.style.width = `${Math.round(previewWidth)}px`;
+  popover.style.left = `${Math.round(left)}px`;
+  popover.style.top = `${Math.round(top)}px`;
+}
+
+function openMediaHoverPreview(item, card) {
+  if (!item?.resourceUrl || !item?.id) return;
+  if (mediaHoverPreviewState.itemId === item.id && mediaHoverPreviewState.popover) {
+    clearMediaHoverPreviewTimers();
+    return;
+  }
+  closeMediaHoverPreview();
+
+  const popover = document.createElement('div');
+  popover.className = `media-hover-preview media-hover-preview-${item.kind === 'audio' ? 'audio' : 'video'}`;
+  popover.addEventListener('mouseenter', clearMediaHoverPreviewTimers);
+  popover.addEventListener('mouseleave', scheduleCloseMediaHoverPreview);
+
+  const header = document.createElement('div');
+  header.className = 'media-hover-preview-title';
+  header.textContent = getMediaFilenameValue(item);
+  popover.appendChild(header);
+
+  const shell = document.createElement('div');
+  shell.className = 'media-hover-preview-shell';
+  const tagName = item.kind === 'audio' ? 'audio' : 'video';
+  const mediaEl = document.createElement(tagName);
+  mediaEl.controls = true;
+  mediaEl.autoplay = true;
+  mediaEl.preload = 'auto';
+  if (tagName === 'video') {
+    mediaEl.muted = false;
+    mediaEl.playsInline = true;
+  }
+  mediaEl.addEventListener('error', () => {
+    popover.classList.add('media-hover-preview-error');
+  });
+  shell.appendChild(mediaEl);
+  popover.appendChild(shell);
+
+  document.body.appendChild(popover);
+  card.dataset.mediaKind = item.kind || 'media';
+  positionMediaHoverPreview(card, popover);
+  mediaHoverPreviewState = {
+    itemId: item.id,
+    timer: null,
+    hideTimer: null,
+    popover,
+    mediaEl,
+  };
+
+  chrome.runtime.sendMessage({ type: 'PREPARE_MEDIA_HOVER_PREVIEW', id: item.id }, () => {
+    if (mediaHoverPreviewState.itemId !== item.id || mediaHoverPreviewState.mediaEl !== mediaEl) return;
+    mediaEl.src = item.resourceUrl;
+    const playResult = mediaEl.play?.();
+    playResult?.catch?.(() => {});
+  });
+}
+
+function scheduleMediaHoverPreview(item, card) {
+  clearMediaHoverPreviewTimers();
+  mediaHoverPreviewState.timer = setTimeout(() => {
+    mediaHoverPreviewState.timer = null;
+    openMediaHoverPreview(item, card);
+  }, MEDIA_HOVER_PREVIEW_DELAY_MS);
+}
 
 function positionSaveLocationMenu(trigger, menu) {
   const triggerRect = trigger?.getBoundingClientRect?.();
@@ -485,6 +607,7 @@ function syncPopupGlobals() {
   globalThis.headerStatusState = headerStatusState;
   globalThis.headerStatusMinUntil = headerStatusMinUntil;
   globalThis.headerStatusTransitionTimer = headerStatusTransitionTimer;
+  globalThis.mediaHoverPreviewState = mediaHoverPreviewState;
 }
 
 function applyLocaleFromConfig(cfg = currentConfig) {
@@ -979,6 +1102,7 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
   lastRenderedMediaKey = mediaKey;
   syncPopupGlobals();
 
+  closeMediaHoverPreview();
   listEl.replaceChildren();
   media.forEach((item) => {
     const iconSrc = getFileIcon({ name: item.filename, mime: item.mime, kind: item.kind });
@@ -987,6 +1111,10 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
     const displayFilename = getMediaFilenameValue(item);
     const card = createMediaCard(item, { iconSrc, durationText, resolutionText, displayFilename });
     listEl.appendChild(card);
+    const iconWrap = card.querySelector('.media-icon');
+    if (iconWrap) iconWrap.addEventListener('mouseenter', () => scheduleMediaHoverPreview(item, card));
+    if (iconWrap) iconWrap.addEventListener('mouseleave', scheduleCloseMediaHoverPreview);
+    card.addEventListener('mouseleave', scheduleCloseMediaHoverPreview);
     const icon = card.querySelector('.media-icon img');
     if (icon) icon.addEventListener('error', handleTaskIconError);
 

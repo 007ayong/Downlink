@@ -61,6 +61,7 @@ function createElementStub(tagName = 'div') {
     alt: '',
     children: [],
     _queryMap: new Map(),
+    offsetHeight: normalizedTagName === 'audio' ? 42 : 0,
     classList: {
       add(...tokens) {
         tokens.forEach((token) => classes.add(token));
@@ -102,8 +103,15 @@ function createElementStub(tagName = 'div') {
       children.forEach((child) => this.appendChild(child));
     },
     remove() {},
+    contains(node) {
+      if (node === this) return true;
+      return (this.children || []).some((child) => child?.contains?.(node));
+    },
     focus() {},
     select() {},
+    getBoundingClientRect() {
+      return { left: 20, top: 40, right: 340, bottom: 120, width: 320, height: 80 };
+    },
     setAttribute(name, value) {
       if (name === 'class') this.className = String(value);
       else if (name === 'aria-label') this.ariaLabel = String(value);
@@ -682,6 +690,56 @@ test('media duration label formats finite positive durations', () => {
   assert.equal(popup.mediaDurationLabel(3661), '1:01:01');
   assert.equal(popup.mediaDurationLabel(0), '');
   assert.equal(popup.mediaDurationLabel(Infinity), '');
+});
+
+test('media icon hover opens floating playback preview and cleans metadata rule', async () => {
+  const popup = loadPopupRuntime({
+    state: {
+      media: {
+        1: [{
+          id: 'media_1',
+          resourceUrl: 'https://cdn.example.com/video.mp4',
+          filename: 'video.mp4',
+          size: 100,
+          kind: 'video',
+          mime: 'video/mp4',
+          width: 1920,
+          height: 1080,
+          duration: 60,
+        }],
+      },
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const card = popup.document.getElementById('mediaList').children[0];
+  const iconWrap = card.querySelector('.media-icon');
+  assert.ok(card);
+  assert.ok(iconWrap);
+  assert.equal(card._listeners.mouseenter, undefined);
+
+  iconWrap._listeners.mouseenter[0]();
+  await new Promise((resolve) => setTimeout(resolve, 320));
+
+  const prepareMessage = popup.chrome._sentMessages.findLast((item) => item?.type === 'PREPARE_MEDIA_HOVER_PREVIEW');
+  assert.deepEqual(JSON.parse(JSON.stringify(prepareMessage)), {
+    type: 'PREPARE_MEDIA_HOVER_PREVIEW',
+    id: 'media_1',
+  });
+  const preview = popup.document.body.children.find((child) => child.classList.contains('media-hover-preview'));
+  assert.ok(preview);
+  assert.equal(preview.querySelector('video').muted, false);
+
+  iconWrap._listeners.mouseleave[0]();
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const clearMessage = popup.chrome._sentMessages.findLast((item) => item?.type === 'CLEAR_MEDIA_HOVER_PREVIEW');
+  assert.deepEqual(JSON.parse(JSON.stringify(clearMessage)), {
+    type: 'CLEAR_MEDIA_HOVER_PREVIEW',
+    id: 'media_1',
+  });
 });
 
 test('sniffing resume button shows capture-off message when resume is blocked', async () => {

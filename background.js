@@ -1827,12 +1827,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         break;
       }
+      case 'PREPARE_MEDIA_HOVER_PREVIEW': {
+        const media = mediaManager.findMediaResourceById(msg.id);
+        if (!media) {
+          sendResponse({ ok: false, error: t('mediaExpired', undefined, '媒体资源不存在或已过期。') });
+          break;
+        }
+        try {
+          const result = await mediaManager.prepareHoverPreviewRule(media);
+          sendResponse({ ok: true, ...result });
+        } catch (error) {
+          sendResponse({ ok: false, error: error?.message || t('previewPatchFailed', undefined, '预览请求补头失败') });
+        }
+        break;
+      }
       case 'CLEAR_MEDIA_PREVIEW':
         await mediaManager.clearPreviewRule(msg.tabId);
         sendResponse({ ok: true });
         break;
       case 'CLEAR_MEDIA_METADATA': {
         await mediaManager.clearMetadataRule(msg.id);
+        sendResponse({ ok: true });
+        break;
+      }
+      case 'CLEAR_MEDIA_HOVER_PREVIEW': {
+        await mediaManager.clearHoverPreviewRule(msg.id);
         sendResponse({ ok: true });
         break;
       }

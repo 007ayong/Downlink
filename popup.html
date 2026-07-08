@@ -968,6 +968,49 @@
       height: 54px;
       background: var(--bg2);
     }
+    .media-hover-preview {
+      position: fixed;
+      z-index: 50;
+      padding: 8px;
+      border: 1px solid rgba(34, 34, 34, 0.14);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 12px 32px rgba(24, 24, 24, 0.18);
+      backdrop-filter: blur(10px);
+    }
+    .media-hover-preview-title {
+      margin-bottom: 7px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.35;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .media-hover-preview-shell {
+      overflow: hidden;
+      border-radius: 7px;
+      background: #000;
+    }
+    .media-hover-preview video,
+    .media-hover-preview audio {
+      width: 100%;
+      display: block;
+      background: #000;
+    }
+    .media-hover-preview video {
+      max-height: 190px;
+      object-fit: contain;
+    }
+    .media-hover-preview audio {
+      height: 42px;
+      background: var(--bg2);
+    }
+    .media-hover-preview-error .media-hover-preview-shell {
+      border: 1px solid var(--red-bg);
+      background: #111;
+    }
 
     /* ── Settings Panel ──────────────────────── */
     .settings-group {
