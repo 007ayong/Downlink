@@ -866,7 +866,6 @@ test('aria2 test connection sends the current form config', () => {
     aria2CustomSaveEnabled: false,
     aria2SaveLocations: [],
     useMotrixNext: false,
-    motrixBridgeAutoClose: false,
     motrixNextPort: '16801',
     motrixNextSecret: '',
     gopeedApi: 'http://127.0.0.1:9999',
@@ -903,7 +902,6 @@ test('AB DM test connection sends the current form config', () => {
     aria2CustomSaveEnabled: false,
     aria2SaveLocations: [],
     useMotrixNext: false,
-    motrixBridgeAutoClose: false,
     motrixNextPort: '16801',
     motrixNextSecret: '',
     gopeedApi: 'http://127.0.0.1:9999',
@@ -982,48 +980,6 @@ test('connection failure alert renders in both tasks and media panels', async ()
   assert.equal(mediaAlertEl.classList.contains('show'), true);
 });
 
-test('motrix auto-close setting is disabled when not enabled yet', () => {
-  const popup = loadPopupRuntime();
-  const motrixRow = createElementStub();
-  const motrixToggle = createElementStub();
-  motrixRow.querySelector = (selector) => (selector === '#cfgMotrixBridgeAutoClose' ? motrixToggle : null);
-
-  const ariaRows = [motrixRow];
-  popup.document.querySelectorAll = (selector) => {
-    if (selector === '.aria2-only') return ariaRows;
-    if (selector === '.launcher-only' || selector === '.neatdm-only') return [];
-    if (selector === '.motrix-autoclose-only') return [motrixRow];
-    return [];
-  };
-
-  Object.assign(popup.currentConfig, { downloaderType: 'aria2', motrixBridgeAutoClose: false });
-  popup.updateSettingsVisibility('aria2');
-
-  assert.equal(motrixToggle.disabled, true);
-  assert.equal(motrixRow.classList.contains('settings-disabled'), true);
-});
-
-test('motrix auto-close setting becomes enabled after bridge option is enabled', () => {
-  const popup = loadPopupRuntime();
-  const motrixRow = createElementStub();
-  const motrixToggle = createElementStub();
-  motrixRow.querySelector = (selector) => (selector === '#cfgMotrixBridgeAutoClose' ? motrixToggle : null);
-
-  const ariaRows = [motrixRow];
-  popup.document.querySelectorAll = (selector) => {
-    if (selector === '.aria2-only') return ariaRows;
-    if (selector === '.launcher-only' || selector === '.neatdm-only') return [];
-    if (selector === '.motrix-autoclose-only') return [motrixRow];
-    return [];
-  };
-
-  Object.assign(popup.currentConfig, { downloaderType: 'aria2', motrixBridgeAutoClose: true });
-  popup.updateSettingsVisibility('aria2');
-
-  assert.equal(motrixToggle.disabled, false);
-  assert.equal(motrixRow.classList.contains('settings-disabled'), false);
-});
-
 test('aria2 custom save controls stay enabled while silent downloads are enabled', () => {
   const popup = loadPopupRuntime();
   const customSaveRow = createElementStub();
@@ -1036,7 +992,7 @@ test('aria2 custom save controls stay enabled while silent downloads are enabled
     if (selector === '.aria2-only') return [customSaveRow, saveLocationsRow];
     if (selector === '.aria2-custom-save-control') return [customSaveRow];
     if (selector === '.aria2-save-locations-config') return [saveLocationsRow];
-    if (selector === '.launcher-only' || selector === '.neatdm-only' || selector === '.motrixnext-only' || selector === '.gopeed-only' || selector === '.motrix-autoclose-only') return [];
+    if (selector === '.launcher-only' || selector === '.neatdm-only' || selector === '.motrixnext-only' || selector === '.gopeed-only') return [];
     return [];
   };
 
@@ -1107,7 +1063,6 @@ test('settings controller collects every visible config field from the form', ()
   context.document.getElementById('cfgSecret').value = 'secret';
   context.document.getElementById('cfgAria2Silent').checked = true;
   context.document.getElementById('cfgUseMotrixNext').checked = true;
-  context.document.getElementById('cfgMotrixBridgeAutoClose').checked = true;
   context.document.getElementById('cfgMotrixNextPort').value = '16888';
   context.document.getElementById('cfgMotrixNextSecret').value = 'motrix-secret';
   context.document.getElementById('cfgLauncherPort').value = '17000';
@@ -1128,7 +1083,6 @@ test('settings controller collects every visible config field from the form', ()
     aria2CustomSaveEnabled: false,
     aria2SaveLocations: [],
     useMotrixNext: true,
-    motrixBridgeAutoClose: true,
     motrixNextPort: '16888',
     motrixNextSecret: 'motrix-secret',
     gopeedApi: 'http://127.0.0.1:9999',
@@ -1363,7 +1317,6 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgDownloadInterceptionBlacklist', 'web.telegram.org')).config.downloadInterceptionBlacklist, 'web.telegram.org');
   assert.equal((await applyChange('cfgSkipSmallDownloads', true, 'checked')).config.skipSmallDownloads, true);
   assert.equal((await applyChange('cfgUseMotrixNext', true, 'checked')).config.useMotrixNext, true);
-  assert.equal((await applyChange('cfgMotrixBridgeAutoClose', true, 'checked')).config.motrixBridgeAutoClose, true);
   assert.equal((await applyChange('cfgAbDownloadSilent', true, 'checked')).config.abDownloadSilent, true);
 });
 

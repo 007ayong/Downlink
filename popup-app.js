@@ -779,7 +779,6 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
   const isMotrixNext = type === 'motrixnext';
   const isGopeed = type === 'gopeed';
   const isNeatdm = type === 'neatdm';
-  const motrixAutoCloseEnabled = !!currentConfig.motrixBridgeAutoClose;
   const showAria2SaveLocations = isAria2 && !!currentConfig.aria2CustomSaveEnabled;
   document.querySelectorAll('.aria2-only').forEach((el) => el.classList.toggle('settings-hidden', !isAria2));
   document.querySelectorAll('.aria2-custom-save-control').forEach((el) => {
@@ -792,11 +791,6 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
   document.querySelectorAll('.motrixnext-only').forEach((el) => el.classList.toggle('settings-hidden', !isMotrixNext));
   document.querySelectorAll('.gopeed-only').forEach((el) => el.classList.toggle('settings-hidden', !isGopeed));
   document.querySelectorAll('.neatdm-only').forEach((el) => el.classList.toggle('settings-hidden', !isNeatdm));
-  document.querySelectorAll('.motrix-autoclose-only').forEach((el) => {
-    const toggle = el.querySelector('#cfgMotrixBridgeAutoClose');
-    if (toggle) toggle.disabled = !motrixAutoCloseEnabled;
-    el.classList.toggle('settings-disabled', !motrixAutoCloseEnabled);
-  });
   document.querySelectorAll('.downloader-config-group').forEach((el) => {
     el.classList.toggle('settings-hidden', !(isAria2 || isAbDownload));
   });

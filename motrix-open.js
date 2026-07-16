@@ -1,6 +1,5 @@
 (function initMotrixOpenPage() {
   const AUTO_CLOSE_DELAY_MS = 800;
-  const AUTO_CLOSE_STORAGE_KEY = 'motrixBridgeAutoClose';
   const deepLink = 'motrixnext://';
 
   const isZh = (navigator.language || '').toLowerCase().includes('zh');
@@ -11,8 +10,7 @@
       targetLabel: '目标协议：',
       launch: '再次唤起',
       close: '关闭此页',
-      autoCloseLabel: '下次自动关闭该页面（约 800 毫秒）',
-      hint: '若未自动唤起，可点击“再次唤起”。默认不会自动关闭。',
+      hint: '若未自动唤起，可点击“再次唤起”。此页面会自动关闭。',
     }
     : {
       title: 'Launching MotrixNext',
@@ -20,8 +18,7 @@
       targetLabel: 'Target protocol:',
       launch: 'Try again',
       close: 'Close this tab',
-      autoCloseLabel: 'Auto-close this page next time (about 800ms)',
-      hint: 'If auto-launch did not trigger, click "Try again". Auto-close is off by default.',
+      hint: 'If auto-launch did not trigger, click "Try again". This page closes automatically.',
     };
 
   const titleEl = document.getElementById('title');
@@ -29,10 +26,7 @@
   const targetLabelEl = document.getElementById('targetLabel');
   const launchBtn = document.getElementById('launchBtn');
   const closeBtn = document.getElementById('closeBtn');
-  const autoCloseCheckbox = document.getElementById('autoCloseNext');
-  const autoCloseLabelEl = document.getElementById('autoCloseLabel');
   const hintEl = document.getElementById('hint');
-  let autoCloseEnabled = false;
 
   if (titleEl) titleEl.textContent = text.title;
   if (descEl) descEl.textContent = text.desc;
@@ -46,27 +40,12 @@
   }
   if (launchBtn) launchBtn.textContent = text.launch;
   if (closeBtn) closeBtn.textContent = text.close;
-  if (autoCloseLabelEl) autoCloseLabelEl.textContent = text.autoCloseLabel;
   if (hintEl) hintEl.textContent = text.hint;
-
-  if (chrome?.storage?.sync?.get) {
-    chrome.storage.sync.get({ [AUTO_CLOSE_STORAGE_KEY]: false }, (stored) => {
-      autoCloseEnabled = !!stored?.[AUTO_CLOSE_STORAGE_KEY];
-      if (autoCloseCheckbox) autoCloseCheckbox.checked = autoCloseEnabled;
-    });
-  }
-
-  autoCloseCheckbox?.addEventListener('change', () => {
-    autoCloseEnabled = !!autoCloseCheckbox.checked;
-    if (chrome?.storage?.sync?.set) {
-      chrome.storage.sync.set({ [AUTO_CLOSE_STORAGE_KEY]: autoCloseEnabled });
-    }
-  });
 
   function launch() {
     // Use top-level navigation to trigger external protocol handling.
     window.location.assign(deepLink);
-    if (autoCloseEnabled) setTimeout(closeCurrentTab, AUTO_CLOSE_DELAY_MS);
+    setTimeout(closeCurrentTab, AUTO_CLOSE_DELAY_MS);
   }
 
   function closeCurrentTab() {

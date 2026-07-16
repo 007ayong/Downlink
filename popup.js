@@ -23,7 +23,6 @@ const POPUP_DEFAULT_CONFIG = {
   aria2CustomSaveEnabled: false,
   aria2SaveLocations: [],
   useMotrixNext: false,
-  motrixBridgeAutoClose: false,
   motrixNextPort: '16801',
   motrixNextSecret: '',
   gopeedApi: 'http://127.0.0.1:9999',

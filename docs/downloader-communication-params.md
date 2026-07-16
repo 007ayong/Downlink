@@ -92,7 +92,6 @@ Content-Type: application/json
 | `downloaderType` | `motrixnext` | 选择 MotrixNext 适配器 |
 | `motrixNextPort` | `16801` | 本机 HTTP 接收服务端口 |
 | `motrixNextSecret` | 空 | MotrixNext `extensionApiSecret`，可不填 |
-| `motrixBridgeAutoClose` | `false` | 桥接页自动关闭设置，不影响 HTTP 请求字段 |
 
 ### 请求格式
 
