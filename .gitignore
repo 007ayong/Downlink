@@ -4,3 +4,9 @@ node_modules/
 dist/
 .idea/
 .vscode/
+
+# Safari Xcode build artifacts (project itself is tracked)
+safari/**/DerivedData/
+safari/**/*.xcuserstate
+safari/**/xcuserdata/
+safari/**/.DS_Store

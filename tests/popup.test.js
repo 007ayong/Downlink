@@ -200,6 +200,7 @@ function loadPopupRuntime(options = {}) {
   const chrome = {
     _listeners: {},
     _sentMessages: [],
+    _tabMessages: [],
     _createdTabs: [],
     runtime: {
       lastError: null,
@@ -230,7 +231,7 @@ function loadPopupRuntime(options = {}) {
         callback?.({ ok: true });
       },
       getURL(value) {
-        return value;
+        return `${options.runtimeUrl || ''}${value}`;
       },
       getManifest() {
         return { version: options.manifestVersion || '1.3.3' };
@@ -251,12 +252,28 @@ function loadPopupRuntime(options = {}) {
         chrome._createdTabs.push(_opts);
         callback?.({ id: 2 });
       },
+      sendMessage(tabId, message, callback) {
+        chrome._tabMessages.push({ tabId, message });
+        const response = typeof options.tabMessageResponse === 'function'
+          ? options.tabMessageResponse(tabId, message)
+          : options.tabMessageResponse;
+        callback?.(response);
+      },
     },
+    scripting: options.scriptingExecuteScript ? {
+      executeScript(details, callback) {
+        const response = options.scriptingExecuteScript(details);
+        Promise.resolve(response).then((result) => callback?.([{ result }]));
+      },
+    } : undefined,
   };
 
   const context = {
     console,
     Buffer,
+    ArrayBuffer,
+    DataView,
+    Uint8Array,
     TextDecoder,
     URL,
     URLSearchParams,
@@ -608,6 +625,26 @@ test('popup auto capture switch follows background config updates', () => {
   assert.equal(autoCapture.checked, false);
 });
 
+test('tab-scoped media updates merge without dropping the current list', () => {
+  const popup = loadPopupRuntime();
+  popup.renderState({
+    tasks: {},
+    pending: {},
+    media: { 1: [{ id: 'media_1', resourceUrl: 'https://cdn.example.com/one.mp4', filename: 'one.mp4', kind: 'video' }] },
+  });
+
+  popup.renderState({
+    type: 'TASKS_UPDATE',
+    tasks: {},
+    pending: {},
+    mediaPatch: true,
+    media: { 2: [{ id: 'media_2', resourceUrl: 'https://cdn.example.com/two.mp4', filename: 'two.mp4', kind: 'video' }] },
+  });
+
+  assert.equal(popup.currentState.media[1][0].id, 'media_1');
+  assert.equal(popup.currentState.media[2][0].id, 'media_2');
+});
+
 test('customize shortcut button opens Chromium shortcut settings by default', async () => {
   const popup = loadPopupRuntime();
   popup.document.getElementById('customizeShortcutBtn').click();
@@ -656,6 +693,14 @@ test('video resolution label shows Chinese placeholder before metadata arrives',
   assert.equal(
     popup.mediaResolutionLabel({ kind: 'video', width: 0, height: 0 }),
     '分辨率待识别'
+  );
+});
+
+test('failed media metadata no longer stays in pending state', () => {
+  const popup = loadPopupRuntime();
+  assert.equal(
+    popup.mediaResolutionLabel({ kind: 'video', width: 0, height: 0, metadataFailed: true }),
+    '无法识别分辨率'
   );
 });
 
@@ -730,16 +775,224 @@ test('media icon hover opens floating playback preview and cleans metadata rule'
   });
   const preview = popup.document.body.children.find((child) => child.classList.contains('media-hover-preview'));
   assert.ok(preview);
-  assert.equal(preview.querySelector('video').muted, false);
+  assert.equal(preview.querySelector('video').muted, true);
 
   iconWrap._listeners.mouseleave[0]();
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  await new Promise((resolve) => setTimeout(resolve, 400));
 
   const clearMessage = popup.chrome._sentMessages.findLast((item) => item?.type === 'CLEAR_MEDIA_HOVER_PREVIEW');
   assert.deepEqual(JSON.parse(JSON.stringify(clearMessage)), {
     type: 'CLEAR_MEDIA_HOVER_PREVIEW',
     id: 'media_1',
   });
+});
+
+test('Safari disables list hover playback and keeps click-through preview', async () => {
+  const popup = loadPopupRuntime({
+    runtimeUrl: 'safari-web-extension://test/',
+    state: {
+      media: {
+        1: [{
+          id: 'media_safari_preview',
+          tabId: 1,
+          resourceUrl: 'https://cdn.example.com/video.m4s',
+          filename: 'video.m4s',
+          size: 100 * 1024 * 1024,
+          kind: 'video',
+          mime: 'application/octet-stream',
+          width: 1920,
+          height: 1080,
+        }],
+      },
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const card = popup.document.getElementById('mediaList').children[0];
+  assert.equal(card.querySelector('.media-icon')._listeners.mouseenter, undefined);
+  assert.equal(card._listeners.mouseleave, undefined);
+
+  card.querySelector('.media-preview-toggle').click();
+  assert.equal(popup.chrome._createdTabs.length, 1);
+  assert.match(popup.chrome._createdTabs[0].url, /preview\.html\?id=media_safari_preview$/);
+  assert.equal(
+    popup.chrome._sentMessages.some((message) => message?.type === 'PREPARE_MEDIA_HOVER_PREVIEW'),
+    false
+  );
+});
+
+test('media list metadata updates keep the active hover preview alive', async () => {
+  const media = {
+    id: 'media_1',
+    resourceUrl: 'https://cdn.example.com/video.mp4',
+    filename: 'video.mp4',
+    size: 100,
+    kind: 'video',
+    mime: 'video/mp4',
+    width: 1920,
+    height: 1080,
+    duration: 60,
+  };
+  const popup = loadPopupRuntime({ state: { media: { 1: [media] } } });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const card = popup.document.getElementById('mediaList').children[0];
+  card.querySelector('.media-icon')._listeners.mouseenter[0]();
+  await new Promise((resolve) => setTimeout(resolve, 320));
+
+  const preview = popup.document.body.children.find((child) => child.classList.contains('media-hover-preview'));
+  const clearCount = popup.chrome._sentMessages.filter((item) => item?.type === 'CLEAR_MEDIA_HOVER_PREVIEW').length;
+  popup.renderMedia({ 1: [{ ...media, filename: 'updated-video.mp4', duration: 61 }] }, [], []);
+
+  assert.equal(popup.mediaHoverPreviewState.popover, preview);
+  assert.equal(preview.querySelector('.media-hover-preview-title').textContent, 'updated-video.mp4');
+  assert.equal(
+    popup.chrome._sentMessages.filter((item) => item?.type === 'CLEAR_MEDIA_HOVER_PREVIEW').length,
+    clearCount
+  );
+  popup.closeMediaHoverPreview();
+});
+
+test('media metadata loading is batched and deduplicated while requests are in flight', async () => {
+  const popup = loadPopupRuntime();
+  const item = {
+    id: 'media_1',
+    resourceUrl: 'https://cdn.example.com/video.mp4',
+    filename: 'video.mp4',
+    kind: 'video',
+  };
+  const card = popup.document.createElement('div');
+  const secondCard = popup.document.createElement('div');
+
+  popup.loadMediaMetadata(item, card);
+  popup.loadMediaMetadata(item, card);
+  popup.loadMediaMetadata({
+    ...item,
+    id: 'media_2',
+    resourceUrl: 'https://cdn.example.com/audio.m4a',
+    filename: 'audio.m4a',
+    kind: 'audio',
+  }, secondCard);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  const batchMessages = popup.chrome._sentMessages.filter((message) => message?.type === 'PREPARE_MEDIA_METADATA_BATCH');
+  assert.equal(batchMessages.length, 1);
+  assert.deepEqual(Array.from(batchMessages[0].ids), ['media_1', 'media_2']);
+  card.children[0]._listeners.error[0]();
+  secondCard.children[0]._listeners.error[0]();
+});
+
+test('Safari probes media metadata in the source tab before using extension requests', async () => {
+  const popup = loadPopupRuntime({
+    runtimeUrl: 'safari-web-extension://test/',
+    tabMessageResponse: { ok: true, width: 1920, height: 1080, duration: 65, kind: 'video' },
+  });
+  const item = {
+    id: 'media_safari',
+    tabId: 7,
+    resourceUrl: 'https://cdn.example.com/video.m4s',
+    filename: 'video.m4s',
+    kind: 'media',
+  };
+  const card = popup.document.createElement('div');
+
+  popup.loadMediaMetadata(item, card);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(popup.chrome._tabMessages)), [{
+    tabId: 7,
+    message: {
+      type: 'PROBE_MEDIA_METADATA_IN_PAGE',
+      resourceUrl: item.resourceUrl,
+      kind: 'media',
+    },
+  }]);
+  assert.equal(
+    popup.chrome._sentMessages.some((message) => message?.type === 'PREPARE_MEDIA_METADATA_BATCH'),
+    false
+  );
+  const update = popup.chrome._sentMessages.find((message) => message?.type === 'UPDATE_MEDIA_METADATA');
+  assert.deepEqual(JSON.parse(JSON.stringify(update)), {
+    type: 'UPDATE_MEDIA_METADATA',
+    id: item.id,
+    width: 1920,
+    height: 1080,
+    kind: 'video',
+    duration: 65,
+    metadataFailed: false,
+  });
+});
+
+test('Safari MP4 metadata probe parses duration together with track dimensions', async () => {
+  const popup = loadPopupRuntime();
+  const buffer = new ArrayBuffer(256);
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
+  bytes.set(Buffer.from('mvhd'), 8);
+  view.setUint32(24, 1000);
+  view.setUint32(28, 65000);
+  bytes.set(Buffer.from('tkhd'), 64);
+  view.setUint32(144, 1920 * 65536);
+  view.setUint32(148, 1080 * 65536);
+  popup.XMLHttpRequest = class FakeXMLHttpRequest {
+    open() {}
+    setRequestHeader() {}
+    abort() {}
+    send() {
+      this.status = 206;
+      this.response = buffer;
+      setTimeout(() => this.onload?.(), 0);
+    }
+  };
+
+  const result = await popup.probeMediaMetadataInMainWorld('https://cdn.example.com/video.m4s');
+  assert.equal(result.ok, true);
+  assert.equal(result.width, 1920);
+  assert.equal(result.height, 1080);
+  assert.equal(result.duration, 65);
+  assert.equal(result.kind, 'video');
+});
+
+test('Safari metadata probe rejects a successful response without metadata', async () => {
+  const popup = loadPopupRuntime();
+  const buffer = new ArrayBuffer(256);
+  popup.XMLHttpRequest = class FakeXMLHttpRequest {
+    open() {}
+    setRequestHeader() {}
+    abort() {}
+    send() {
+      this.status = 206;
+      this.response = buffer;
+      setTimeout(() => this.onload?.(), 0);
+    }
+  };
+
+  const result = await popup.probeMediaMetadataInMainWorld('https://cdn.example.com/video.mp4');
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'metadata-not-found');
+});
+
+test('Safari metadata probe rejects servers that ignore the two megabyte range', async () => {
+  const popup = loadPopupRuntime();
+  const buffer = new ArrayBuffer((2 * 1024 * 1024) + 1);
+  popup.XMLHttpRequest = class FakeXMLHttpRequest {
+    open() {}
+    setRequestHeader() {}
+    abort() {}
+    send() {
+      this.status = 200;
+      this.response = buffer;
+      setTimeout(() => this.onload?.(), 0);
+    }
+  };
+
+  const result = await popup.probeMediaMetadataInMainWorld('https://cdn.example.com/video.mp4');
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'metadata-range-oversized');
 });
 
 test('sniffing resume button shows capture-off message when resume is blocked', async () => {

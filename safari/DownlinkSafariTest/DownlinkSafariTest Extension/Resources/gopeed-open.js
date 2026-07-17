@@ -1,0 +1,92 @@
+(function initGopeedOpenPage() {
+  const AUTO_CLOSE_DELAY_MS = 800;
+  const AUTO_CLOSE_STORAGE_KEY = 'gopeedBridgeAutoClose';
+  const deepLink = 'gopeed://';
+
+  const isZh = (navigator.language || '').toLowerCase().includes('zh');
+  const text = isZh
+    ? {
+      title: '正在唤起 Gopeed',
+      desc: '如果浏览器弹出“打开外部应用”提示，请勾选“始终允许”并确认。',
+      targetLabel: '目标协议：',
+      launch: '再次唤起',
+      close: '关闭此页',
+      autoCloseLabel: '下次自动关闭该页面（约 800 毫秒）',
+      hint: '若未自动唤起，可点击“再次唤起”。默认不会自动关闭。',
+    }
+    : {
+      title: 'Launching Gopeed',
+      desc: 'If the browser asks to open an external app, allow it and enable always allow.',
+      targetLabel: 'Target protocol:',
+      launch: 'Try again',
+      close: 'Close this tab',
+      autoCloseLabel: 'Auto-close this page next time (about 800ms)',
+      hint: 'If auto-launch did not trigger, click "Try again". Auto-close is off by default.',
+    };
+
+  const titleEl = document.getElementById('title');
+  const descEl = document.getElementById('desc');
+  const targetLabelEl = document.getElementById('targetLabel');
+  const launchBtn = document.getElementById('launchBtn');
+  const closeBtn = document.getElementById('closeBtn');
+  const autoCloseCheckbox = document.getElementById('autoCloseNext');
+  const autoCloseLabelEl = document.getElementById('autoCloseLabel');
+  const hintEl = document.getElementById('hint');
+  let autoCloseEnabled = false;
+
+  if (titleEl) titleEl.textContent = text.title;
+  if (descEl) descEl.textContent = text.desc;
+  if (targetLabelEl) {
+    targetLabelEl.textContent = '';
+    const label = document.createTextNode(`${text.targetLabel} `);
+    const code = document.createElement('code');
+    code.textContent = deepLink;
+    targetLabelEl.appendChild(label);
+    targetLabelEl.appendChild(code);
+  }
+  if (launchBtn) launchBtn.textContent = text.launch;
+  if (closeBtn) closeBtn.textContent = text.close;
+  if (autoCloseLabelEl) autoCloseLabelEl.textContent = text.autoCloseLabel;
+  if (hintEl) hintEl.textContent = text.hint;
+
+  if (chrome?.storage?.sync?.get) {
+    chrome.storage.sync.get({ [AUTO_CLOSE_STORAGE_KEY]: false }, (stored) => {
+      autoCloseEnabled = !!stored?.[AUTO_CLOSE_STORAGE_KEY];
+      if (autoCloseCheckbox) autoCloseCheckbox.checked = autoCloseEnabled;
+    });
+  }
+
+  autoCloseCheckbox?.addEventListener('change', () => {
+    autoCloseEnabled = !!autoCloseCheckbox.checked;
+    if (chrome?.storage?.sync?.set) {
+      chrome.storage.sync.set({ [AUTO_CLOSE_STORAGE_KEY]: autoCloseEnabled });
+    }
+  });
+
+  function launch() {
+    window.location.assign(deepLink);
+    if (autoCloseEnabled) setTimeout(closeCurrentTab, AUTO_CLOSE_DELAY_MS);
+  }
+
+  function closeCurrentTab() {
+    if (typeof chrome === 'undefined' || !chrome.tabs?.getCurrent) {
+      window.close();
+      return;
+    }
+    chrome.tabs.getCurrent((tab) => {
+      const tabId = tab?.id;
+      if (typeof tabId === 'number' && chrome.tabs?.remove) {
+        chrome.tabs.remove(tabId, () => {
+          if (chrome.runtime?.lastError) window.close();
+        });
+        return;
+      }
+      window.close();
+    });
+  }
+
+  launchBtn?.addEventListener('click', launch);
+  closeBtn?.addEventListener('click', () => window.close());
+
+  setTimeout(launch, 80);
+})();

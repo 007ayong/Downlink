@@ -1,0 +1,895 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		DD443AEB3009DC31007F0E9E /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD443AEA3009DC31007F0E9E /* AppDelegate.swift */; };
+		DD443AEF3009DC31007F0E9E /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = DD443AED3009DC31007F0E9E /* Main.html */; };
+		DD443AF13009DC31007F0E9E /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = DD443AF03009DC31007F0E9E /* Icon.png */; };
+		DD443AF33009DC31007F0E9E /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = DD443AF23009DC31007F0E9E /* Style.css */; };
+		DD443AF53009DC31007F0E9E /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443AF43009DC31007F0E9E /* Script.js */; };
+		DD443AF73009DC31007F0E9E /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD443AF63009DC31007F0E9E /* ViewController.swift */; };
+		DD443AFA3009DC31007F0E9E /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = DD443AF83009DC31007F0E9E /* Main.storyboard */; };
+		DD443AFC3009DC32007F0E9E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DD443AFB3009DC32007F0E9E /* Assets.xcassets */; };
+		DD443B093009DC32007F0E9E /* DownlinkSafariTestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD443B083009DC32007F0E9E /* DownlinkSafariTestTests.swift */; };
+		DD443B133009DC32007F0E9E /* DownlinkSafariTestUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD443B123009DC32007F0E9E /* DownlinkSafariTestUITests.swift */; };
+		DD443B153009DC32007F0E9E /* DownlinkSafariTestUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD443B143009DC32007F0E9E /* DownlinkSafariTestUITestsLaunchTests.swift */; };
+		DD443B1B3009DC32007F0E9E /* DownlinkSafariTest Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DD443B1A3009DC32007F0E9E /* DownlinkSafariTest Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		DD443B203009DC32007F0E9E /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD443B1F3009DC32007F0E9E /* SafariWebExtensionHandler.swift */; };
+		DD443B453009DC32007F0E9E /* preview.html in Resources */ = {isa = PBXBuildFile; fileRef = DD443B333009DC32007F0E9E /* preview.html */; };
+		DD443B463009DC32007F0E9E /* filename-logic.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B343009DC32007F0E9E /* filename-logic.js */; };
+		DD443B473009DC32007F0E9E /* popup-app.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B353009DC32007F0E9E /* popup-app.js */; };
+		DD443B483009DC32007F0E9E /* popup.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B363009DC32007F0E9E /* popup.js */; };
+		DD443B493009DC32007F0E9E /* gopeed-open.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B373009DC32007F0E9E /* gopeed-open.js */; };
+		DD443B4A3009DC32007F0E9E /* motrix-open.html in Resources */ = {isa = PBXBuildFile; fileRef = DD443B383009DC32007F0E9E /* motrix-open.html */; };
+		DD443B4B3009DC32007F0E9E /* motrix-open.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B393009DC32007F0E9E /* motrix-open.js */; };
+		DD443B4C3009DC32007F0E9E /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = DD443B3A3009DC32007F0E9E /* LICENSE */; };
+		DD443B4D3009DC32007F0E9E /* gopeed-open.html in Resources */ = {isa = PBXBuildFile; fileRef = DD443B3B3009DC32007F0E9E /* gopeed-open.html */; };
+		DD443B4E3009DC32007F0E9E /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B3C3009DC32007F0E9E /* background.js */; };
+		DD443B4F3009DC32007F0E9E /* popup.html in Resources */ = {isa = PBXBuildFile; fileRef = DD443B3D3009DC32007F0E9E /* popup.html */; };
+		DD443B503009DC32007F0E9E /* preview.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B3E3009DC32007F0E9E /* preview.js */; };
+		DD443B513009DC32007F0E9E /* icons in Resources */ = {isa = PBXBuildFile; fileRef = DD443B3F3009DC32007F0E9E /* icons */; };
+		DD443B523009DC32007F0E9E /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = DD443B403009DC32007F0E9E /* manifest.json */; };
+		DD443B533009DC32007F0E9E /* lib in Resources */ = {isa = PBXBuildFile; fileRef = DD443B413009DC32007F0E9E /* lib */; };
+		DD443B543009DC32007F0E9E /* content-script.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B423009DC32007F0E9E /* content-script.js */; };
+		DD443B553009DC32007F0E9E /* _locales in Resources */ = {isa = PBXBuildFile; fileRef = DD443B433009DC32007F0E9E /* _locales */; };
+		7D4B44E7EAFF4AC9B4441583 /* probe.html in Resources */ = {isa = PBXBuildFile; fileRef = 1C169BE45BEF488E8E9C459D /* probe.html */; };
+		9098912F5AAD432FB8BDF971 /* probe.js in Resources */ = {isa = PBXBuildFile; fileRef = 646170817FBC4C46BA3EC79C /* probe.js */; };
+		DD443B563009DC32007F0E9E /* assets in Resources */ = {isa = PBXBuildFile; fileRef = DD443B443009DC32007F0E9E /* assets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		DD443B053009DC32007F0E9E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DD443ADF3009DC31007F0E9E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DD443AE63009DC31007F0E9E;
+			remoteInfo = DownlinkSafariTest;
+		};
+		DD443B0F3009DC32007F0E9E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DD443ADF3009DC31007F0E9E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DD443AE63009DC31007F0E9E;
+			remoteInfo = DownlinkSafariTest;
+		};
+		DD443B1C3009DC32007F0E9E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DD443ADF3009DC31007F0E9E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DD443B193009DC32007F0E9E;
+			remoteInfo = "DownlinkSafariTest Extension";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		DD443B283009DC32007F0E9E /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				DD443B1B3009DC32007F0E9E /* DownlinkSafariTest Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		DD443AE73009DC31007F0E9E /* DownlinkSafariTest.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DownlinkSafariTest.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD443AEA3009DC31007F0E9E /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		DD443AEE3009DC31007F0E9E /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
+		DD443AF03009DC31007F0E9E /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
+		DD443AF23009DC31007F0E9E /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
+		DD443AF43009DC31007F0E9E /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
+		DD443AF63009DC31007F0E9E /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		DD443AF93009DC31007F0E9E /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		DD443AFB3009DC32007F0E9E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		DD443AFD3009DC32007F0E9E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		DD443AFE3009DC32007F0E9E /* DownlinkSafariTest.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DownlinkSafariTest.entitlements; sourceTree = "<group>"; };
+		DD443AFF3009DC32007F0E9E /* DownlinkSafariTest.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DownlinkSafariTest.entitlements; sourceTree = "<group>"; };
+		DD443B043009DC32007F0E9E /* DownlinkSafariTestTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DownlinkSafariTestTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD443B083009DC32007F0E9E /* DownlinkSafariTestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownlinkSafariTestTests.swift; sourceTree = "<group>"; };
+		DD443B0E3009DC32007F0E9E /* DownlinkSafariTestUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DownlinkSafariTestUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD443B123009DC32007F0E9E /* DownlinkSafariTestUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownlinkSafariTestUITests.swift; sourceTree = "<group>"; };
+		DD443B143009DC32007F0E9E /* DownlinkSafariTestUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownlinkSafariTestUITestsLaunchTests.swift; sourceTree = "<group>"; };
+		DD443B1A3009DC32007F0E9E /* DownlinkSafariTest Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "DownlinkSafariTest Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD443B1F3009DC32007F0E9E /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
+		DD443B213009DC32007F0E9E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		DD443B223009DC32007F0E9E /* DownlinkSafariTest_Extension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DownlinkSafariTest_Extension.entitlements; sourceTree = "<group>"; };
+		DD443B333009DC32007F0E9E /* preview.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = preview.html; path = Resources/preview.html; sourceTree = "<group>"; };
+		DD443B343009DC32007F0E9E /* filename-logic.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "filename-logic.js"; path = "Resources/filename-logic.js"; sourceTree = "<group>"; };
+		DD443B353009DC32007F0E9E /* popup-app.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "popup-app.js"; path = "Resources/popup-app.js"; sourceTree = "<group>"; };
+		DD443B363009DC32007F0E9E /* popup.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = popup.js; path = Resources/popup.js; sourceTree = "<group>"; };
+		DD443B373009DC32007F0E9E /* gopeed-open.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "gopeed-open.js"; path = "Resources/gopeed-open.js"; sourceTree = "<group>"; };
+		DD443B383009DC32007F0E9E /* motrix-open.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "motrix-open.html"; path = "Resources/motrix-open.html"; sourceTree = "<group>"; };
+		DD443B393009DC32007F0E9E /* motrix-open.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "motrix-open.js"; path = "Resources/motrix-open.js"; sourceTree = "<group>"; };
+		DD443B3A3009DC32007F0E9E /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; name = LICENSE; path = Resources/LICENSE; sourceTree = "<group>"; };
+		DD443B3B3009DC32007F0E9E /* gopeed-open.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "gopeed-open.html"; path = "Resources/gopeed-open.html"; sourceTree = "<group>"; };
+		DD443B3C3009DC32007F0E9E /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = background.js; path = Resources/background.js; sourceTree = "<group>"; };
+		DD443B3D3009DC32007F0E9E /* popup.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = popup.html; path = Resources/popup.html; sourceTree = "<group>"; };
+		DD443B3E3009DC32007F0E9E /* preview.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = preview.js; path = Resources/preview.js; sourceTree = "<group>"; };
+		DD443B3F3009DC32007F0E9E /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icons; path = Resources/icons; sourceTree = "<group>"; };
+		DD443B403009DC32007F0E9E /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = Resources/manifest.json; sourceTree = "<group>"; };
+		DD443B413009DC32007F0E9E /* lib */ = {isa = PBXFileReference; lastKnownFileType = folder; name = lib; path = Resources/lib; sourceTree = "<group>"; };
+		DD443B423009DC32007F0E9E /* content-script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "content-script.js"; path = "Resources/content-script.js"; sourceTree = "<group>"; };
+		1C169BE45BEF488E8E9C459D /* probe.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "probe.html"; path = "Resources/probe.html"; sourceTree = "<group>"; };
+		646170817FBC4C46BA3EC79C /* probe.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "probe.js"; path = "Resources/probe.js"; sourceTree = "<group>"; };
+		DD443B433009DC32007F0E9E /* _locales */ = {isa = PBXFileReference; lastKnownFileType = folder; name = _locales; path = Resources/_locales; sourceTree = "<group>"; };
+		DD443B443009DC32007F0E9E /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; name = assets; path = Resources/assets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		DD443AE43009DC31007F0E9E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD443B013009DC32007F0E9E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD443B0B3009DC32007F0E9E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD443B173009DC32007F0E9E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		DD443ADE3009DC31007F0E9E = {
+			isa = PBXGroup;
+			children = (
+				DD443AE93009DC31007F0E9E /* DownlinkSafariTest */,
+				DD443B073009DC32007F0E9E /* DownlinkSafariTestTests */,
+				DD443B113009DC32007F0E9E /* DownlinkSafariTestUITests */,
+				DD443B1E3009DC32007F0E9E /* DownlinkSafariTest Extension */,
+				DD443AE83009DC31007F0E9E /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		DD443AE83009DC31007F0E9E /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				DD443AE73009DC31007F0E9E /* DownlinkSafariTest.app */,
+				DD443B043009DC32007F0E9E /* DownlinkSafariTestTests.xctest */,
+				DD443B0E3009DC32007F0E9E /* DownlinkSafariTestUITests.xctest */,
+				DD443B1A3009DC32007F0E9E /* DownlinkSafariTest Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		DD443AE93009DC31007F0E9E /* DownlinkSafariTest */ = {
+			isa = PBXGroup;
+			children = (
+				DD443AEA3009DC31007F0E9E /* AppDelegate.swift */,
+				DD443AF63009DC31007F0E9E /* ViewController.swift */,
+				DD443AF83009DC31007F0E9E /* Main.storyboard */,
+				DD443AFB3009DC32007F0E9E /* Assets.xcassets */,
+				DD443AFD3009DC32007F0E9E /* Info.plist */,
+				DD443AFE3009DC32007F0E9E /* DownlinkSafariTest.entitlements */,
+				DD443AFF3009DC32007F0E9E /* DownlinkSafariTest.entitlements */,
+				DD443AEC3009DC31007F0E9E /* Resources */,
+			);
+			path = DownlinkSafariTest;
+			sourceTree = "<group>";
+		};
+		DD443AEC3009DC31007F0E9E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				DD443AED3009DC31007F0E9E /* Main.html */,
+				DD443AF03009DC31007F0E9E /* Icon.png */,
+				DD443AF23009DC31007F0E9E /* Style.css */,
+				DD443AF43009DC31007F0E9E /* Script.js */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		DD443B073009DC32007F0E9E /* DownlinkSafariTestTests */ = {
+			isa = PBXGroup;
+			children = (
+				DD443B083009DC32007F0E9E /* DownlinkSafariTestTests.swift */,
+			);
+			path = DownlinkSafariTestTests;
+			sourceTree = "<group>";
+		};
+		DD443B113009DC32007F0E9E /* DownlinkSafariTestUITests */ = {
+			isa = PBXGroup;
+			children = (
+				DD443B123009DC32007F0E9E /* DownlinkSafariTestUITests.swift */,
+				DD443B143009DC32007F0E9E /* DownlinkSafariTestUITestsLaunchTests.swift */,
+			);
+			path = DownlinkSafariTestUITests;
+			sourceTree = "<group>";
+		};
+		DD443B1E3009DC32007F0E9E /* DownlinkSafariTest Extension */ = {
+			isa = PBXGroup;
+			children = (
+				DD443B323009DC32007F0E9E /* Resources */,
+				DD443B1F3009DC32007F0E9E /* SafariWebExtensionHandler.swift */,
+				DD443B213009DC32007F0E9E /* Info.plist */,
+				DD443B223009DC32007F0E9E /* DownlinkSafariTest_Extension.entitlements */,
+			);
+			path = "DownlinkSafariTest Extension";
+			sourceTree = "<group>";
+		};
+		DD443B323009DC32007F0E9E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				DD443B333009DC32007F0E9E /* preview.html */,
+				DD443B343009DC32007F0E9E /* filename-logic.js */,
+				DD443B353009DC32007F0E9E /* popup-app.js */,
+				DD443B363009DC32007F0E9E /* popup.js */,
+				DD443B373009DC32007F0E9E /* gopeed-open.js */,
+				DD443B383009DC32007F0E9E /* motrix-open.html */,
+				DD443B393009DC32007F0E9E /* motrix-open.js */,
+				DD443B3A3009DC32007F0E9E /* LICENSE */,
+				DD443B3B3009DC32007F0E9E /* gopeed-open.html */,
+				DD443B3C3009DC32007F0E9E /* background.js */,
+				DD443B3D3009DC32007F0E9E /* popup.html */,
+				DD443B3E3009DC32007F0E9E /* preview.js */,
+				DD443B3F3009DC32007F0E9E /* icons */,
+				DD443B403009DC32007F0E9E /* manifest.json */,
+				DD443B413009DC32007F0E9E /* lib */,
+				DD443B423009DC32007F0E9E /* content-script.js */,
+				DD443B433009DC32007F0E9E /* _locales */,
+				DD443B443009DC32007F0E9E /* assets */,
+				1C169BE45BEF488E8E9C459D /* probe.html */,
+				646170817FBC4C46BA3EC79C /* probe.js */,
+			);
+			name = Resources;
+			path = "DownlinkSafariTest Extension";
+			sourceTree = SOURCE_ROOT;
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		DD443AE63009DC31007F0E9E /* DownlinkSafariTest */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DD443B293009DC32007F0E9E /* Build configuration list for PBXNativeTarget "DownlinkSafariTest" */;
+			buildPhases = (
+				DD443AE33009DC31007F0E9E /* Sources */,
+				DD443AE43009DC31007F0E9E /* Frameworks */,
+				DD443AE53009DC31007F0E9E /* Resources */,
+				DD443B283009DC32007F0E9E /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DD443B1D3009DC32007F0E9E /* PBXTargetDependency */,
+			);
+			name = DownlinkSafariTest;
+			packageProductDependencies = (
+			);
+			productName = DownlinkSafariTest;
+			productReference = DD443AE73009DC31007F0E9E /* DownlinkSafariTest.app */;
+			productType = "com.apple.product-type.application";
+		};
+		DD443B033009DC32007F0E9E /* DownlinkSafariTestTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DD443B2C3009DC32007F0E9E /* Build configuration list for PBXNativeTarget "DownlinkSafariTestTests" */;
+			buildPhases = (
+				DD443B003009DC32007F0E9E /* Sources */,
+				DD443B013009DC32007F0E9E /* Frameworks */,
+				DD443B023009DC32007F0E9E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DD443B063009DC32007F0E9E /* PBXTargetDependency */,
+			);
+			name = DownlinkSafariTestTests;
+			packageProductDependencies = (
+			);
+			productName = DownlinkSafariTestTests;
+			productReference = DD443B043009DC32007F0E9E /* DownlinkSafariTestTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		DD443B0D3009DC32007F0E9E /* DownlinkSafariTestUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DD443B2F3009DC32007F0E9E /* Build configuration list for PBXNativeTarget "DownlinkSafariTestUITests" */;
+			buildPhases = (
+				DD443B0A3009DC32007F0E9E /* Sources */,
+				DD443B0B3009DC32007F0E9E /* Frameworks */,
+				DD443B0C3009DC32007F0E9E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DD443B103009DC32007F0E9E /* PBXTargetDependency */,
+			);
+			name = DownlinkSafariTestUITests;
+			packageProductDependencies = (
+			);
+			productName = DownlinkSafariTestUITests;
+			productReference = DD443B0E3009DC32007F0E9E /* DownlinkSafariTestUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		DD443B193009DC32007F0E9E /* DownlinkSafariTest Extension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DD443B253009DC32007F0E9E /* Build configuration list for PBXNativeTarget "DownlinkSafariTest Extension" */;
+			buildPhases = (
+				DD443B163009DC32007F0E9E /* Sources */,
+				DD443B173009DC32007F0E9E /* Frameworks */,
+				DD443B183009DC32007F0E9E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "DownlinkSafariTest Extension";
+			packageProductDependencies = (
+			);
+			productName = "DownlinkSafariTest Extension";
+			productReference = DD443B1A3009DC32007F0E9E /* DownlinkSafariTest Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DD443ADF3009DC31007F0E9E /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1640;
+				LastUpgradeCheck = 1640;
+				TargetAttributes = {
+					DD443AE63009DC31007F0E9E = {
+						CreatedOnToolsVersion = 16.4;
+					};
+					DD443B033009DC32007F0E9E = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = DD443AE63009DC31007F0E9E;
+					};
+					DD443B0D3009DC32007F0E9E = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = DD443AE63009DC31007F0E9E;
+					};
+					DD443B193009DC32007F0E9E = {
+						CreatedOnToolsVersion = 16.4;
+					};
+				};
+			};
+			buildConfigurationList = DD443AE23009DC31007F0E9E /* Build configuration list for PBXProject "DownlinkSafariTest" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = DD443ADE3009DC31007F0E9E;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = DD443AE83009DC31007F0E9E /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				DD443AE63009DC31007F0E9E /* DownlinkSafariTest */,
+				DD443B033009DC32007F0E9E /* DownlinkSafariTestTests */,
+				DD443B0D3009DC32007F0E9E /* DownlinkSafariTestUITests */,
+				DD443B193009DC32007F0E9E /* DownlinkSafariTest Extension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		DD443AE53009DC31007F0E9E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DD443AF13009DC31007F0E9E /* Icon.png in Resources */,
+				DD443AFA3009DC31007F0E9E /* Main.storyboard in Resources */,
+				DD443AF53009DC31007F0E9E /* Script.js in Resources */,
+				DD443AEF3009DC31007F0E9E /* Main.html in Resources */,
+				DD443AFC3009DC32007F0E9E /* Assets.xcassets in Resources */,
+				DD443AF33009DC31007F0E9E /* Style.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD443B023009DC32007F0E9E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD443B0C3009DC32007F0E9E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD443B183009DC32007F0E9E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DD443B473009DC32007F0E9E /* popup-app.js in Resources */,
+				DD443B553009DC32007F0E9E /* _locales in Resources */,
+				DD443B463009DC32007F0E9E /* filename-logic.js in Resources */,
+				DD443B563009DC32007F0E9E /* assets in Resources */,
+				DD443B4C3009DC32007F0E9E /* LICENSE in Resources */,
+				DD443B4B3009DC32007F0E9E /* motrix-open.js in Resources */,
+				DD443B4E3009DC32007F0E9E /* background.js in Resources */,
+				DD443B4F3009DC32007F0E9E /* popup.html in Resources */,
+				DD443B533009DC32007F0E9E /* lib in Resources */,
+				DD443B453009DC32007F0E9E /* preview.html in Resources */,
+				DD443B503009DC32007F0E9E /* preview.js in Resources */,
+				DD443B543009DC32007F0E9E /* content-script.js in Resources */,
+				7D4B44E7EAFF4AC9B4441583 /* probe.html in Resources */,
+				9098912F5AAD432FB8BDF971 /* probe.js in Resources */,
+				DD443B523009DC32007F0E9E /* manifest.json in Resources */,
+				DD443B4D3009DC32007F0E9E /* gopeed-open.html in Resources */,
+				DD443B4A3009DC32007F0E9E /* motrix-open.html in Resources */,
+				DD443B493009DC32007F0E9E /* gopeed-open.js in Resources */,
+				DD443B483009DC32007F0E9E /* popup.js in Resources */,
+				DD443B513009DC32007F0E9E /* icons in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		DD443AE33009DC31007F0E9E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DD443AF73009DC31007F0E9E /* ViewController.swift in Sources */,
+				DD443AEB3009DC31007F0E9E /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD443B003009DC32007F0E9E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DD443B093009DC32007F0E9E /* DownlinkSafariTestTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD443B0A3009DC32007F0E9E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DD443B153009DC32007F0E9E /* DownlinkSafariTestUITestsLaunchTests.swift in Sources */,
+				DD443B133009DC32007F0E9E /* DownlinkSafariTestUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD443B163009DC32007F0E9E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DD443B203009DC32007F0E9E /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		DD443B063009DC32007F0E9E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DD443AE63009DC31007F0E9E /* DownlinkSafariTest */;
+			targetProxy = DD443B053009DC32007F0E9E /* PBXContainerItemProxy */;
+		};
+		DD443B103009DC32007F0E9E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DD443AE63009DC31007F0E9E /* DownlinkSafariTest */;
+			targetProxy = DD443B0F3009DC32007F0E9E /* PBXContainerItemProxy */;
+		};
+		DD443B1D3009DC32007F0E9E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DD443B193009DC32007F0E9E /* DownlinkSafariTest Extension */;
+			targetProxy = DD443B1C3009DC32007F0E9E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		DD443AED3009DC31007F0E9E /* Main.html */ = {
+			isa = PBXVariantGroup;
+			children = (
+				DD443AEE3009DC31007F0E9E /* Base */,
+			);
+			name = Main.html;
+			sourceTree = "<group>";
+		};
+		DD443AF83009DC31007F0E9E /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				DD443AF93009DC31007F0E9E /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		DD443B233009DC32007F0E9E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.5;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		DD443B243009DC32007F0E9E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.5;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		DD443B263009DC32007F0E9E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "DownlinkSafariTest Extension/DownlinkSafariTest_Extension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 62XL762G8S;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "DownlinkSafariTest Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "DownlinkSafariTest Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = cc.winapps.downlink.DownlinkSafariTest.Extension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		DD443B273009DC32007F0E9E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "DownlinkSafariTest Extension/DownlinkSafariTest_Extension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 62XL762G8S;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "DownlinkSafariTest Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "DownlinkSafariTest Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = cc.winapps.downlink.DownlinkSafariTest.Extension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		DD443B2A3009DC32007F0E9E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = DownlinkSafariTest/DownlinkSafariTest.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 62XL762G8S;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DownlinkSafariTest/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DownlinkSafariTest;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = cc.winapps.downlink.DownlinkSafariTest;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		DD443B2B3009DC32007F0E9E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = DownlinkSafariTest/DownlinkSafariTest.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 62XL762G8S;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DownlinkSafariTest/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DownlinkSafariTest;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = cc.winapps.downlink.DownlinkSafariTest;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		DD443B2D3009DC32007F0E9E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = cc.winapps.downlink.DownlinkSafariTestTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DownlinkSafariTest.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DownlinkSafariTest";
+			};
+			name = Debug;
+		};
+		DD443B2E3009DC32007F0E9E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = cc.winapps.downlink.DownlinkSafariTestTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DownlinkSafariTest.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DownlinkSafariTest";
+			};
+			name = Release;
+		};
+		DD443B303009DC32007F0E9E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = cc.winapps.downlink.DownlinkSafariTestUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = DownlinkSafariTest;
+			};
+			name = Debug;
+		};
+		DD443B313009DC32007F0E9E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = cc.winapps.downlink.DownlinkSafariTestUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = DownlinkSafariTest;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		DD443AE23009DC31007F0E9E /* Build configuration list for PBXProject "DownlinkSafariTest" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DD443B233009DC32007F0E9E /* Debug */,
+				DD443B243009DC32007F0E9E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DD443B253009DC32007F0E9E /* Build configuration list for PBXNativeTarget "DownlinkSafariTest Extension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DD443B263009DC32007F0E9E /* Debug */,
+				DD443B273009DC32007F0E9E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DD443B293009DC32007F0E9E /* Build configuration list for PBXNativeTarget "DownlinkSafariTest" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DD443B2A3009DC32007F0E9E /* Debug */,
+				DD443B2B3009DC32007F0E9E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DD443B2C3009DC32007F0E9E /* Build configuration list for PBXNativeTarget "DownlinkSafariTestTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DD443B2D3009DC32007F0E9E /* Debug */,
+				DD443B2E3009DC32007F0E9E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DD443B2F3009DC32007F0E9E /* Build configuration list for PBXNativeTarget "DownlinkSafariTestUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DD443B303009DC32007F0E9E /* Debug */,
+				DD443B313009DC32007F0E9E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = DD443ADF3009DC31007F0E9E /* Project object */;
+}

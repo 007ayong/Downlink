@@ -11,6 +11,8 @@
     "package:release": "node scripts/package-extension.mjs all",
     "package:all": "node scripts/package-extension.mjs all",
     "package:chromium": "node scripts/package-extension.mjs chromium",
-    "package:firefox": "node scripts/package-extension.mjs firefox"
+    "package:firefox": "node scripts/package-extension.mjs firefox",
+    "safari:sync": "node scripts/sync-safari-resources.mjs",
+    "safari:build": "node scripts/sync-safari-resources.mjs && xcodebuild -project safari/DownlinkSafariTest/DownlinkSafariTest.xcodeproj -scheme DownlinkSafariTest -configuration Release -destination 'generic/platform=macOS' -derivedDataPath dist/safari-test/DerivedData -allowProvisioningUpdates LM_FILTER_WARNINGS=YES build"
   }
 }

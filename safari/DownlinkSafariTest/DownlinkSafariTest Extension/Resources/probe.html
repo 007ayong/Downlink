@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Downlink Safari Probe</title>
+  <style>
+    body { margin: 0; padding: 20px; color: #111827; font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f9fafb; max-width: 900px; margin: 0 auto; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    h1 { margin: 0; font-size: 18px; font-weight: 700; }
+    button { border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 14px; background: #fff; font: inherit; cursor: pointer; }
+    button:hover { background: #f1f5f9; }
+    .hint { margin: 0 0 12px; color: #4b5563; }
+    .status { margin: 0 0 12px; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; font-size: 13px; }
+    .status.ok { color: #065f46; } .status.err { color: #b91c1c; } .status.info { color: #1d4ed8; }
+    .toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
+    .empty { padding: 14px; border: 1px dashed #cbd5e1; border-radius: 8px; color: #6b7280; background: #fff; }
+    .entry { margin: 0 0 8px; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+    .entry.skip { border-color: #fcd34d; background: #fffbeb; }
+    .entry.cancel { border-color: #fca5a5; background: #fef2f2; }
+    .entry.aria2 { border-color: #93c5fd; background: #eff6ff; }
+    .meta { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: #6b7280; font-size: 11px; }
+    .message { font-weight: 700; color: #111827; }
+    pre { overflow: auto; max-height: 240px; margin: 8px 0 0; padding: 8px; border-radius: 6px; background: #f1f5f9; font-size: 11px; white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body>
+  <header><h1>Downlink Safari Probe</h1><button id="refresh" type="button">刷新日志</button></header>
+  <p class="hint">这个页面可以一直开着。触发下载后点"刷新日志"查看 capture 流程诊断。</p>
+  <div class="toolbar">
+    <button id="clear" type="button">清空日志</button>
+    <button id="ping" type="button">Ping 后台</button>
+  </div>
+  <div id="status" class="status info">就绪</div>
+  <main id="logs" class="empty">正在读取日志...</main>
+  <script src="probe.js"></script>
+</body>
+</html>

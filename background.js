@@ -1202,19 +1202,43 @@ async function openGopeedView() {
   }
 }
 
-function broadcastUpdate() {
+const BROADCAST_UPDATE_DELAY_MS = 60;
+let broadcastUpdateTimer = null;
+const pendingMediaBroadcastTabs = new Set();
+
+function flushBroadcastUpdate() {
+  broadcastUpdateTimer = null;
   const mediaState = mediaManager.getState();
-  chrome.runtime.sendMessage({
+  const message = {
     type: 'TASKS_UPDATE',
     tasks,
     pending: pendingDownloads,
-    media: mediaState.media,
     pausedTabs: mediaState.pausedTabs,
     mediaBlacklistBlockedTabs: Array.from(mediaBlacklistBlockedTabs),
     hiddenTaskGids: Object.keys(hiddenTaskGids),
     uiAlert,
     config,
-  }).catch(() => {});
+  };
+  if (pendingMediaBroadcastTabs.size) {
+    message.mediaPatch = true;
+    message.media = {};
+    for (const tabId of pendingMediaBroadcastTabs) {
+      message.media[tabId] = mediaState.media[tabId] || [];
+    }
+    pendingMediaBroadcastTabs.clear();
+  }
+  try {
+    const pending = chrome.runtime.sendMessage(message);
+    pending?.catch?.(() => {});
+  } catch {}
+}
+
+function broadcastUpdate(mediaTabId) {
+  if (typeof mediaTabId === 'number' && mediaTabId >= 0) {
+    pendingMediaBroadcastTabs.add(mediaTabId);
+  }
+  if (broadcastUpdateTimer) return;
+  broadcastUpdateTimer = setTimeout(flushBroadcastUpdate, BROADCAST_UPDATE_DELAY_MS);
 }
 
 const downloaderClients = downloaders.createClients({
@@ -1371,6 +1395,7 @@ const mediaManager = mediaModule.createMediaManager({
 
 async function pollTasks() {
   await configReady;
+  if (!Object.keys(tasks).length) return;
   let gopeedTasksById = null;
   if (Object.values(tasks).some((task) => task?.provider === 'gopeed')) {
     try {
@@ -1730,7 +1755,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     switch (msg.type) {
       case 'GET_STATE':
-        sendResponse({ tasks, pending: pendingDownloads, media: mediaManager.getState().media, pausedTabs: mediaManager.getState().pausedTabs, mediaBlacklistBlockedTabs: Array.from(mediaBlacklistBlockedTabs), config, hiddenTaskGids: Object.keys(hiddenTaskGids), uiAlert });
+        {
+          const mediaState = mediaManager.getState();
+          const requestedTabId = Number.isInteger(msg.tabId) && msg.tabId >= 0 ? msg.tabId : null;
+          const media = requestedTabId === null
+            ? mediaState.media
+            : { [requestedTabId]: mediaState.media[requestedTabId] || [] };
+          sendResponse({ tasks, pending: pendingDownloads, media, pausedTabs: mediaState.pausedTabs, mediaBlacklistBlockedTabs: Array.from(mediaBlacklistBlockedTabs), config, hiddenTaskGids: Object.keys(hiddenTaskGids), uiAlert });
+        }
         break;
       case 'TRACK_DOWNLOAD_CLICK':
         sendResponse({
@@ -1826,6 +1858,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         break;
       }
+      case 'PREPARE_MEDIA_METADATA_BATCH': {
+        const media = Array.from(new Set(msg.ids || []))
+          .map((id) => mediaManager.findMediaResourceById(id))
+          .filter(Boolean);
+        if (!media.length) {
+          sendResponse({ ok: false, error: t('mediaExpired', undefined, '媒体资源不存在或已过期。') });
+          break;
+        }
+        try {
+          sendResponse(await mediaManager.prepareMetadataRules(media));
+        } catch (error) {
+          sendResponse({ ok: false, error: error?.message || t('previewPatchFailed', undefined, '预览请求补头失败') });
+        }
+        break;
+      }
       case 'PREPARE_MEDIA_HOVER_PREVIEW': {
         const media = mediaManager.findMediaResourceById(msg.id);
         if (!media) {
@@ -1860,6 +1907,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           width: typeof msg.width === 'number' ? msg.width : undefined,
           height: typeof msg.height === 'number' ? msg.height : undefined,
           kind: ['audio', 'video', 'media'].includes(msg.kind) ? msg.kind : undefined,
+          metadataFailed: typeof msg.metadataFailed === 'boolean' ? msg.metadataFailed : undefined,
         });
         if (!updated) {
           sendResponse({ ok: false });
@@ -1870,7 +1918,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       case 'CLEAR_MEDIA':
         mediaManager.clearMediaResources(msg.tabId);
-        broadcastUpdate();
+        broadcastUpdate(msg.tabId);
         sendResponse({ ok: true });
         break;
       case 'ADD_SITE_TO_MEDIA_BLACKLIST': {
@@ -1883,7 +1931,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const mediaSniffingBlacklist = addHostnameToMediaSniffingBlacklist(config.mediaSniffingBlacklist, hostname);
         await saveConfigAndSync({ mediaSniffingBlacklist });
         await syncMediaSniffingStateForTab(msg.tabId, tabSnapshot.url);
-        broadcastUpdate();
+        broadcastUpdate(msg.tabId);
         sendResponse({ ok: true, hostname, mediaSniffingBlacklist });
         break;
       }
@@ -1905,7 +1953,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const mediaSniffingBlacklist = removeHostnameFromMediaSniffingBlacklist(config.mediaSniffingBlacklist, hostname);
         await saveConfigAndSync({ mediaSniffingBlacklist });
         await syncMediaSniffingStateForTab(msg.tabId, tabSnapshot.url);
-        broadcastUpdate();
+        broadcastUpdate(msg.tabId);
         sendResponse({ ok: true, hostname, mediaSniffingBlacklist });
         break;
       }
@@ -1913,26 +1961,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         mediaManager.pauseSniffing(msg.tabId);
         autoCapturePausedTabs.delete(msg.tabId);
         updateActionBadgeForTab(msg.tabId, mediaManager.getState().media[msg.tabId]?.length || 0, true);
-        broadcastUpdate();
+        broadcastUpdate(msg.tabId);
         sendResponse({ ok: true });
         break;
       case 'RESUME_MEDIA_SNIFFING':
         if (!isMediaSniffingEnabled(config)) {
           await syncMediaSniffingStateForTab(msg.tabId);
-          broadcastUpdate();
+          broadcastUpdate(msg.tabId);
           sendResponse({ ok: false, disabled: true });
           break;
         }
         await syncMediaSniffingStateForTab(msg.tabId);
         if (mediaBlacklistBlockedTabs.has(msg.tabId)) {
-          broadcastUpdate();
+          broadcastUpdate(msg.tabId);
           sendResponse({ ok: false, disabled: true, blacklisted: true });
           break;
         }
         mediaManager.resumeSniffing(msg.tabId);
         autoCapturePausedTabs.delete(msg.tabId);
         updateActionBadgeForTab(msg.tabId, mediaManager.getState().media[msg.tabId]?.length || 0, false);
-        broadcastUpdate();
+        broadcastUpdate(msg.tabId);
         sendResponse({ ok: true });
         break;
       case 'CLEAR_MEDIA_BADGE':

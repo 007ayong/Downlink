@@ -52,7 +52,13 @@ function flushAsyncHandlers() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function loadContentScript({ config = {}, sendMessage } = {}) {
+function loadContentScript({
+  config = {},
+  sendMessage,
+  runtimeUrl = 'chrome-extension://test/',
+  setTimeoutFn = setTimeout,
+  clearTimeoutFn = clearTimeout,
+} = {}) {
   const listeners = {};
   const storageChangeListeners = [];
   const openedWindows = [];
@@ -60,8 +66,8 @@ function loadContentScript({ config = {}, sendMessage } = {}) {
 
   const context = {
     URL,
-    setTimeout,
-    clearTimeout,
+    setTimeout: setTimeoutFn,
+    clearTimeout: clearTimeoutFn,
     window: {
       open(url, target) {
         const openedWindow = {
@@ -84,6 +90,9 @@ function loadContentScript({ config = {}, sendMessage } = {}) {
     },
     chrome: {
       runtime: {
+        getURL() {
+          return runtimeUrl;
+        },
         sendMessage: sendMessage || (async () => ({ ok: true })),
       },
       storage: {
@@ -204,6 +213,81 @@ test('download attribute links are left to browser download creation', async () 
   assert.equal(event.defaultPrevented, false);
   assert.deepEqual(messages, []);
   assert.equal(runtime.locationHref, 'https://page.example/current');
+});
+
+test('Safari captures direct file clicks before browser navigation', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true, pending: true };
+    },
+  });
+  const link = createElement({ href: 'https://files.example/file.zip' });
+
+  const event = await runtime.dispatchClick(link);
+
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(runtime.locationHref, 'https://page.example/current');
+  assert.deepEqual(JSON.parse(JSON.stringify(messages)), [{
+    type: 'CAPTURE_LINK_DOWNLOAD',
+    url: 'https://files.example/file.zip',
+    filename: 'file.zip',
+    referrer: 'https://page.example/current',
+  }]);
+});
+
+test('Safari restores navigation when direct link capture fails', async () => {
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    sendMessage: async () => ({ ok: false }),
+  });
+  const link = createElement({ href: 'https://files.example/file.zip' });
+
+  const event = await runtime.dispatchClick(link);
+  await flushAsyncHandlers();
+
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(runtime.locationHref, 'https://files.example/file.zip');
+});
+
+test('Safari restores navigation when background capture never responds', async () => {
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    sendMessage: () => new Promise(() => {}),
+    setTimeoutFn(callback) {
+      callback();
+      return 1;
+    },
+    clearTimeoutFn() {},
+  });
+  const link = createElement({ href: 'https://files.example/file.zip' });
+
+  const event = await runtime.dispatchClick(link);
+
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(runtime.locationHref, 'https://files.example/file.zip');
+});
+
+test('Safari does not intercept ordinary pages whose label only mentions download', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+  const link = createElement({
+    href: 'https://docs.example/download/guide',
+    textContent: 'Download documentation',
+  });
+
+  const event = await runtime.dispatchClick(link);
+
+  assert.equal(event.defaultPrevented, false);
+  assert.deepEqual(messages, []);
 });
 
 test('suspicious download links are left to browser navigation and download creation', async () => {

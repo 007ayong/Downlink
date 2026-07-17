@@ -44,6 +44,7 @@ function createChromeStub(storedConfig = {}) {
     lastErrorReads: 0,
   };
   const dnrCalls = [];
+  const runtimeMessages = [];
   const localStorageWrites = [];
   const syncShouldFail = storedConfig.__syncShouldFail;
   const throwOnDeterminingFilenameAccess = storedConfig.__throwOnDeterminingFilenameAccess;
@@ -96,6 +97,7 @@ function createChromeStub(storedConfig = {}) {
     _notificationCalls: notificationCalls,
     _downloadCalls: downloadCalls,
     _dnrCalls: dnrCalls,
+    _runtimeMessages: runtimeMessages,
     _localStorageWrites: localStorageWrites,
     storage: {
       sync: {
@@ -176,7 +178,8 @@ function createChromeStub(storedConfig = {}) {
       set lastError(value) {
         this._lastError = value;
       },
-      sendMessage() {
+      sendMessage(message) {
+        runtimeMessages.push(message);
         return Promise.resolve();
       },
       getBrowserInfo: storedConfig.__firefoxRuntime ? (() => Promise.resolve({ name: 'Firefox' })) : undefined,
@@ -428,10 +431,11 @@ test('metadata header rule is cleaned up by the background when popup closes ear
   const addCall = background.chrome._dnrCalls.find((call) => call.addRules?.length);
   assert.ok(addCall);
   assert.equal(addCall.addRules[0].condition.tabIds, undefined);
-  assert.equal(timers.length, 1);
-  assert.equal(timers[0].delay, 15000);
+  assert.deepEqual(Array.from(addCall.addRules[0].condition.resourceTypes), ['media', 'xmlhttprequest', 'other']);
+  const cleanupTimer = timers.find((timer) => timer.delay === 15000);
+  assert.ok(cleanupTimer);
 
-  timers[0].callback();
+  cleanupTimer.callback();
   await Promise.resolve();
 
   const removeCall = background.chrome._dnrCalls.find((call) =>
@@ -483,7 +487,9 @@ test('hover preview header rule stays active until explicitly cleared', async ()
   const addCall = background.chrome._dnrCalls.find((call) => call.addRules?.length);
   assert.ok(addCall);
   assert.equal(addCall.addRules[0].condition.tabIds, undefined);
-  assert.equal(timers.length, 0);
+  assert.equal(addCall.addRules[0].priority, 2);
+  assert.deepEqual(Array.from(addCall.addRules[0].condition.resourceTypes), ['media', 'xmlhttprequest', 'other']);
+  assert.equal(timers.filter((timer) => timer.delay === 15000).length, 0);
 
   const clearResult = await invokeBackgroundMessage(background, { type: 'CLEAR_MEDIA_HOVER_PREVIEW', id: media.id });
   assert.equal(clearResult.ok, true);
@@ -491,6 +497,143 @@ test('hover preview header rule stays active until explicitly cleared', async ()
     call.removeRuleIds?.includes(addCall.addRules[0].id) && !call.addRules
   );
   assert.ok(removeCall);
+});
+
+test('preview header rule falls back to the source page referer', async () => {
+  const background = loadBackgroundRuntime();
+  const media = {
+    id: 'media_fallback',
+    tabId: 3,
+    resourceUrl: 'https://cdn.example.com/video.mp4',
+    pageUrl: 'https://example.com/watch/123',
+    filename: 'video.mp4',
+    kind: 'video',
+    headers: {},
+  };
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource(media);
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'PREPARE_MEDIA_HOVER_PREVIEW',
+    id: media.id,
+  });
+
+  assert.deepEqual(Array.from(result.headersApplied), ['referer']);
+  const rule = background.chrome._dnrCalls.find((call) => call.addRules?.length)?.addRules[0];
+  assert.equal(rule.action.requestHeaders[0].value, media.pageUrl);
+  const active = background.__backgroundTestHooks.mediaManager.getActivePreviewRequestInfo(media.resourceUrl);
+  assert.deepEqual(Array.from(active.modes), ['hover']);
+  assert.deepEqual(Array.from(active.expectedHeaders), ['referer']);
+  await invokeBackgroundMessage(background, { type: 'CLEAR_MEDIA_HOVER_PREVIEW', id: media.id });
+});
+
+test('media metadata header rules are installed in one batch', async () => {
+  const background = loadBackgroundRuntime();
+  const media = [
+    {
+      id: 'media_1',
+      tabId: 3,
+      resourceUrl: 'https://cdn.example.com/video.mp4',
+      filename: 'video.mp4',
+      kind: 'video',
+      headers: { referer: 'https://example.com/watch' },
+    },
+    {
+      id: 'media_2',
+      tabId: 3,
+      resourceUrl: 'https://cdn.example.com/audio.m4a',
+      filename: 'audio.m4a',
+      kind: 'audio',
+      headers: { referer: 'https://example.com/watch' },
+    },
+  ];
+  media.forEach((item) => background.__backgroundTestHooks.mediaManager.upsertMediaResource(item));
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'PREPARE_MEDIA_METADATA_BATCH',
+    ids: media.map((item) => item.id),
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(Array.from(result.items, (item) => item.id), ['media_1', 'media_2']);
+  const addCalls = background.chrome._dnrCalls.filter((call) => call.addRules?.length);
+  assert.equal(addCalls.length, 1);
+  assert.equal(addCalls[0].addRules.length, 2);
+  for (const item of media) {
+    await invokeBackgroundMessage(background, { type: 'CLEAR_MEDIA_METADATA', id: item.id });
+  }
+});
+
+test('media metadata batch allocates unique rule IDs when hashes collide', async () => {
+  const background = loadBackgroundRuntime();
+  const manager = background.BackgroundMedia.createMediaManager({
+    fallbackMediaFilename: (media) => media.filename,
+    escapeRegex: background.BackgroundShared.escapeRegex,
+    hashString: () => '1',
+    totalSizeFromHeaders: () => 0,
+    mediaKindOf: () => 'video',
+    deriveOrigin: () => '',
+    updateActionBadgeForTab() {},
+    broadcastUpdate() {},
+    getRequestHeaders: () => ({}),
+    getTabSnapshot: async () => ({}),
+  });
+  const media = ['one', 'two'].map((suffix) => ({
+    id: `media_${suffix}`,
+    tabId: 3,
+    resourceUrl: `https://cdn.example.com/${suffix}.mp4`,
+    filename: `${suffix}.mp4`,
+    headers: { referer: 'https://example.com/watch' },
+  }));
+
+  await manager.prepareMetadataRules(media);
+
+  const ruleIds = background.chrome._dnrCalls.at(-1).addRules.map((rule) => rule.id);
+  assert.equal(new Set(ruleIds).size, media.length);
+});
+
+test('popup state only serializes media for the requested tab', async () => {
+  const background = loadBackgroundRuntime();
+  const mediaManager = background.__backgroundTestHooks.mediaManager;
+  mediaManager.upsertMediaResource({
+    id: 'media_3',
+    tabId: 3,
+    resourceUrl: 'https://cdn.example.com/three.mp4',
+    filename: 'three.mp4',
+    kind: 'video',
+  });
+  mediaManager.upsertMediaResource({
+    id: 'media_4',
+    tabId: 4,
+    resourceUrl: 'https://cdn.example.com/four.mp4',
+    filename: 'four.mp4',
+    kind: 'video',
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE', tabId: 3 });
+
+  assert.deepEqual(Object.keys(state.media), ['3']);
+  assert.equal(state.media[3][0].id, 'media_3');
+});
+
+test('rapid media discoveries are coalesced into one tab-scoped update', async () => {
+  const background = loadBackgroundRuntime();
+  for (const suffix of ['one', 'two']) {
+    await invokeResponseHeaders(background, {
+      url: `https://cdn.example.com/${suffix}.mp4`,
+      tabId: 3,
+      frameId: 0,
+      statusCode: 200,
+      responseHeaders: [{ name: 'content-type', value: 'video/mp4' }],
+    });
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  const updates = background.chrome._runtimeMessages.filter((message) => message?.type === 'TASKS_UPDATE');
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].mediaPatch, true);
+  assert.deepEqual(Object.keys(updates[0].media), ['3']);
+  assert.equal(updates[0].media[3].length, 2);
 });
 
 test('motrixnext view action opens extension bridge page', async () => {

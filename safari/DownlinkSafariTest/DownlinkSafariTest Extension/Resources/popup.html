@@ -1,0 +1,1530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Downlink</title>
+  <!-- Removed external Google Fonts to avoid network blocking on popup open -->
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #f5f4f0;
+      --bg2:       #ffffff;
+      --bg3:       #eeede9;
+      --bg4:       #e6e5e1;
+      --border:    #dddcda;
+      --text:      #1c1b19;
+      --text-2:    #5a5955;
+      --text-3:    #9b9a97;
+      --accent:    #e05c2a;
+      --accent-bg: #fdf0eb;
+      --accent-bd: #f5c8b4;
+      --green:     #2a9d5c;
+      --green-bg:  #edf7f2;
+      --green-bd:  #a8dfc0;
+      --blue:      #2563eb;
+      --blue-bg:   #eff4ff;
+      --blue-bd:   #bfcffd;
+      --red:       #dc2626;
+      --red-bg:    #fff1f1;
+      --yellow:    #d97706;
+      --yellow-bg: #fffbeb;
+      --radius:    9px;
+      --shadow:    0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    body {
+      width: 400px;
+      min-height: 80px;
+      max-height: 560px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ──────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 13px 14px 11px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .logo {
+      width: 26px; height: 26px;
+      background: var(--accent-bg);
+      border-radius: 7px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(28,27,25,0.08);
+      overflow: hidden;
+    }
+    .logo img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+      border-radius: 7px;
+    }
+    .header-info { flex: 1; min-width: 0; }
+    .header-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      min-width: 0;
+    }
+    .header-title-text {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .header-version {
+      color: var(--text-3);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0;
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+    .header-status {
+      font-size: 11px;
+      color: var(--text-3);
+      margin-top: 1px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--text-3);
+      flex-shrink: 0;
+    }
+    .status-dot.online { background: var(--green); box-shadow: 0 0 5px var(--green); }
+    .status-dot.offline { background: var(--red); }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-shrink: 0;
+    }
+    .header-toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-2);
+      font-size: 11.5px;
+      font-weight: 500;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    /* ── Tabs ────────────────────────────────── */
+    .tabs {
+      display: flex;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      padding: 0 14px;
+      gap: 2px;
+    }
+    .tab {
+      font-size: 11.5px;
+      font-weight: 500;
+      padding: 8px 10px 7px;
+      cursor: pointer;
+      color: var(--text-3);
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+      display: flex; align-items: center; gap: 5px;
+      white-space: nowrap;
+    }
+    .tab-icon {
+      width: 16px;
+      height: 16px;
+      display: block;
+      flex-shrink: 0;
+    }
+    .tab[data-tab="settings"] .tab-icon {
+      transform: translateY(1px);
+    }
+    .tab:hover { color: var(--text-2); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab.disabled {
+      color: var(--text-3);
+      opacity: 0.45;
+    }
+    .tab.disabled:hover { color: var(--text-3); }
+    .tab.disabled .tab-badge { background: var(--text-3); }
+    .tab-badge {
+      background: var(--accent);
+      color: white;
+      font-size: 9px;
+      font-weight: 600;
+      padding: 1px 5px;
+      border-radius: 10px;
+      min-width: 16px;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    /* ── Scroll Area ─────────────────────────── */
+    .panel {
+      overflow-y: auto;
+      flex: 1;
+      padding: 10px 12px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--bg4) transparent;
+      display: none;
+    }
+    .panel.active { display: block; }
+    .panel::-webkit-scrollbar { width: 4px; }
+    .panel::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 4px; }
+
+    /* ── Empty ───────────────────────────────── */
+    .empty {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 32px 20px; gap: 8px;
+      color: var(--text-3); text-align: center;
+    }
+    .empty-icon {
+      width: 72px;
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.86;
+    }
+    .empty-icon img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+    }
+    #tasksEmpty .empty-icon {
+      width: 88px;
+      height: 88px;
+    }
+    #mediaEmpty .empty-icon {
+      width: 132px;
+      height: 88px;
+    }
+    .empty-icon.emoji {
+      font-size: 32px;
+    }
+    .empty-title { font-size: 12px; font-weight: 500; color: var(--text-3); }
+    .empty-sub { font-size: 11px; }
+
+    .task-alert {
+      display: none;
+      margin-bottom: 8px;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      background: var(--red-bg);
+      border: 1px solid #f3b7b7;
+      color: var(--red);
+      font-size: 11.5px;
+      line-height: 1.5;
+    }
+    .task-alert.show { display: block; }
+    .task-alert.shake {
+      animation: alert-shake 0.42s ease-in-out;
+    }
+    @keyframes alert-shake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-8px); }
+      40% { transform: translateX(7px); }
+      60% { transform: translateX(-5px); }
+      80% { transform: translateX(4px); }
+    }
+
+    .toast {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(28, 27, 25, 0.94);
+      color: #fff;
+      font-size: 11.5px;
+      line-height: 1.45;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.18);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(6px);
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      z-index: 20;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── Pending Card (confirm dialog) ──────── */
+    .pending-card {
+      position: relative;
+      background: var(--bg2);
+      border: 1px solid rgba(224, 92, 42, 0.34);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 9px;
+      box-shadow: var(--shadow), 0 0 0 0 rgba(224, 92, 42, 0.18);
+      animation: pending-breathe 2.8s ease-in-out infinite;
+    }
+    @keyframes pending-breathe {
+      0%, 100% {
+        border-color: rgba(224, 92, 42, 0.28);
+        box-shadow: var(--shadow), 0 0 0 0 rgba(224, 92, 42, 0.14);
+      }
+      50% {
+        border-color: rgba(224, 92, 42, 0.55);
+        box-shadow: var(--shadow), 0 0 0 3px rgba(224, 92, 42, 0.10), 0 0 16px rgba(224, 92, 42, 0.13);
+      }
+    }
+
+    .pending-head {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .pending-icon {
+      width: 32px;
+      height: 32px;
+      flex: 0 0 32px;
+      border-radius: 7px;
+      background: var(--accent-bg);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .pending-icon img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    .pending-heading {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .pending-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--accent);
+      letter-spacing: 0.03em;
+      line-height: 1.2;
+      margin-bottom: 5px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      width: fit-content;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: var(--accent-bg);
+      border: 1px solid rgba(224, 92, 42, 0.14);
+    }
+    .pending-label::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .pending-url-row {
+      min-width: 0;
+    }
+    .pending-url {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-3);
+      word-break: break-all;
+      line-height: 1.45;
+      display: -webkit-box;
+      -webkit-line-clamp: 1;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      padding: 0;
+      border: 0;
+    }
+    .pending-filename-row {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-bottom: 9px;
+    }
+    .pending-filename-row label {
+      font-size: 10.5px;
+      font-weight: 500;
+      color: var(--text-3);
+      white-space: nowrap;
+    }
+    .pending-filename-row input {
+      width: 100%;
+      font-size: 12.5px;
+      font-weight: 400;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 8px 9px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+    .pending-filename-row input:focus {
+      border-color: var(--accent);
+      background: #fff;
+      box-shadow: 0 0 0 2px rgba(224, 92, 42, 0.10);
+    }
+
+    .pending-options-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 9px;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+    .pending-options-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .pending-save-location-label {
+      font-size: 10.5px;
+      color: var(--text-3);
+      white-space: nowrap;
+    }
+    .pending-save-location {
+      position: relative;
+      min-width: 118px;
+      max-width: 190px;
+    }
+    .pending-save-location-trigger {
+      display: flex; align-items: center; gap: 5px;
+      width: 100%;
+      min-height: 28px;
+      font-size: 11.5px;
+      font-weight: 500;
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+      text-align: left;
+    }
+    .pending-save-location-trigger:hover { background: #fff; }
+    .pending-save-location-trigger:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(224, 92, 42, 0.10);
+    }
+    .pending-save-location-trigger .pending-save-location-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      border: 1px solid rgba(0,0,0,0.12);
+      flex: 0 0 10px;
+    }
+    .pending-save-location-text {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pending-save-location-arrow::after {
+      content: '';
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+      border-top: 5px solid var(--text-3);
+      display: inline-block;
+      margin-left: 2px;
+    }
+    .pending-save-location-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0; right: 0;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      box-shadow: 0 8px 22px rgba(28,27,25,0.16);
+      z-index: 100;
+      max-height: 160px;
+      overflow-y: auto;
+      padding: 4px;
+    }
+    .pending-save-location-menu.open {
+      display: block;
+      position: fixed;
+      left: var(--pending-save-location-menu-left);
+      top: var(--pending-save-location-menu-top);
+      right: auto;
+      width: var(--pending-save-location-menu-width);
+      z-index: 1000;
+    }
+    .pending-save-location-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 8px;
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--text);
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background 0.1s;
+      min-width: 0;
+    }
+    .pending-save-location-item:hover {
+      background: var(--bg3);
+    }
+    .pending-save-location-item.active {
+      background: var(--accent);
+      color: #fff;
+    }
+    .pending-save-location-item .pending-save-location-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      border: 1px solid rgba(0,0,0,0.08);
+      flex: 0 0 8px;
+    }
+    .pending-save-location-item.active .pending-save-location-dot {
+      border-color: rgba(255,255,255,0.3);
+    }
+    .pending-save-location-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pending-option {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: fit-content;
+      min-height: 28px;
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      font-size: 10.5px;
+      font-weight: 500;
+      color: var(--text-2);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .pending-option:hover { background: #fff; }
+    .pending-option:has(input:checked) {
+      background: var(--accent-bg);
+      border-color: var(--accent-bd);
+      color: var(--accent);
+    }
+    .pending-option input {
+      width: 14px;
+      height: 14px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .pending-actions {
+      display: grid;
+      grid-template-columns: 76px 1fr;
+      gap: 7px;
+    }
+    .btn {
+      flex: 1; padding: 7px 0;
+      font-size: 12px; font-weight: 500;
+      font-family: 'Sora', sans-serif;
+      border-radius: 7px; cursor: pointer;
+      border: 1px solid;
+      transition: all 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+    }
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+    .btn-primary:hover { background: #c94e23; border-color: #c94e23; }
+    .btn-ghost {
+      background: var(--bg);
+      border-color: var(--border);
+      color: var(--text-2);
+    }
+    .btn-ghost:hover { background: var(--bg3); border-color: var(--text-3); }
+    .btn.compact-icon {
+      flex: 0 0 auto;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      font-size: 13px;
+      line-height: 1;
+    }
+    .control-icon {
+      width: 14px;
+      height: 14px;
+      display: block;
+    }
+    .btn-danger {
+      background: var(--red-bg);
+      border-color: #fca5a5;
+      color: var(--red);
+    }
+    .btn-danger:hover { background: #fee2e2; }
+
+    /* ── Task Card ───────────────────────────── */
+    .task-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 11px 12px;
+      margin-bottom: 7px;
+      box-shadow: var(--shadow);
+    }
+    .task-card.active  { border-left: 3px solid var(--blue); }
+    .task-card.complete { border-left: 3px solid var(--green); }
+    .task-card.error   { border-left: 3px solid var(--red); }
+    .task-card.paused  { border-left: 3px solid var(--yellow); }
+
+    .task-top {
+      display: flex; gap: 9px; align-items: flex-start;
+      margin-bottom: 8px;
+    }
+    .task-icon {
+      width: 30px; height: 30px;
+      border-radius: 7px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .task-icon img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+    .task-info { flex: 1; min-width: 0; }
+    .task-name {
+      font-size: 12px; font-weight: 500;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      color: var(--text);
+    }
+    .task-meta {
+      display: flex; gap: 8px;
+      font-size: 10.5px;
+      color: var(--text-3);
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 2px;
+      flex-wrap: wrap;
+    }
+    .state-pill {
+      font-size: 10px; font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 20px;
+      flex-shrink: 0;
+      border: 1px solid;
+    }
+    .state-active   { background: var(--blue-bg); color: var(--blue); border-color: var(--blue-bd); }
+    .state-complete { background: var(--green-bg); color: var(--green); border-color: var(--green-bd); }
+    .state-error    { background: var(--red-bg); color: var(--red); border-color: #fca5a5; }
+    .state-paused   { background: var(--yellow-bg); color: var(--yellow); border-color: #fcd34d; }
+    .state-waiting  { background: var(--bg3); color: var(--text-3); border-color: var(--border); }
+
+    /* Progress */
+    .task-progress { margin-bottom: 8px; }
+    .progress-track {
+      height: 3px;
+      background: var(--bg3);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 3px;
+    }
+    .progress-fill.active   { background: linear-gradient(90deg, var(--blue), #60a5fa); }
+    .progress-fill.complete { background: linear-gradient(90deg, var(--green), #34d399); }
+    .progress-fill.error    { background: var(--red); }
+    .progress-fill.paused   { background: var(--yellow); }
+
+    .progress-row {
+      display: flex; justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; color: var(--text-3);
+      margin-top: 4px;
+    }
+    .progress-pct { font-weight: 500; color: var(--text-2); }
+
+    /* Task actions */
+    .task-actions { display: flex; gap: 5px; }
+    .task-btn {
+      flex: 1; padding: 5px 0;
+      font-size: 11px;
+      font-family: 'Sora', sans-serif;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-2);
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 3px;
+      transition: all 0.15s;
+    }
+    .task-btn:hover { background: var(--bg3); border-color: var(--text-3); color: var(--text); }
+    .task-btn.danger:hover { border-color: var(--red); color: var(--red); background: var(--red-bg); }
+
+    /* ── Media Panel ─────────────────────────── */
+    .media-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .media-toolbar {
+      padding: 2px 1px 10px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .media-toolbar-top {
+      display: flex;
+      align-items: center;
+      min-height: 24px;
+    }
+    .media-toolbar-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-2);
+    }
+    .media-toolbar-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 32px auto;
+      gap: 6px;
+      align-items: stretch;
+      margin-top: 8px;
+    }
+    .media-blacklist-btn {
+      width: 100%;
+      min-width: 0;
+      padding: 6px 10px;
+      font-size: 10.5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .media-toolbar-actions .compact-icon {
+      width: 32px;
+      min-width: 32px;
+      padding: 6px;
+    }
+    .media-toolbar-actions #clearMediaBtn {
+      min-width: 48px;
+      padding: 6px 10px;
+    }
+    .media-toolbar-sub {
+      font-size: 10.5px;
+      color: var(--text-3);
+      line-height: 1.5;
+      min-height: 16px;
+    }
+    .media-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .media-card {
+      padding: 11px 12px;
+      background-repeat: no-repeat;
+      background-size: cover;
+      background-position: center;
+    }
+    .media-card-video {
+      background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 252, 247, 0.74) 48%, rgba(255, 232, 205, 0.18) 100%),
+        linear-gradient(135deg, rgba(224, 92, 42, 0.16), rgba(224, 92, 42, 0.035) 44%, rgba(224, 92, 42, 0.09) 100%),
+        url('assets/media-card-video.png');
+      background-size: 100% 100%, 100% 100%, 100% auto;
+      background-position: center, center, right center;
+      border-color: rgba(224, 92, 42, 0.30);
+    }
+    .media-card-audio {
+      background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 253, 250, 0.72) 47%, rgba(205, 243, 227, 0.14) 100%),
+        linear-gradient(135deg, rgba(45, 168, 116, 0.16), rgba(45, 168, 116, 0.03) 44%, rgba(45, 168, 116, 0.10) 100%),
+        url('assets/media-card-audio.png');
+      background-size: 100% 100%, 100% 100%, 100% auto;
+      background-position: center, center, right center;
+      border-color: rgba(45, 168, 116, 0.32);
+    }
+    .media-top {
+      display: flex;
+      gap: 9px;
+      align-items: flex-start;
+    }
+    .media-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .media-icon img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+    .media-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .media-name {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.35;
+    }
+    .media-title-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+    }
+    .media-title-row .media-name {
+      flex: 1;
+      min-width: 0;
+    }
+    .media-name-input {
+      flex: 1;
+      min-width: 0;
+      height: 24px;
+      padding: 3px 7px;
+      border: 1px solid var(--accent-bd);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 12.5px;
+      font-weight: 600;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(224, 92, 42, 0.08);
+    }
+    .media-name-edit {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      background: transparent;
+      color: var(--text-3);
+      cursor: pointer;
+      padding: 0;
+    }
+    .media-name-edit:hover {
+      color: var(--text-2);
+    }
+    .media-name-edit svg {
+      width: 12px;
+      height: 12px;
+      display: block;
+    }
+    .media-name[hidden],
+    .media-name-input[hidden] {
+      display: none !important;
+    }
+    .media-url {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-3);
+      margin-top: 4px;
+      padding-left: 8px;
+      border-left: 2px solid var(--border);
+      word-break: break-all;
+      line-height: 1.45;
+      display: -webkit-box;
+      -webkit-line-clamp: 1;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .media-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      column-gap: 8px;
+      row-gap: 3px;
+      margin-top: 7px;
+      color: var(--text-2);
+      font-size: 10.5px;
+      line-height: 1.35;
+    }
+    .media-fact {
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .media-fact-icon {
+      width: 12px;
+      height: 12px;
+      color: var(--text-3);
+      flex-shrink: 0;
+    }
+    .media-mime {
+      margin-top: 5px;
+      color: var(--text-3);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9.5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      opacity: 0.85;
+    }
+    .media-chip {
+      font-size: 10px;
+      line-height: 1.2;
+      padding: 3px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-2);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .media-kind {
+      flex-shrink: 0;
+    }
+    .media-chip.kind-video {
+      background: var(--accent-bg);
+      border-color: var(--accent-bd);
+      color: var(--accent);
+    }
+    .media-chip.kind-audio {
+      background: var(--green-bg);
+      border-color: var(--green-bd);
+      color: var(--green);
+    }
+    .media-actions {
+      display: flex;
+      gap: 5px;
+      margin-top: 10px;
+    }
+    .media-preview {
+      margin-top: 9px;
+      display: none;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #000;
+    }
+    .media-preview.active {
+      display: block;
+    }
+    .media-preview video,
+    .media-preview audio {
+      width: 100%;
+      display: block;
+      background: #000;
+    }
+    .media-preview video {
+      max-height: 180px;
+      object-fit: contain;
+    }
+    .media-preview audio {
+      height: 54px;
+      background: var(--bg2);
+    }
+    .media-hover-preview {
+      position: fixed;
+      z-index: 50;
+      padding: 8px;
+      border: 1px solid rgba(34, 34, 34, 0.14);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 12px 32px rgba(24, 24, 24, 0.18);
+      backdrop-filter: blur(10px);
+    }
+    .media-hover-preview-title {
+      margin-bottom: 7px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.35;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .media-hover-preview-shell {
+      overflow: hidden;
+      border-radius: 7px;
+      background: #000;
+    }
+    .media-hover-preview video,
+    .media-hover-preview audio {
+      width: 100%;
+      display: block;
+      background: #000;
+    }
+    .media-hover-preview video {
+      max-height: 190px;
+      object-fit: contain;
+    }
+    .media-hover-preview audio {
+      height: 42px;
+      background: var(--bg2);
+    }
+    .media-hover-preview-error .media-hover-preview-shell {
+      border: 1px solid var(--red-bg);
+      background: #111;
+    }
+
+    /* ── Settings Panel ──────────────────────── */
+    .settings-group {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .settings-group-title {
+      font-size: 10.5px; font-weight: 600;
+      color: var(--text-3);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 9px 12px 7px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg3);
+    }
+    .settings-row {
+      display: flex; align-items: center;
+      padding: 9px 12px;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .settings-row:last-child { border-bottom: none; }
+    .settings-row label {
+      flex: 1; font-size: 12px; color: var(--text);
+    }
+    .settings-row .settings-sub {
+      font-size: 10.5px; color: var(--text-3);
+      display: block; margin-top: 1px;
+    }
+    .settings-input {
+      width: 160px;
+      font-size: 11.5px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .settings-input:focus { border-color: var(--accent); }
+    .settings-input.wide { width: 100%; margin-top: 4px; }
+    .settings-input-action {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+      margin-top: 4px;
+    }
+    .settings-input-action .settings-input.wide { margin-top: 0; }
+    .settings-input-action .btn { flex: 0 0 auto; padding: 6px 12px; }
+    .settings-row.col { flex-direction: column; align-items: stretch; }
+    .settings-test-row {
+      align-items: stretch;
+      gap: 8px;
+    }
+    .settings-test-row .conn-result {
+      margin-top: 0;
+    }
+    .settings-test-button {
+      width: 100%;
+      padding: 8px 0;
+      flex: 0 0 auto;
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+      box-shadow: 0 6px 14px rgba(232,95,46,0.18);
+    }
+    .settings-test-button:hover {
+      background: #c94e23;
+      border-color: #c94e23;
+      color: white;
+    }
+    .settings-hidden { display: none; }
+    .settings-row.settings-disabled {
+      opacity: 0.55;
+    }
+    .save-location-list {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      margin-top: 8px;
+    }
+    .save-location-row {
+      position: relative;
+      display: flex;
+      align-items: stretch;
+      gap: 7px;
+      padding: 7px;
+      border: 1px solid var(--save-location-color, var(--border));
+      border-radius: 7px;
+      background:
+        linear-gradient(90deg, var(--save-location-bg, var(--bg)) 0%, rgba(255,255,255,0.38) 100%),
+        var(--save-location-bg, var(--bg));
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.42);
+    }
+    .save-location-color {
+      display: none;
+    }
+    .save-location-fields {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .save-location-name-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .save-location-name-row .save-location-name {
+      flex: 1;
+      min-width: 0;
+    }
+    .save-location-default-badge {
+      flex: 0 0 auto;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: rgba(28,27,25,0.72);
+      color: #fff;
+      font-size: 10.5px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+    .save-location-fields .settings-input {
+      width: 100%;
+      margin-top: 0;
+      background: rgba(255,255,255,0.46);
+      border-color: rgba(255,255,255,0.62);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.55),
+        0 1px 2px rgba(28,27,25,0.05);
+      backdrop-filter: blur(8px) saturate(1.2);
+      -webkit-backdrop-filter: blur(8px) saturate(1.2);
+    }
+    .save-location-fields .settings-input:focus {
+      background: rgba(255,255,255,0.68);
+      border-color: var(--save-location-color, var(--accent));
+    }
+    .save-location-palette {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .save-location-swatch {
+      width: 14px;
+      height: 14px;
+      padding: 0;
+      border: 1px solid rgba(28, 27, 25, 0.16);
+      border-radius: 999px;
+      cursor: pointer;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35);
+    }
+    .save-location-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .save-location-btn {
+      width: 24px;
+      height: 22px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg2);
+      color: var(--text-2);
+      cursor: pointer;
+      line-height: 1;
+    }
+    .save-location-btn:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+    .add-save-location-btn {
+      width: 100%;
+      margin-top: 8px;
+      padding: 7px 0;
+      border: 1px dashed var(--accent-bd);
+      border-radius: 7px;
+      background: var(--accent-bg);
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    /* Toggle */
+    .toggle {
+      position: relative;
+      display: inline-block;
+      width: 32px; height: 18px;
+      flex: 0 0 32px;
+    }
+    .settings-row label.toggle {
+      flex: 0 0 32px;
+      width: 32px;
+      height: 18px;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .toggle-track {
+      position: absolute; inset: 0;
+      background: var(--bg4);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }
+    .toggle input:focus-visible + .toggle-track {
+      box-shadow: 0 0 0 3px rgba(224, 92, 42, 0.16);
+    }
+    .toggle input:checked + .toggle-track {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .toggle-track::after {
+      content: '';
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: white;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      transition: transform 0.2s;
+    }
+    .toggle input:checked + .toggle-track::after { transform: translateX(14px); }
+
+    /* Test connection result */
+    .conn-result {
+      font-size: 11px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      margin-top: 6px;
+      display: none;
+    }
+    .conn-result.ok { background: var(--green-bg); color: var(--green); display: block; }
+    .conn-result.fail { background: var(--red-bg); color: var(--red); display: block; }
+
+    /* Save settings btn */
+    .save-settings-btn {
+      width: 100%;
+      padding: 9px 0;
+      background: var(--text);
+      border: none;
+      border-radius: 7px;
+      color: var(--bg2);
+      font-size: 13px;
+      font-weight: 500;
+      font-family: 'Sora', sans-serif;
+      cursor: pointer;
+      margin-top: 2px;
+      transition: background 0.15s;
+    }
+    .save-settings-btn:hover { background: #333; }
+
+    /* ── Footer ──────────────────────────────── */
+    .footer {
+      padding: 7px 14px;
+      border-top: 1px solid var(--border);
+      background: var(--bg2);
+      display: flex; justify-content: space-between; align-items: center;
+      flex-shrink: 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      color: var(--text-3);
+    }
+    .footer span { color: var(--text-2); }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="logo">
+      <img id="headerLogo" src="icons/icon48.png" alt="Downlink logo"/>
+  </div>
+  <div class="header-info">
+    <div class="header-title">
+      <span class="header-title-text" data-i18n="appTitle">Downlink</span>
+      <span class="header-version" id="extensionVersionValue">—</span>
+    </div>
+    <div class="header-status">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText" data-i18n="statusChecking">检测中…</span>
+    </div>
+  </div>
+  <div class="header-actions">
+    <label class="header-toggle-label" title="自动拦截下载" data-i18n-title="settingsAutoCapture">
+      <span data-i18n="headerAutoCapture">拦截</span>
+      <span class="toggle"><input type="checkbox" id="cfgAutoCapture"><span class="toggle-track"></span></span>
+    </label>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab active" data-tab="tasks">
+    <img class="tab-icon" src="assets/file-icons/task-bar.svg" alt="" aria-hidden="true"/>
+    <span data-i18n="tabTasks">任务</span>
+    <span class="tab-badge" id="pendingBadge" style="display:none">0</span>
+  </div>
+  <div class="tab" data-tab="media" id="mediaTab">
+    <img class="tab-icon" src="assets/file-icons/media-bar.svg" alt="" aria-hidden="true"/>
+    <span data-i18n="tabMedia">媒体</span>
+    <span class="tab-badge" id="mediaBadge" style="display:none">0</span>
+  </div>
+  <div class="tab" data-tab="settings">
+    <img class="tab-icon" src="assets/file-icons/settings-bar.svg" alt="" aria-hidden="true"/>
+    <span data-i18n="tabSettings">设置</span>
+  </div>
+</div>
+
+<!-- Panel: Tasks -->
+<div class="panel active" id="panel-tasks">
+  <div class="task-alert" id="taskAlert"></div>
+  <div class="empty" id="tasksEmpty">
+    <div class="empty-icon">
+      <img src="assets/empty-downloads.png" alt="暂无下载任务" data-i18n-alt="tasksEmptyAlt"/>
+    </div>
+    <div class="empty-title" data-i18n="tasksEmptyTitle">暂无下载任务</div>
+    <div class="empty-sub" data-i18n="tasksEmptySub">拦截到下载链接后将显示在此处</div>
+  </div>
+  <div id="pendingList"></div>
+  <div id="taskList"></div>
+</div>
+
+<!-- Panel: Media -->
+<div class="panel" id="panel-media">
+  <div class="media-toolbar">
+    <div class="media-toolbar-top">
+      <div class="media-toolbar-title" data-i18n="mediaToolbarTitle">当前页面媒体资源</div>
+    </div>
+    <div class="media-toolbar-sub" id="mediaSummary" data-i18n="waitingMediaRequests">等待页面发起音视频请求…</div>
+    <div class="media-toolbar-actions">
+      <button class="btn btn-ghost media-blacklist-btn" id="addSiteToMediaBlacklistBtn" data-i18n="addSiteToMediaBlacklist">将本站加入黑名单</button>
+      <button class="btn btn-ghost compact-icon" id="toggleSniffingBtn" title="暂停/恢复嗅探" aria-label="暂停嗅探">
+        <svg class="control-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path d="M5.25 3.25h1.5c.55 0 1 .45 1 1v7.5c0 .55-.45 1-1 1h-1.5c-.55 0-1-.45-1-1v-7.5c0-.55.45-1 1-1Zm5 0h1.5c.55 0 1 .45 1 1v7.5c0 .55-.45 1-1 1h-1.5c-.55 0-1-.45-1-1v-7.5c0-.55.45-1 1-1Z" fill="currentColor"/>
+        </svg>
+      </button>
+      <button class="btn btn-ghost" id="clearMediaBtn" data-i18n="clear">清空</button>
+    </div>
+  </div>
+  <div class="task-alert" id="mediaAlert"></div>
+  <div class="empty" id="mediaEmpty">
+    <div class="empty-icon">
+      <img id="mediaEmptyImage" src="assets/empty-media.png" alt="" loading="lazy"/>
+    </div>
+    <div class="empty-title" data-i18n="mediaEmptyTitle">暂无直链媒体</div>
+    <div class="empty-sub" data-i18n="mediaEmptySub">打开页面中的音频或视频后会显示在这里</div>
+  </div>
+  <div class="media-list" id="mediaList"></div>
+</div>
+
+<!-- Panel: Settings -->
+<div class="panel" id="panel-settings">
+  <div class="settings-group">
+    <div class="settings-group-title" data-i18n="settingsDownloaderGroup">下载器</div>
+    <div class="settings-row col">
+      <label><span data-i18n="settingsTargetDownloader">目标下载器</span> <span class="settings-sub" data-i18n="settingsTargetDownloaderSub">按设置切换到不同下载器适配器</span></label>
+      <select class="settings-input wide" id="cfgDownloaderType">
+        <option value="aria2">Aria2 RPC</option>
+        <option value="motrixnext">MotrixNext</option>
+        <option value="gopeed">Gopeed</option>
+        <option value="abdownload">AB DM</option>
+        <option value="neatdm">NeatDM</option>
+      </select>
+    </div>
+    <div class="settings-row col">
+      <label><span data-i18n="settingsLanguage">界面语言</span> <span class="settings-sub" data-i18n="settingsLanguageSub">默认跟随浏览器语言，也可手动覆盖</span></label>
+      <select class="settings-input wide" id="cfgLanguage">
+        <option value="auto" data-i18n="languageAuto">跟随浏览器</option>
+        <option value="zh-CN" data-i18n="languageZhCN">简体中文</option>
+        <option value="en" data-i18n="languageEn">English</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="settings-group">
+    <div class="settings-group-title" data-i18n="settingsConnectionGroup">连接信息</div>
+    <div class="settings-row col aria2-only">
+      <label><span data-i18n="settingsRpcAddress">RPC 地址</span> <span class="settings-sub" data-i18n="settingsRpcAddressSub">默认 http://localhost:6800/jsonrpc</span></label>
+      <input class="settings-input wide" id="cfgRpc" type="text" placeholder="http://localhost:6800/jsonrpc"/>
+    </div>
+    <div class="settings-row col aria2-only">
+      <label><span data-i18n="settingsRpcSecret">RPC 密钥</span> <span class="settings-sub" data-i18n="settingsRpcSecretSub">aria2c --rpc-secret 设置的密钥</span></label>
+      <input class="settings-input wide" id="cfgSecret" type="password" placeholder="留空则不使用" data-i18n-placeholder="settingsRpcSecretPlaceholder"/>
+    </div>
+    <div class="settings-row col settings-test-row aria2-only">
+      <div class="conn-result" id="connResult"></div>
+      <button class="btn btn-ghost settings-test-button" id="testConnBtn" data-i18n="connectionTest">连接测试</button>
+    </div>
+    <div class="settings-row col launcher-only settings-hidden">
+      <label><span data-i18n="settingsPort">端口号</span> <span class="settings-sub" data-i18n="settingsPortSub">在下载器「设置 -- 浏览器插件集成」的服务器端口处获取</span></label>
+      <input class="settings-input wide" id="cfgLauncherPort" type="text" placeholder="15151"/>
+    </div>
+    <div class="settings-row col settings-test-row launcher-only settings-hidden">
+      <div class="conn-result" id="connResultLauncher"></div>
+      <button class="btn btn-ghost settings-test-button" id="testLauncherBtn" data-i18n="connectionTest">连接测试</button>
+    </div>
+    <div class="settings-row col motrixnext-only settings-hidden">
+      <label><span data-i18n="settingsMotrixNextPort">MotrixNext 端口</span> <span class="settings-sub" data-i18n="settingsMotrixNextPortSub">在下载器「设置 -- 高级 -- 浏览器扩展」处的端口</span></label>
+      <input class="settings-input wide" id="cfgMotrixNextPort" type="text" placeholder="16801"/>
+    </div>
+    <div class="settings-row col motrixnext-only settings-hidden">
+      <label><span data-i18n="settingsMotrixNextSecret">MotrixNext 密钥</span> <span class="settings-sub" data-i18n="settingsMotrixNextSecretSub">在下载器「设置 -- 高级 -- 浏览器扩展」处的密钥</span></label>
+      <input class="settings-input wide" id="cfgMotrixNextSecret" type="password" placeholder="留空则不使用" data-i18n-placeholder="settingsRpcSecretPlaceholder"/>
+    </div>
+    <div class="settings-row col settings-test-row motrixnext-only settings-hidden">
+      <div class="conn-result" id="connResultMotrixNext"></div>
+      <button class="btn btn-ghost settings-test-button" id="testMotrixNextBtn" data-i18n="connectionTest">连接测试</button>
+    </div>
+    <div class="settings-row col gopeed-only settings-hidden">
+      <label><span data-i18n="settingsGopeedApi">Gopeed API 地址</span> <span class="settings-sub" data-i18n="settingsGopeedApiSub">下载器「设置 -- 高级 -- API」的 TCP 通讯地址</span></label>
+      <input class="settings-input wide" id="cfgGopeedApi" type="text" placeholder="http://127.0.0.1:9999"/>
+    </div>
+    <div class="settings-row col gopeed-only settings-hidden">
+      <label><span data-i18n="settingsGopeedToken">Gopeed Token</span> <span class="settings-sub" data-i18n="settingsGopeedTokenSub">下载器「设置 -- 高级 -- API」的接口令牌，留空则不使用</span></label>
+      <input class="settings-input wide" id="cfgGopeedToken" type="password" placeholder="留空则不使用" data-i18n-placeholder="settingsRpcSecretPlaceholder"/>
+    </div>
+    <div class="settings-row col settings-test-row gopeed-only settings-hidden">
+      <div class="conn-result" id="connResultGopeed"></div>
+      <button class="btn btn-ghost settings-test-button" id="testGopeedBtn" data-i18n="connectionTest">连接测试</button>
+    </div>
+    <div class="settings-row col settings-test-row neatdm-only settings-hidden">
+      <div class="conn-result" id="connResultNeatdm"></div>
+      <button class="btn btn-ghost settings-test-button" id="testNeatdmBtn" data-i18n="connectionTest">连接测试</button>
+    </div>
+  </div>
+
+  <div class="settings-group downloader-config-group">
+    <div class="settings-group-title" data-i18n="settingsConfigGroup">配置信息</div>
+    <div class="settings-row aria2-only">
+      <label><span data-i18n="settingsAria2Silent">普通任务静默下载</span> <span class="settings-sub" data-i18n="settingsAria2SilentSub">默认下载前需手动二次确认；开启后自动开始下载，无需二次确认</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgAria2Silent"><div class="toggle-track"></div></label>
+    </div>
+    <div class="settings-row aria2-only aria2-custom-save-control">
+      <label><span data-i18n="settingsAria2CustomSave">自定义保存位置</span> <span class="settings-sub" data-i18n="settingsAria2CustomSaveSub">开启后可在任务确认页选择保存目录；静默下载时仅使用第一项默认位置</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgAria2CustomSaveEnabled"><div class="toggle-track"></div></label>
+    </div>
+    <div class="settings-row col aria2-only aria2-save-locations-config settings-hidden">
+      <label><span data-i18n="settingsAria2SaveLocations">保存位置列表</span> <span class="settings-sub" data-i18n="settingsAria2SaveLocationsSub">可自定义名称、路径和颜色标签，可调整顺序</span></label>
+      <div class="save-location-list" id="cfgAria2SaveLocations"></div>
+      <button class="add-save-location-btn" type="button" id="addAria2SaveLocationBtn" data-i18n="addSaveLocation">添加保存位置</button>
+    </div>
+    <div class="settings-row aria2-only">
+      <label><span data-i18n="settingsUseMotrixNext">使用 MotrixNext 管理</span> <span class="settings-sub" data-i18n="settingsUseMotrixNextSub">在任务面板显示“Motrix中查看”，默认关闭</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgUseMotrixNext"><div class="toggle-track"></div></label>
+    </div>
+    <div class="settings-row launcher-only settings-hidden">
+      <label><span data-i18n="settingsAbDownloadSilent">普通任务静默下载</span> <span class="settings-sub" data-i18n="settingsAbDownloadSilentSub">默认下载前需手动二次确认；开启后自动开始下载，无需二次确认</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgAbDownloadSilent"><div class="toggle-track"></div></label>
+    </div>
+  </div>
+
+  <div class="settings-group">
+    <div class="settings-group-title" data-i18n="settingsCaptureGroup">拦截规则</div>
+    <div class="settings-row col">
+      <label><span data-i18n="settingsMediaSniffingBlacklist">媒体嗅探黑名单</span> <span class="settings-sub" data-i18n="settingsMediaSniffingBlacklistSub">逗号分隔网站域名，匹配域名及其子域；输入 * 关闭所有网站的媒体嗅探</span></label>
+      <div class="settings-input-action">
+        <input class="settings-input wide" id="cfgMediaSniffingBlacklist" type="text" placeholder="x.com,youtube.com" data-i18n-placeholder="settingsMediaSniffingBlacklistPlaceholder"/>
+        <button class="btn btn-ghost" type="button" id="restoreDefaultMediaSniffingBlacklistBtn" data-i18n="restoreDefaultMediaSniffingBlacklist">恢复默认</button>
+      </div>
+    </div>
+    <div class="settings-row col">
+      <label><span data-i18n="settingsDownloadInterceptionBlacklist">下载拦截黑名单</span> <span class="settings-sub" data-i18n="settingsDownloadInterceptionBlacklistSub">逗号分隔网站域名，匹配域名及其子域；命中后不接管该网站的下载</span></label>
+      <div class="settings-input-action">
+        <input class="settings-input wide" id="cfgDownloadInterceptionBlacklist" type="text" placeholder="web.telegram.org" data-i18n-placeholder="settingsDownloadInterceptionBlacklistPlaceholder"/>
+        <button class="btn btn-ghost" type="button" id="restoreDefaultDownloadInterceptionBlacklistBtn" data-i18n="restoreDefaultDownloadInterceptionBlacklist">恢复默认</button>
+      </div>
+    </div>
+    <div class="settings-row col">
+      <label><span data-i18n="settingsCaptureExtensions">拦截文件类型</span> <span class="settings-sub" data-i18n="settingsCaptureExtensionsSub">逗号分隔，输入 * 拦截所有</span></label>
+      <div class="settings-input-action">
+        <input class="settings-input wide" id="cfgExts" type="text" placeholder="zip,rar,mp4,exe..." data-i18n-placeholder="settingsCaptureExtensionsPlaceholder"/>
+        <button class="btn btn-ghost" type="button" id="restoreDefaultCaptureExtensionsBtn" data-i18n="restoreDefaultCaptureExtensions">恢复默认</button>
+      </div>
+    </div>
+    <div class="settings-row">
+      <label><span data-i18n="settingsAutoCaptureShortcut">拦截快捷键</span> <span class="settings-sub" data-i18n="settingsAutoCaptureShortcutSub">默认 Ctrl+Shift+D，可在浏览器扩展管理页中自定义</span></label>
+      <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="customizeShortcutBtn" data-i18n="customizeShortcut">自定义</button>
+    </div>
+    <div class="settings-row">
+      <label><span data-i18n="settingsSkipSmallDownloads">小文件不接管</span> <span class="settings-sub" data-i18n="settingsSkipSmallDownloadsSub">已知大小低于阈值时保留浏览器下载，减少小文件进入下载器；未知大小仍按规则接管</span></label>
+      <label class="toggle"><input type="checkbox" id="cfgSkipSmallDownloads"><div class="toggle-track"></div></label>
+    </div>
+    <div class="settings-row col">
+      <label><span data-i18n="settingsSmallDownloadThreshold">小文件阈值 MB</span> <span class="settings-sub" data-i18n="settingsSmallDownloadThresholdSub">默认 1 MB。只使用浏览器已提供的大小，不额外请求文件信息</span></label>
+      <input class="settings-input wide" id="cfgSmallDownloadThresholdMb" type="number" min="0.1" step="0.1" value="1"/>
+    </div>
+  </div>
+
+  <button class="save-settings-btn" id="saveSettingsBtn" data-i18n="saveSettings">保存设置</button>
+</div>
+
+<!-- Footer -->
+<div class="footer" id="footerBar" style="display:none">
+  <div id="footerStatsLabel">活跃 0 · 完成 0</div>
+  <div><span data-i18n="footerSpeed">速度</span> <span id="fSpeed">—</span></div>
+</div>
+
+  <script src="filename-logic.js"></script>
+  <script src="lib/config-defaults.js"></script>
+  <script src="lib/i18n.js"></script>
+  <script src="lib/popup-ui.js"></script>
+  <script src="lib/popup-settings.js"></script>
+  <script src="popup.js"></script>
+  <script src="popup-app.js"></script>
+  <div id="toast" class="toast"></div>
+</body>
+</html>
