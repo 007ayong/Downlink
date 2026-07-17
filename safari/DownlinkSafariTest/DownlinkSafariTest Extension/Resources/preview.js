@@ -67,6 +67,17 @@ function setTopAlert(message, { shake = false } = {}) {
   el.classList.add('shake');
 }
 
+function getSendFailureMessage(result = {}) {
+  if (result.downloaderLabel) {
+    return t(
+      'connectionFailedWithLabel',
+      [result.downloaderLabel],
+      `与 ${result.downloaderLabel} 连接失败，检查 ${result.downloaderLabel} 是否正在运行`
+    );
+  }
+  return result.error || t('sendToDownloaderFailed', undefined, '发送到下载器失败。');
+}
+
 let toastTimer = null;
 let sendingToDownloader = false;
 let currentPreviewFilename = '';
@@ -604,7 +615,7 @@ function renderMedia(media) {
         showToast(message, 'ok');
         return;
       }
-      const message = result.error || t('sendToDownloaderFailed', undefined, '发送到下载器失败。');
+      const message = getSendFailureMessage(result);
       setTopAlert(message, { shake: true });
       setStatus('', '');
       showToast(message, 'fail');

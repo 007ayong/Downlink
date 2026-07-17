@@ -556,6 +556,33 @@ test('aria2 pending confirmation can force single threaded download options', ()
   });
 });
 
+test('pending confirmation connection failure shows a localized inline alert', () => {
+  const popup = loadPopupRuntime({
+    messageResponses: {
+      CONFIRM_DOWNLOAD: {
+        ok: false,
+        error: 'Failed to connect to Aria2. Check whether Aria2 is running.',
+      },
+    },
+  });
+  Object.assign(popup.currentConfig, { language: 'zh-CN', downloaderType: 'aria2' });
+  popup.renderTasks({}, {
+    task1: {
+      key: 'task1',
+      url: 'https://example.com/file.zip',
+      filename: 'file.zip',
+      addedAt: 1,
+    },
+  });
+
+  popup.document.getElementById('pendingList').children[0].querySelector('.confirm-btn').click();
+
+  const alert = popup.document.getElementById('taskAlert');
+  assert.equal(alert.textContent, '与 Aria2 连接失败，检查 Aria2 是否正在运行');
+  assert.equal(alert.classList.contains('show'), true);
+  assert.equal(popup.document.getElementById('toast').classList.contains('show'), false);
+});
+
 test('aria2 pending confirmation sends selected custom save location', () => {
   const popup = loadPopupRuntime();
   Object.assign(popup.currentConfig, {
@@ -1134,6 +1161,10 @@ test('aria2 test connection sends the current form config', () => {
     skipSmallDownloads: false,
     smallDownloadThresholdBytes: 1048576,
   });
+  assert.equal(
+    popup.document.getElementById('connResult').textContent,
+    '与 Aria2 连接失败，检查 Aria2 是否正在运行'
+  );
 });
 
 test('AB DM test connection sends the current form config', () => {
@@ -1231,6 +1262,39 @@ test('connection failure alert renders in both tasks and media panels', async ()
   const mediaAlertEl = popup.document.getElementById('mediaAlert');
   assert.equal(mediaAlertEl.textContent, '连接失败，检查下载器是否在运行');
   assert.equal(mediaAlertEl.classList.contains('show'), true);
+});
+
+test('connection failure alert is localized in the popup from its semantic payload', () => {
+  const popup = loadPopupRuntime({
+    state: {
+      tasks: {},
+      pending: {},
+      media: {},
+      config: { language: 'zh-CN' },
+      hiddenTaskGids: [],
+      uiAlert: {
+        type: 'connection-failure',
+        downloaderLabel: 'Aria2',
+        message: 'Failed to connect to Aria2. Check whether Aria2 is running.',
+      },
+    },
+  });
+
+  popup.renderState({
+    tasks: {},
+    pending: {},
+    media: {},
+    uiAlert: {
+      type: 'connection-failure',
+      downloaderLabel: 'Aria2',
+      message: 'Failed to connect to Aria2. Check whether Aria2 is running.',
+    },
+  });
+
+  assert.equal(
+    popup.document.getElementById('taskAlert').textContent,
+    '与 Aria2 连接失败，检查 Aria2 是否正在运行'
+  );
 });
 
 test('aria2 custom save controls stay enabled while silent downloads are enabled', () => {

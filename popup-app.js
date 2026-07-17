@@ -835,7 +835,23 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
   });
 }
 
-function renderInlineAlert(elementId, message = currentState.uiAlert?.message || '', { shake = false } = {}) {
+function getConnectionFailureMessage(downloaderLabel) {
+  return popupAppT(
+    'connectionFailedWithLabel',
+    [downloaderLabel],
+    `与 ${downloaderLabel} 连接失败，检查 ${downloaderLabel} 是否正在运行`
+  );
+}
+
+function getUiAlertMessage(alert = currentState.uiAlert) {
+  if (!alert) return '';
+  if (alert.type === 'connection-failure' && alert.downloaderLabel) {
+    return getConnectionFailureMessage(alert.downloaderLabel);
+  }
+  return alert.message || '';
+}
+
+function renderInlineAlert(elementId, message = getUiAlertMessage(), { shake = false } = {}) {
   const alertEl = document.getElementById(elementId);
   if (!alertEl) return;
   alertEl.textContent = message;
@@ -895,11 +911,13 @@ function renderTasks(tasks, pending) {
             lastRenderedPendingKey = '';
           }
           if (!res?.ok) {
-            showToast(popupAppT(
-              'sendFailed',
-              [res?.error || popupAppT('downloaderConnectionFailed', undefined, '与下载器连接失败，检查下载器是否正在运行')],
-              `发送失败：${res?.error || '与下载器连接失败，检查下载器是否正在运行'}`
-            ));
+            const downloaderLabel = getDownloaderName(currentConfig);
+            currentState.uiAlert = {
+              type: 'connection-failure',
+              downloaderLabel,
+              message: res?.error || '',
+            };
+            renderInlineAlert('taskAlert', getUiAlertMessage(), { shake: true });
           }
         });
       });
@@ -1505,9 +1523,13 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
         } else {
           btn.disabled = false;
           btn.textContent = getSendLabel(currentConfig);
-          const message = res?.error || popupAppT('downloaderConnectionFailed', undefined, '与下载器连接失败，检查下载器是否正在运行');
-          currentState.uiAlert = { type: 'connection-failure', message };
-          renderInlineAlert('mediaAlert', message, { shake: true });
+          const downloaderLabel = getDownloaderName(currentConfig);
+          currentState.uiAlert = {
+            type: 'connection-failure',
+            downloaderLabel,
+            message: res?.error || '',
+          };
+          renderInlineAlert('mediaAlert', getUiAlertMessage(), { shake: true });
           syncPopupGlobals();
         }
       });
@@ -1680,7 +1702,7 @@ document.getElementById('testConnBtn').addEventListener('click', () => {
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `${popupAppT('connectionFailedTitle', ['Aria2'], '与 Aria2 连接失败')}：${res?.error || popupAppT('connectionFailedWithLabel', ['Aria2'], '检查 Aria2 是否正在运行')}`;
+    resultEl.textContent = getConnectionFailureMessage('Aria2');
   });
 });
 
@@ -1697,7 +1719,7 @@ document.getElementById('testLauncherBtn').addEventListener('click', () => {
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `${popupAppT('connectionFailedTitle', ['AB DM'], '与 AB DM 连接失败')}：${res?.error || popupAppT('connectionFailedWithLabel', ['AB DM'], '检查 AB DM 是否正在运行')}`;
+    resultEl.textContent = getConnectionFailureMessage('AB DM');
   });
 });
 
@@ -1714,7 +1736,7 @@ document.getElementById('testMotrixNextBtn').addEventListener('click', () => {
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `${popupAppT('connectionFailedTitle', ['MotrixNext'], '与 MotrixNext 连接失败')}：${res?.error || popupAppT('connectionFailedWithLabel', ['MotrixNext'], '检查 MotrixNext 是否正在运行')}`;
+    resultEl.textContent = getConnectionFailureMessage('MotrixNext');
   });
 });
 
@@ -1731,7 +1753,7 @@ document.getElementById('testGopeedBtn').addEventListener('click', () => {
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `${popupAppT('connectionFailedTitle', ['Gopeed'], '与 Gopeed 连接失败')}：${res?.error || popupAppT('connectionFailedWithLabel', ['Gopeed'], '检查 Gopeed 是否正在运行')}`;
+    resultEl.textContent = getConnectionFailureMessage('Gopeed');
   });
 });
 
@@ -1748,7 +1770,7 @@ document.getElementById('testNeatdmBtn').addEventListener('click', () => {
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = `${popupAppT('connectionFailedTitle', ['NeatDM'], '与 NeatDM 连接失败')}：${res?.error || popupAppT('connectionFailedWithLabel', ['NeatDM'], '检查 NeatDM 是否正在运行')}`;
+    resultEl.textContent = getConnectionFailureMessage('NeatDM');
   });
 });
 

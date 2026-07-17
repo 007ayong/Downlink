@@ -3862,6 +3862,8 @@ test('user-triggered send failure only exposes task alert', async () => {
 
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(state.uiAlert?.message, '与 AB DM 连接失败，检查 AB DM 是否正在运行');
+  assert.equal(state.uiAlert?.downloaderLabel, 'AB DM');
+  assert.equal(result.downloaderLabel, 'AB DM');
 });
 
 test('pending confirmation send failure does not open a new task surface', async () => {

@@ -1239,10 +1239,18 @@ async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false, 
 
   const message = result?.error || buildConnectionFailureText(getDownloaderLabel(config.downloaderType));
   if (shouldReportFailure()) {
-    setUiAlert({ type: 'connection-failure', message });
+    setUiAlert({
+      type: 'connection-failure',
+      downloaderLabel: getDownloaderLabel(config.downloaderType),
+      message,
+    });
     if (openPopupOnFailure) await openTaskSurfaceForTask(taskInfo);
   }
-  return { ...result, error: message };
+  return {
+    ...result,
+    error: message,
+    downloaderLabel: getDownloaderLabel(config.downloaderType),
+  };
 }
 
 function updateActionBadgeForTab(tabId, count, isPaused = false) {
