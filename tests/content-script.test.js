@@ -54,6 +54,7 @@ function flushAsyncHandlers() {
 
 function loadContentScript({ config = {}, sendMessage } = {}) {
   const listeners = {};
+  const storageChangeListeners = [];
   const openedWindows = [];
   let assignedLocation = 'https://page.example/current';
 
@@ -91,8 +92,15 @@ function loadContentScript({ config = {}, sendMessage } = {}) {
             callback?.({ ...defaults, ...config });
           },
         },
+        local: {
+          get(defaults, callback) {
+            callback?.({ ...defaults });
+          },
+        },
         onChanged: {
-          addListener() {},
+          addListener(listener) {
+            storageChangeListeners.push(listener);
+          },
         },
       },
     },
@@ -125,6 +133,8 @@ function loadContentScript({ config = {}, sendMessage } = {}) {
 
   context.globalThis = context;
   context.self = context;
+  const configDefaultsScript = fs.readFileSync(path.join(__dirname, '..', 'lib', 'config-defaults.js'), 'utf8');
+  vm.runInNewContext(configDefaultsScript, context, { filename: 'lib/config-defaults.js' });
   const script = fs.readFileSync(path.join(__dirname, '..', 'content-script.js'), 'utf8');
   vm.runInNewContext(script, context, { filename: 'content-script.js' });
 
@@ -152,6 +162,9 @@ function loadContentScript({ config = {}, sendMessage } = {}) {
   return {
     dispatchClick,
     dispatchPointerdown,
+    dispatchStorageChange(changes, areaName = 'sync') {
+      for (const listener of storageChangeListeners) listener(changes, areaName);
+    },
     openedWindows,
     get locationHref() {
       return assignedLocation;
@@ -246,6 +259,78 @@ test('direct file links with new-window targets are tracked before source-tab do
   }]);
   assert.deepEqual(runtime.openedWindows, []);
   assert.equal(runtime.locationHref, 'https://files.example/file.zip');
+});
+
+test('new-window links use shared default capture extensions for click intent tracking', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+  const link = createElement({ href: 'https://files.example/client_zh-cn.esd', target: '_blank' });
+
+  const event = await runtime.dispatchClick(link);
+  await flushAsyncHandlers();
+
+  assert.equal(event.defaultPrevented, true);
+  assert.deepEqual(messages.map(message => ({ ...message })), [{
+    type: 'TRACK_DOWNLOAD_CLICK',
+    url: 'https://files.example/client_zh-cn.esd',
+    filename: 'client_zh-cn.esd',
+  }]);
+  assert.equal(runtime.locationHref, 'https://files.example/client_zh-cn.esd');
+});
+
+test('new-window links use stored capture extensions for click intent tracking', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    config: { captureExtensions: 'zip,custom' },
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+  const link = createElement({ href: 'https://files.example/package.custom', target: '_blank' });
+
+  const event = await runtime.dispatchClick(link);
+  await flushAsyncHandlers();
+
+  assert.equal(event.defaultPrevented, true);
+  assert.deepEqual(messages.map(message => ({ ...message })), [{
+    type: 'TRACK_DOWNLOAD_CLICK',
+    url: 'https://files.example/package.custom',
+    filename: 'package.custom',
+  }]);
+  assert.equal(runtime.locationHref, 'https://files.example/package.custom');
+});
+
+test('capture extension storage changes update new-window click intent tracking', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    config: { captureExtensions: 'zip' },
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+
+  runtime.dispatchStorageChange({
+    captureExtensions: { oldValue: 'zip', newValue: 'custom' },
+  });
+  const link = createElement({ href: 'https://files.example/package.custom', target: '_blank' });
+
+  const event = await runtime.dispatchClick(link);
+  await flushAsyncHandlers();
+
+  assert.equal(event.defaultPrevented, true);
+  assert.deepEqual(messages.map(message => ({ ...message })), [{
+    type: 'TRACK_DOWNLOAD_CLICK',
+    url: 'https://files.example/package.custom',
+    filename: 'package.custom',
+  }]);
+  assert.equal(runtime.locationHref, 'https://files.example/package.custom');
 });
 
 test('modified clicks on new-window download links still resume in the source tab', async () => {

@@ -42,6 +42,7 @@
         "<all_urls>"
       ],
       "js": [
+        "lib/config-defaults.js",
         "content-script.js"
       ],
       "run_at": "document_start",

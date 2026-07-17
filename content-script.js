@@ -1,4 +1,57 @@
 (function initDownloadClickTracking() {
+  const defaultCaptureExtensions = globalThis.ConfigDefaults?.DEFAULT_CAPTURE_EXTENSIONS || '';
+  const legacyDefaultCaptureExtensions = globalThis.ConfigDefaults?.LEGACY_DEFAULT_CAPTURE_EXTENSIONS || '';
+  let captureExtensionPattern = buildCaptureExtensionPattern(defaultCaptureExtensions);
+
+  function normalizeCaptureExtensionsConfig(value) {
+    if (value === undefined || value === null) return defaultCaptureExtensions;
+    const normalized = String(value || '').replace(/\s+/g, '').toLowerCase();
+    if (legacyDefaultCaptureExtensions && normalized === legacyDefaultCaptureExtensions) return defaultCaptureExtensions;
+    return value;
+  }
+
+  function buildCaptureExtensionPattern(value = '') {
+    const exts = String(value || '')
+      .split(',')
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean)
+      .map((item) => item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    if (!exts.length || exts.includes('\\*')) return /\.([a-zA-Z0-9]+)(?:[?#]|$)/i;
+    return exts.length ? new RegExp(`\\.(${exts.join('|')})(?:[?#]|$)`, 'i') : null;
+  }
+
+  function applyCaptureExtensions(value) {
+    captureExtensionPattern = buildCaptureExtensionPattern(normalizeCaptureExtensionsConfig(value));
+  }
+
+  function loadStoredCaptureExtensions() {
+    const defaults = { captureExtensions: defaultCaptureExtensions };
+    const finish = (stored = {}) => applyCaptureExtensions(stored.captureExtensions);
+    const fallbackToLocal = () => {
+      try {
+        const localResult = chrome.storage.local?.get?.(defaults, finish);
+        if (localResult && typeof localResult.then === 'function') localResult.then(finish).catch(() => finish(defaults));
+        if (!chrome.storage.local?.get) finish(defaults);
+      } catch {
+        finish(defaults);
+      }
+    };
+
+    try {
+      const syncResult = chrome.storage.sync?.get?.(defaults, (stored) => {
+        if (chrome.runtime?.lastError) {
+          fallbackToLocal();
+          return;
+        }
+        finish(stored);
+      });
+      if (syncResult && typeof syncResult.then === 'function') syncResult.then(finish).catch(fallbackToLocal);
+      if (!chrome.storage.sync?.get) fallbackToLocal();
+    } catch {
+      fallbackToLocal();
+    }
+  }
+
   function findLink(target) {
     if (!target) return null;
     if (typeof target.closest === 'function') return target.closest('a[href], area[href]');
@@ -32,7 +85,7 @@
     ].join(' ');
     return Boolean(
       downloadAttr !== undefined && downloadAttr !== null ||
-      /\.(zip|rar|7z|tar|gz|bz2|xz|iso|dmg|exe|msi|deb|pkg|apk|mp4|mkv|avi|mov|webm|mp3|flac|wav|pdf|torrent)(?:[?#]|$)/i.test(href) ||
+      captureExtensionPattern?.test(href) ||
       /\b(download|artifact)\b/i.test(label)
     );
   }
@@ -106,4 +159,11 @@
     if (event.detail === 0) trackDownloadClickIntent(event);
     if (event.detail !== 0) return;
   }, true);
+
+  loadStoredCaptureExtensions();
+  chrome.storage.onChanged?.addListener?.((changes, areaName) => {
+    if (areaName && !['sync', 'local'].includes(areaName)) return;
+    if (!Object.prototype.hasOwnProperty.call(changes || {}, 'captureExtensions')) return;
+    applyCaptureExtensions(changes.captureExtensions.newValue);
+  });
 })();
