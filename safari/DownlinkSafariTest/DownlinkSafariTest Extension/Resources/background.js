@@ -2,17 +2,55 @@
 // 拆分为：基础工具 / 下载器适配 / 事件注册
 
 const PROBE_LOG_KEY = 'downlinkSafariProbeLogs';
+let probeLogWritePromise = Promise.resolve();
+
+function readProbeLogs() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (stored) => {
+      if (settled) return;
+      settled = true;
+      resolve(Array.isArray(stored?.[PROBE_LOG_KEY]) ? stored[PROBE_LOG_KEY] : []);
+    };
+    try {
+      const result = chrome.storage.local.get({ [PROBE_LOG_KEY]: [] }, finish);
+      result?.then?.(finish).catch?.(() => finish({}));
+    } catch {
+      finish({});
+    }
+  });
+}
+
+function persistProbeLogs(logs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    try {
+      const result = chrome.storage.local.set({ [PROBE_LOG_KEY]: logs }, finish);
+      result?.then?.(finish).catch?.(finish);
+      if (!result && chrome.runtime?.lastError) finish();
+    } catch {
+      finish();
+    }
+  });
+}
+
 function writeProbeLog(message, data = {}) {
   const entry = { time: new Date().toISOString(), message, data };
   console.log(`[Downlink Safari probe] ${message}`, data);
-  try {
-    chrome.storage.local.get({ [PROBE_LOG_KEY]: [] }, (stored) => {
-      const previous = Array.isArray(stored?.[PROBE_LOG_KEY]) ? stored[PROBE_LOG_KEY] : [];
-      chrome.storage.local.set({ [PROBE_LOG_KEY]: [...previous.slice(-99), entry] });
-    });
-  } catch (error) {
+  probeLogWritePromise = probeLogWritePromise
+    .catch(() => {})
+    .then(async () => {
+      const previous = await readProbeLogs();
+      await persistProbeLogs([...previous.slice(-99), entry]);
+    })
+    .catch((error) => {
     console.error('[Downlink Safari probe] failed to persist log', error);
-  }
+    });
 }
 
 self.addEventListener('error', (event) => {
@@ -24,24 +62,22 @@ self.addEventListener('unhandledrejection', (event) => {
 
 writeProbeLog('background script start');
 
-try {
-  importScripts(
-    'filename-logic.js',
-    'lib/config-defaults.js',
-    'lib/i18n.js',
-    'lib/background-shared.js',
-    'lib/background-downloaders.js',
-    'lib/background-media.js'
-  );
-  writeProbeLog('importScripts ok', {
-    hasConfigDefaults: Boolean(globalThis.ConfigDefaults),
-    hasBackgroundShared: Boolean(globalThis.BackgroundShared),
-    hasBackgroundDownloaders: Boolean(globalThis.BackgroundDownloaders),
-    hasBackgroundMedia: Boolean(globalThis.BackgroundMedia),
-    hasLocalization: Boolean(globalThis.Localization),
-  });
-} catch (error) {
-  writeProbeLog('importScripts failed', { message: error?.message || String(error), stack: error?.stack || '' });
+if (!globalThis.ConfigDefaults || !globalThis.BackgroundShared || !globalThis.BackgroundDownloaders || !globalThis.BackgroundMedia) {
+  try {
+    importScripts(
+      'filename-logic.js',
+      'lib/config-defaults.js',
+      'lib/i18n.js',
+      'lib/background-shared.js',
+      'lib/background-downloaders.js',
+      'lib/background-media.js'
+    );
+    writeProbeLog('importScripts fallback ok');
+  } catch (error) {
+    writeProbeLog('importScripts fallback failed', { message: error?.message || String(error), stack: error?.stack || '' });
+  }
+} else {
+  writeProbeLog('manifest background dependencies ready');
 }
 const {
   LEGACY_DEFAULT_CAPTURE_EXTENSIONS,
@@ -122,6 +158,12 @@ const pendingBrowserDownloadCaptures = new Map();
 const requestHeadersCache = new Map();
 const responseHeadersCache = new Map();
 const redirectIntents = new Map();
+const dnrNavigationCandidates = new Map();
+const dnrRedirectBridgeNavigations = new Map();
+const safariUrlCaptureClaims = new Map();
+const safariRedirectChainClaims = new Map();
+const SAFARI_DOWNLOAD_REDIRECT_RULE_IDS = Array.from({ length: 100 }, (_, index) => 80000001 + index);
+const SAFARI_DOWNLOAD_ENDPOINT_REDIRECT_PATTERNS = [];
 const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
 let contextMenuRefreshVersion = 0;
 const backgroundSessionStartedAt = Date.now();
@@ -174,6 +216,40 @@ function storageSet(area, values) {
       reject(error);
     }
   });
+}
+
+function cookiesGetAll(details) {
+  return new Promise((resolve) => {
+    if (!chrome.cookies?.getAll) {
+      resolve([]);
+      return;
+    }
+    let settled = false;
+    const finish = (cookies) => {
+      if (settled) return;
+      settled = true;
+      resolve(Array.isArray(cookies) ? cookies : []);
+    };
+    try {
+      const result = chrome.cookies.getAll(details, (cookies) => {
+        if (getRuntimeLastErrorMessage()) finish([]);
+        else finish(cookies);
+      });
+      if (result && typeof result.then === 'function') result.then(finish).catch(() => finish([]));
+    } catch {
+      finish([]);
+    }
+  });
+}
+
+async function getCookieHeaderForUrl(url = '') {
+  if (!/^https?:\/\//i.test(String(url || ''))) return '';
+  const cookies = await cookiesGetAll({ url });
+  return cookies
+    .filter((cookie) => cookie?.name)
+    .sort((left, right) => String(right.path || '/').length - String(left.path || '/').length)
+    .map((cookie) => `${cookie.name}=${cookie.value || ''}`)
+    .join('; ');
 }
 
 async function loadStoredConfig() {
@@ -300,6 +376,134 @@ function isBrowserLocalDownloadUrl(url = '') {
     return ['blob:', 'data:', 'filesystem:'].includes(new URL(String(url || '')).protocol);
   } catch {
     return /^(blob|data|filesystem):/i.test(String(url || ''));
+  }
+}
+
+function buildSafariDownloadRedirectPatterns(nextConfig = config) {
+  const configuredExtensions = String(nextConfig.captureExtensions || '')
+    .split(',')
+    .map((extension) => extension.trim().toLowerCase())
+    .filter(Boolean);
+  const matchAnyExtension = !configuredExtensions.length || configuredExtensions.includes('*');
+  const extensionPatterns = matchAnyExtension
+    ? ['\\.[a-zA-Z0-9]+$', '\\.[a-zA-Z0-9]+[?]']
+    : configuredExtensions.flatMap((extension) => {
+    const escaped = extension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return [`\\.${escaped}$`, `\\.${escaped}[?]`];
+    });
+  return [...SAFARI_DOWNLOAD_ENDPOINT_REDIRECT_PATTERNS, ...extensionPatterns];
+}
+
+function isSafariDnrDownloadCandidate(url = '') {
+  try {
+    const parsed = new URL(String(url || ''));
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+    // Opaque /download, /downloads/redirect and /export endpoints may still
+    // perform several redirects. Capturing them creates one task per hop.
+    // Only a configured file suffix is a terminal DNR takeover candidate.
+    const extension = parsed.pathname.match(/\.([a-zA-Z0-9]+)$/)?.[1]?.toLowerCase() || '';
+    if (!extension) return false;
+    const configuredExtensions = String(config.captureExtensions || '')
+      .split(',')
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean);
+    return !configuredExtensions.length || configuredExtensions.includes('*') || configuredExtensions.includes(extension);
+  } catch {
+    return false;
+  }
+}
+
+function filenameFromSafariRedirectUrl(url = '') {
+  try {
+    const parsed = new URL(String(url || ''));
+    const pathFilename = filenameFromUrl(parsed.href);
+    const pathExtension = extOf(pathFilename).toLowerCase();
+    if (!pathExtension) return '';
+
+    let queryFilename = '';
+    for (const [key, value] of parsed.searchParams.entries()) {
+      if (!['filename', 'file_name'].includes(key.toLowerCase())) continue;
+      queryFilename = normalizeSourceFilename(value);
+      if (queryFilename) break;
+    }
+    if (!queryFilename || isLowQualityFilename(queryFilename)) return '';
+
+    const queryExtension = extOf(queryFilename).toLowerCase();
+    if (!queryExtension || queryExtension !== pathExtension) return '';
+    return queryFilename;
+  } catch {
+    return '';
+  }
+}
+
+function isLanrarVerificationDownloadUrl(url = '') {
+  try {
+    const parsed = new URL(String(url || ''));
+    const hostname = parsed.hostname.toLowerCase();
+    return (hostname === 'lanrar.com' || hostname.endsWith('.lanrar.com')) &&
+      /^\/file\/?$/i.test(parsed.pathname) &&
+      parsed.search.length > 1;
+  } catch {
+    return false;
+  }
+}
+
+async function installSafariDownloadRedirectRules() {
+  if (!chrome.declarativeNetRequest?.updateSessionRules) {
+    writeProbeLog('DNR download redirect unavailable');
+    return false;
+  }
+  const redirectPatterns = buildSafariDownloadRedirectPatterns();
+  const supportedPatterns = [];
+  for (let index = 0; index < redirectPatterns.length; index += 1) {
+    const regexFilter = redirectPatterns[index];
+    if (chrome.declarativeNetRequest.isRegexSupported) {
+      try {
+        const validation = await chrome.declarativeNetRequest.isRegexSupported({ regex: regexFilter });
+        if (!validation?.isSupported) {
+          writeProbeLog('DNR download regex unsupported', {
+            ruleId: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS[index],
+            regexFilter,
+            reason: validation?.reason || '',
+          });
+          continue;
+        }
+      } catch (error) {
+        writeProbeLog('DNR download regex validation failed', {
+          ruleId: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS[index],
+          message: error?.message || String(error),
+        });
+        continue;
+      }
+    }
+    supportedPatterns.push({ index, regexFilter });
+  }
+  const addRules = config.autoCapture ? supportedPatterns.map(({ index, regexFilter }) => ({
+    id: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS[index],
+    priority: 10,
+    action: { type: 'block' },
+    condition: {
+      regexFilter,
+      // Safari may reclassify a main-frame navigation as "other" after one or
+      // more redirects when the response becomes a browser download.
+      resourceTypes: ['main_frame', 'other'],
+    },
+  })) : [];
+  try {
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS,
+      addRules,
+    });
+    writeProbeLog('DNR download redirect rules installed', {
+      ruleIds: addRules.map((rule) => rule.id),
+      patterns: redirectPatterns,
+    });
+    return true;
+  } catch (error) {
+    writeProbeLog('DNR download redirect rule installation failed', {
+      message: error?.message || String(error),
+    });
+    return false;
   }
 }
 
@@ -850,6 +1054,83 @@ async function queueOrSendCapturedDownload(taskInfo, { openPopupOnFailure = true
   return sendTask(taskInfo, {}, { openPopupOnFailure, shouldReportFailure });
 }
 
+function captureSafariUrlDirectly({
+  url = '',
+  referrer = '',
+  sourcePageUrl = '',
+  sourceFilename = '',
+  sourceTabId,
+  tabId,
+  windowId,
+  captureSource = 'safari-dnr-block',
+  captureReason = 'url-extension',
+} = {}) {
+  const captureKey = `${typeof tabId === 'number' ? tabId : -1}:${url}`;
+  cleanExpired(safariUrlCaptureClaims);
+  const existing = safariUrlCaptureClaims.get(captureKey);
+  if (existing?.promise) return existing.promise;
+
+  const promise = (async () => {
+    await configReady;
+    if (!config.autoCapture || !isSafariDnrDownloadCandidate(url) || isDownloadInterceptionBlockedForSource(sourcePageUrl, referrer)) {
+      return { ok: false, bypass: true };
+    }
+    const cachedRequest = requestHeadersCache.get(url) || {};
+    const headers = { ...(cachedRequest.headers || {}) };
+    const cookieHeader = await getCookieHeaderForUrl(url);
+    if (cookieHeader) headers.cookie = cookieHeader;
+    if (referrer && !headers.referer) headers.referer = referrer;
+    if (!headers['user-agent'] && typeof navigator !== 'undefined' && navigator.userAgent) {
+      headers['user-agent'] = navigator.userAgent;
+    }
+    const urlFilename = filenameFromUrl(url);
+    const redirectFilename = filenameFromSafariRedirectUrl(url);
+    const filename = resolveCapturedFilename(redirectFilename || urlFilename, {
+      sourceFilename,
+      candidates: [redirectFilename, urlFilename],
+    });
+    const taskInfo = {
+      key: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      url,
+      filename,
+      headers,
+      method: 'GET',
+      origin: deriveOrigin(url, referrer || sourcePageUrl),
+      referrer,
+      captureSource,
+      captureReason,
+      sourceTabId: typeof sourceTabId === 'number' ? sourceTabId : tabId,
+      sourceWindowId: windowId,
+      sourcePageUrl,
+      addedAt: Date.now(),
+    };
+    writeProbeLog('Safari URL captured before browser download', {
+      url,
+      filename,
+      tabId,
+      referrer,
+      sourcePageUrl,
+      captureSource,
+      sourceFilename,
+      redirectFilename,
+    });
+    return queueOrSendCapturedDownload(taskInfo, {
+      openPopupOnFailure: false,
+      openPendingSurface: true,
+    });
+  })().catch((error) => {
+    writeProbeLog('Safari URL capture failed', {
+      url,
+      tabId,
+      message: error?.message || String(error),
+    });
+    return { ok: false, error: error?.message || String(error) };
+  });
+
+  safariUrlCaptureClaims.set(captureKey, { promise, expiresAt: Date.now() + 30000 });
+  return promise;
+}
+
 function createResponseCaptureGate(waitForBrowserCancel = false) {
   if (!waitForBrowserCancel) {
     return {
@@ -1003,6 +1284,155 @@ function isLikelyDownloadRedirectCandidate(details = {}, redirectUrl = '', conte
   return Boolean(classification.shouldCapture && (classification.byDisposition || classification.byExt || classification.byMime));
 }
 
+function rememberSafariDnrRedirectCandidate(details = {}, redirectUrl = details.redirectUrl || '') {
+  if (!config.autoCapture || !['main_frame', 'other'].includes(details.type) || typeof details.tabId !== 'number') return false;
+  if (!isSafariDnrDownloadCandidate(redirectUrl)) return false;
+  const requestMeta = requestHeadersCache.get(details.url) || {};
+  dnrNavigationCandidates.set(details.tabId, {
+    url: redirectUrl,
+    referrer: details.url,
+    sourcePageUrl: requestMeta.sourcePageUrl || details.initiator || requestMeta.headers?.referer || details.url,
+    sourceFilename: requestMeta.sourceFilename || filenameFromSafariRedirectUrl(redirectUrl),
+    sourceTabId: requestMeta.sourceTabId,
+    sourceWindowId: requestMeta.sourceWindowId,
+    requestId: details.requestId,
+    expiresAt: Date.now() + 30000,
+  });
+  cleanExpired(dnrNavigationCandidates);
+  writeProbeLog('DNR redirect target candidate observed', {
+    tabId: details.tabId,
+    sourceUrl: details.url,
+    redirectUrl,
+  });
+  return true;
+}
+
+function safariBlockedNavigationFallback(candidate = {}, blockedUrl = '') {
+  const urls = [candidate.sourcePageUrl, candidate.referrer];
+  return urls.find((url) => /^https?:\/\//i.test(String(url || '')) && url !== blockedUrl) || 'about:blank';
+}
+
+function recoverSafariBlockedNavigation({
+  tabId,
+  blockedUrl = '',
+  fallbackUrl = 'about:blank',
+  trigger = 'unknown',
+} = {}) {
+  if (typeof tabId !== 'number') return Promise.resolve(false);
+  const targetUrl = /^https?:\/\//i.test(String(fallbackUrl || '')) && fallbackUrl !== blockedUrl
+    ? fallbackUrl
+    : 'about:blank';
+  return (async () => {
+    const tab = await getTab(tabId);
+    const currentUrl = String(tab?.url || '');
+    const isSafariErrorPage = /^safari-resource:\/\/?.*ErrorPage\.html/i.test(currentUrl);
+    if (currentUrl && currentUrl !== blockedUrl && currentUrl !== 'about:blank' && currentUrl !== targetUrl && !isSafariErrorPage) {
+      writeProbeLog('blocked navigation recovery skipped because tab moved', {
+        trigger,
+        tabId,
+        blockedUrl,
+        currentUrl,
+        targetUrl,
+      });
+      return false;
+    }
+    if (currentUrl === targetUrl) return true;
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (ok, message = '') => {
+        if (settled) return;
+        settled = true;
+        writeProbeLog(ok ? 'blocked navigation recovered' : 'blocked navigation recovery failed', {
+          trigger,
+          tabId,
+          blockedUrl,
+          targetUrl,
+          message,
+        });
+        resolve(ok);
+      };
+      try {
+        const result = chrome.tabs.update(tabId, { url: targetUrl }, () => {
+          const message = getRuntimeLastErrorMessage();
+          finish(!message, message);
+        });
+        result?.then?.(() => finish(true)).catch?.((error) => finish(false, error?.message || String(error)));
+      } catch (error) {
+        finish(false, error?.message || String(error));
+      }
+    });
+  })();
+}
+
+function scheduleSafariBlockedNavigationRecovery(args = {}) {
+  for (const delay of [0, 120, 400, 900]) {
+    setTimeout(() => {
+      recoverSafariBlockedNavigation({
+        ...args,
+        trigger: `${args.trigger || 'unknown'}:${delay}ms`,
+      }).catch(() => {});
+    }, delay);
+  }
+}
+
+function navigateSafariRedirectToDnrBridge(details = {}, redirectUrl = details.redirectUrl || '', trigger = 'redirect') {
+  if (!rememberSafariDnrRedirectCandidate(details, redirectUrl)) return false;
+  const navigationKey = `${details.tabId}:${redirectUrl}`;
+  cleanExpired(dnrRedirectBridgeNavigations);
+  if (dnrRedirectBridgeNavigations.has(navigationKey)) return true;
+  dnrRedirectBridgeNavigations.set(navigationKey, { expiresAt: Date.now() + 30000 });
+
+  const candidate = dnrNavigationCandidates.get(details.tabId) || {};
+  const fallbackUrl = safariBlockedNavigationFallback(candidate, redirectUrl);
+  cleanExpired(safariRedirectChainClaims);
+  const redirectChainKey = details.requestId
+    ? `request:${details.requestId}`
+    : `tab:${details.tabId}:${candidate.sourcePageUrl || details.initiator || details.url}`;
+  const existingChainClaim = safariRedirectChainClaims.get(redirectChainKey);
+  writeProbeLog('redirect download takeover requested', {
+    trigger,
+    tabId: details.tabId,
+    sourceUrl: details.url,
+    redirectUrl,
+    fallbackUrl,
+    redirectChainKey,
+    reusedChainClaim: Boolean(existingChainClaim?.promise),
+  });
+  const capturePromise = existingChainClaim?.promise || captureSafariUrlDirectly({
+    url: redirectUrl,
+    referrer: details.url,
+    sourcePageUrl: candidate.sourcePageUrl || details.url,
+    sourceFilename: candidate.sourceFilename || filenameFromSafariRedirectUrl(redirectUrl),
+    sourceTabId: candidate.sourceTabId,
+    tabId: details.tabId,
+    windowId: candidate.sourceWindowId,
+    captureSource: 'safari-redirect-response',
+    captureReason: 'redirect-url-extension',
+  });
+  if (!existingChainClaim?.promise) {
+    safariRedirectChainClaims.set(redirectChainKey, {
+      promise: capturePromise,
+      url: redirectUrl,
+      expiresAt: Date.now() + 10000,
+    });
+  } else {
+    writeProbeLog('redirect chain duplicate capture skipped', {
+      redirectChainKey,
+      firstUrl: existingChainClaim.url || '',
+      redirectUrl,
+      tabId: details.tabId,
+    });
+  }
+  capturePromise.finally(() => scheduleSafariBlockedNavigationRecovery({
+    tabId: details.tabId,
+    blockedUrl: redirectUrl,
+    fallbackUrl,
+    trigger: `${trigger}-capture-settled`,
+  }));
+  return true;
+}
+
 function isDownloadInProgress(item = {}) {
   return !item.state || item.state === 'in_progress';
 }
@@ -1048,6 +1478,62 @@ const configReady = new Promise((resolve) => {
   });
 });
 
+configReady.then(() => installSafariDownloadRedirectRules()).catch(() => {});
+
+chrome.webNavigation?.onBeforeNavigate?.addListener?.((details) => {
+  if (details.frameId !== 0 || typeof details.tabId !== 'number' || !isSafariDnrDownloadCandidate(details.url)) return;
+  const candidate = {
+    url: details.url,
+    sourcePageUrl: '',
+    sourceFilename: filenameFromSafariRedirectUrl(details.url),
+    expiresAt: Date.now() + 30000,
+  };
+  dnrNavigationCandidates.set(details.tabId, candidate);
+  cleanExpired(dnrNavigationCandidates);
+  getTab(details.tabId).then((tab) => {
+    const currentUrl = String(tab?.url || '');
+    if (/^https?:\/\//i.test(currentUrl) && currentUrl !== candidate.url) candidate.sourcePageUrl = currentUrl;
+    const capturePromise = captureSafariUrlDirectly({
+      url: details.url,
+      referrer: candidate.sourcePageUrl,
+      sourcePageUrl: candidate.sourcePageUrl,
+      sourceFilename: candidate.sourceFilename,
+      tabId: details.tabId,
+      windowId: tab?.windowId,
+      captureSource: 'safari-dnr-block',
+      captureReason: 'main-frame-url-extension',
+    });
+    capturePromise.finally(() => scheduleSafariBlockedNavigationRecovery({
+      tabId: details.tabId,
+      blockedUrl: details.url,
+      fallbackUrl: safariBlockedNavigationFallback(candidate, details.url),
+      trigger: 'onBeforeNavigate-capture-settled',
+    }));
+  }).catch(() => {});
+  writeProbeLog('DNR download navigation candidate observed', {
+    tabId: details.tabId,
+    url: details.url,
+  });
+});
+
+chrome.webNavigation?.onErrorOccurred?.addListener?.((details) => {
+  if (details.frameId !== 0 || typeof details.tabId !== 'number') return;
+  cleanExpired(dnrNavigationCandidates);
+  const candidate = dnrNavigationCandidates.get(details.tabId);
+  if (!candidate || candidate.url !== details.url || !isSafariDnrDownloadCandidate(details.url)) return;
+  writeProbeLog('blocked download navigation error observed', {
+    tabId: details.tabId,
+    url: details.url,
+    error: details.error || '',
+  });
+  scheduleSafariBlockedNavigationRecovery({
+    tabId: details.tabId,
+    blockedUrl: details.url,
+    fallbackUrl: safariBlockedNavigationFallback(candidate, details.url),
+    trigger: 'onErrorOccurred',
+  });
+});
+
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName && !['sync', 'local'].includes(areaName)) return;
   const previousMediaSniffingEnabled = isMediaSniffingEnabled(config);
@@ -1058,6 +1544,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (changes.language) refreshContextMenus();
   const autoCaptureChanged = changes.autoCapture && previousAutoCapture !== config.autoCapture;
   const mediaSniffingEnabledChanged = changes.autoCapture && previousMediaSniffingEnabled !== isMediaSniffingEnabled(config);
+  if (autoCaptureChanged || changes.captureExtensions) installSafariDownloadRedirectRules().catch(() => {});
   if (autoCaptureChanged || mediaSniffingEnabledChanged || changes.mediaSniffingBlacklist || changes.mediaSniffing) {
     syncMediaSniffingStateForActiveTabs().then(() => {
       broadcastUpdate();
@@ -1423,8 +1910,8 @@ function runMediaSniffing(details) {
 }
 
 const requestHeaderExtraInfoSpec = ['requestHeaders'];
-const responseHeaderExtraInfoSpec = ['responseHeaders', 'blocking'];
-writeProbeLog('runtime detection', { runtime: 'safari', requestHeaderExtraInfoSpec, responseHeaderExtraInfoSpec, userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'no navigator', hasDNR: Boolean(chrome.declarativeNetRequest), hasDNRDynamic: Boolean(chrome.declarativeNetRequest?.updateDynamicRules), hasWebRequestBlocking: true });
+const responseHeaderExtraInfoSpec = ['responseHeaders'];
+writeProbeLog('runtime detection', { runtime: 'safari', requestHeaderExtraInfoSpec, responseHeaderExtraInfoSpec, userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'no navigator', hasDNR: Boolean(chrome.declarativeNetRequest), hasDNRDynamic: Boolean(chrome.declarativeNetRequest?.updateDynamicRules), hasWebRequestBlocking: false });
 
 function handleSafariSendHeaders(details) {
     if (!config.autoCapture) return;
@@ -1471,8 +1958,8 @@ try {
   });
 }
 
-// Safari 单一 blocking 监听器：在 onHeadersReceived 同步决定是否 cancel 浏览器下载。
-// 不再注册额外的 probe 监听器，避免多 blocking listener 在 Safari 上互相吞掉 cancel 决定。
+// Safari 的 webRequest 只能观察响应；返回 { cancel: true } 不会可靠地停止下载。
+// 响应头链路记录 302 目标，DNR 在目标请求发出前完成真正接管。
 function handleSafariHeadersReceived(details) {
     // media sniffing：fire-and-forget，不阻塞监听器返回值
     runMediaSniffing(details);
@@ -1500,6 +1987,7 @@ function handleSafariHeadersReceived(details) {
     }
 
     if (isRedirectStatus(details.statusCode) && redirectUrl) {
+      navigateSafariRedirectToDnrBridge(details, redirectUrl, 'onHeadersReceived');
       const existingIntent = getRedirectIntent(details.url);
       if (existingIntent) {
         redirectIntents.set(redirectUrl, {
@@ -1558,78 +2046,24 @@ function handleSafariHeadersReceived(details) {
     };
     markedUrls.set(details.url, markedInfo);
     cleanExpired(markedUrls);
+    if (redirectIntent) deleteRedirectIntent(details.url, redirectIntent.sourceUrl, redirectIntent.redirectUrl);
+    writeProbeLog('download response observed without takeover', {
+      url: details.url,
+      reason: classification.reason,
+      hasRedirectIntent: Boolean(redirectIntent),
+    });
+}
 
-    if (!shouldSendFromResponseHeaders(details, classification, redirectIntent)) {
-      writeProbeLog('capture skip: shouldSendFromResponseHeaders=false', { url: details.url, classification, hasRedirectIntent: Boolean(redirectIntent) });
-      return;
-    }
-    if (shouldSkipSmallDownloadSize(totalBytes, config)) {
-      writeProbeLog('capture skip: small download', { url: details.url, totalBytes });
-      return;
-    }
-
-    const captureResponse = () => {
-      const existingClaim = getResponseCaptureClaim(details.url);
-      if (existingClaim) { writeProbeLog('capture skip: existing claim', { url: details.url }); return undefined; }
-
-      const reqHeaders = requestMeta.headers || redirectIntent?.headers || {};
-      const key = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const responseSourceFilename = redirectIntent?.sourceFilename || requestMeta.sourceFilename;
-      const responseUrlFilename = filenameFromUrl(details.url);
-      const responsePrimaryFilename = classification.filename || preferredUrlFilename(responseUrlFilename) || responseUrlFilename || '';
-      const taskInfo = {
-        key,
-        url: details.url,
-        filename: resolveCapturedFilename(responsePrimaryFilename, {
-          sourceFilename: responseSourceFilename,
-          mime: classification.mime,
-          candidates: [classification.filename, responseUrlFilename],
-        }),
-        size: totalBytes,
-        mime: classification.mime,
-        contentDisposition,
-        captureSource: redirectIntent ? 'redirect' : classification.source,
-        captureReason: classification.reason,
-        headers: reqHeaders,
-        method: redirectIntent?.method || requestMeta.method || 'GET',
-        origin: reqHeaders.origin || deriveOrigin(details.url, reqHeaders.referer || redirectIntent?.sourceUrl || ''),
-        referrer: reqHeaders.referer || redirectIntent?.sourceUrl || '',
-        downloadTabId: typeof redirectIntent?.tabId === 'number' ? redirectIntent.tabId : details.tabId,
-        sourceTabId: typeof redirectIntent?.sourceTabId === 'number' ? redirectIntent.sourceTabId : requestMeta.sourceTabId,
-        sourceWindowId: typeof redirectIntent?.sourceWindowId === 'number' ? redirectIntent.sourceWindowId : requestMeta.sourceWindowId,
-        sourceFilename: responseSourceFilename,
-        sourcePageUrl: redirectIntent?.sourcePageUrl || requestMeta.sourcePageUrl || details.initiator || reqHeaders.referer || '',
-        addedAt: Date.now(),
-      };
-
-      // Safari：webRequest 直接 cancel 浏览器下载，无需等待浏览器下载取消
-      const deferPendingSurfaceUntilBrowserCancel = false;
-      const claimState = { discarded: false, taskInfo };
-      const browserCancelGate = createResponseCaptureGate(false);
-      const probeUrl = details.url;
-      const probeSourceTabId = taskInfo.sourceTabId;
-      const claimPromise = (async () => {
-        await browserCancelGate.promise;
-        writeProbeLog('captureResponse sending', { url: probeUrl, shouldConfirm: shouldConfirmBeforeSend(), sourceTabId: probeSourceTabId });
-        const result = await queueOrSendCapturedDownload(taskInfo, {
-          openPopupOnFailure: true,
-          openPendingSurface: !deferPendingSurfaceUntilBrowserCancel,
-          shouldReportFailure: () => !claimState.discarded,
-        });
-        return { handled: Boolean(result?.ok), result };
-      })().catch((error) => ({ handled: false, result: { ok: false, error: error?.message || String(error) } }));
-      const claimOptions = { cancelBrowserDownloadImmediately: true, claimState, browserCancelGate };
-      rememberResponseCaptureClaim(details.url, claimPromise, claimOptions);
-      if (redirectIntent) {
-        rememberResponseCaptureClaim(redirectIntent.sourceUrl, claimPromise, claimOptions);
-        if (redirectIntent.redirectUrl && redirectIntent.redirectUrl !== details.url) rememberResponseCaptureClaim(redirectIntent.redirectUrl, claimPromise, claimOptions);
-        deleteRedirectIntent(details.url, redirectIntent.sourceUrl, redirectIntent.redirectUrl);
-      }
-      // Safari 总是阻塞取消浏览器下载（同步返回，避免异步 API 干扰）
-      return { cancel: true };
-    };
-
-    return captureResponse();
+try {
+  chrome.webRequest.onBeforeRedirect?.addListener?.(
+    (details) => navigateSafariRedirectToDnrBridge(details, details.redirectUrl, 'onBeforeRedirect'),
+    { urls: ['<all_urls>'] }
+  );
+  writeProbeLog('onBeforeRedirect listener registered');
+} catch (error) {
+  writeProbeLog('onBeforeRedirect listener registration failed', {
+    message: error?.message || String(error),
+  });
 }
 
 try {
@@ -1639,7 +2073,7 @@ try {
     responseHeaderExtraInfoSpec
   );
   writeProbeLog('onHeadersReceived listener registered', {
-    mode: 'blocking',
+    mode: 'observe-only',
     extraInfoSpec: responseHeaderExtraInfoSpec,
   });
 } catch (error) {
@@ -1674,6 +2108,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     await configReady;
 
     if (msg && msg.type === 'PROBE_PING') {
+      writeProbeLog('probe ping received', { senderUrl: sender?.url || '' });
       sendResponse({ type: 'PROBE_PONG', at: new Date().toISOString() });
       return;
     }
@@ -1700,6 +2135,59 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }),
         });
         break;
+      case 'CAPTURE_DNR_DOWNLOAD': {
+        const tabId = sender?.tab?.id;
+        cleanExpired(dnrNavigationCandidates);
+        const candidate = typeof tabId === 'number' ? dnrNavigationCandidates.get(tabId) : null;
+        if (typeof tabId === 'number') dnrNavigationCandidates.delete(tabId);
+        const url = String(candidate?.url || '');
+        const sourcePageUrl = String(candidate?.sourcePageUrl || msg.referrer || '');
+        const referrer = String(candidate?.referrer || sourcePageUrl);
+        if (!config.autoCapture || !isSafariDnrDownloadCandidate(url) || isDownloadInterceptionBlockedForSource(sourcePageUrl)) {
+          sendResponse({ ok: false, error: 'download-not-eligible', bypass: true });
+          break;
+        }
+        const cachedRequest = requestHeadersCache.get(url) || {};
+        const cookieHeader = await getCookieHeaderForUrl(url);
+        const headers = { ...(cachedRequest.headers || {}) };
+        if (cookieHeader) headers.cookie = cookieHeader;
+        if (referrer && !headers.referer) headers.referer = referrer;
+        if (!headers['user-agent'] && typeof navigator !== 'undefined' && navigator.userAgent) {
+          headers['user-agent'] = navigator.userAgent;
+        }
+        const taskInfo = {
+          key: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          url,
+          filename: '',
+          headers,
+          method: 'GET',
+          origin: deriveOrigin(url, referrer),
+          referrer,
+          captureSource: 'safari-dnr',
+          captureReason: 'main-frame-redirect',
+          sourceTabId: tabId,
+          sourceWindowId: sender?.tab?.windowId,
+          sourcePageUrl,
+          addedAt: Date.now(),
+        };
+        writeProbeLog('DNR download bridge captured navigation', {
+          tabId,
+          url,
+          sourcePageUrl,
+          referrer,
+          headerNames: Object.keys(headers),
+          cookieCount: cookieHeader ? cookieHeader.split('; ').length : 0,
+        });
+        const result = await queueOrSendCapturedDownload(taskInfo, {
+          openPopupOnFailure: false,
+          openPendingSurface: false,
+        });
+        sendResponse({ ...result, url });
+        break;
+      }
+      case 'OPEN_TASK_SURFACE':
+        sendResponse({ ok: await openTaskSurface() });
+        break;
       case 'CAPTURE_LINK_DOWNLOAD': {
         const url = String(msg.url || '');
         const sourcePageUrl = String(msg.referrer || sender?.tab?.url || '');
@@ -1713,19 +2201,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
 
         const referrer = sourcePageUrl;
+        const redirectCandidate = msg.redirectCandidate === true;
+        const cachedRequest = requestHeadersCache.get(url) || {};
+        const cookieHeader = await getCookieHeaderForUrl(url);
+        const headers = { ...(cachedRequest.headers || {}) };
+        if (cookieHeader) headers.cookie = cookieHeader;
+        if (referrer && !headers.referer) headers.referer = referrer;
+        if (!headers['user-agent'] && typeof navigator !== 'undefined' && navigator.userAgent) {
+          headers['user-agent'] = navigator.userAgent;
+        }
         const taskInfo = {
           key: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
           url,
-          filename: resolveCapturedFilename(msg.filename || filenameFromUrl(url), {
+          // Opaque download endpoints often redirect to a signed URL whose final
+          // response owns the filename. Leave it unset so the downloader can use
+          // that response instead of receiving "download" or "export" as a name.
+          filename: redirectCandidate ? '' : resolveCapturedFilename(msg.filename || filenameFromUrl(url), {
             sourceFilename: msg.filename || '',
             candidates: [filenameFromUrl(url)],
           }),
-          headers: referrer ? { referer: referrer } : {},
+          headers,
           method: 'GET',
           origin: deriveOrigin(url, referrer),
           referrer,
-          captureSource: 'safari-link-click',
-          captureReason: 'pre-navigation',
+          captureSource: redirectCandidate ? 'safari-redirect-click' : 'safari-link-click',
+          captureReason: redirectCandidate ? 'redirect-endpoint' : 'pre-navigation',
           sourceTabId: sender?.tab?.id,
           sourceWindowId: sender?.tab?.windowId,
           sourcePageUrl,
@@ -2053,7 +2553,29 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   await configReady;
   const url = info.linkUrl || tab?.url;
   if (!url) return;
-  const reqHeaders = requestHeadersCache.get(url)?.headers || {};
+  if (info.menuItemId === 'send-to-aria2' && isLanrarVerificationDownloadUrl(url)) {
+    writeProbeLog('context menu opening verification download page', {
+      url,
+      sourceTabId: tab?.id,
+    });
+    try {
+      await chrome.tabs.create({
+        url,
+        active: true,
+        ...(typeof tab?.id === 'number' ? { openerTabId: tab.id } : {}),
+      });
+    } catch {
+      if (typeof tab?.id === 'number') await chrome.tabs.update(tab.id, { url });
+    }
+    return;
+  }
+  const reqHeaders = { ...(requestHeadersCache.get(url)?.headers || {}) };
+  const cookieHeader = await getCookieHeaderForUrl(url);
+  if (cookieHeader) reqHeaders.cookie = cookieHeader;
+  if (tab?.url && !reqHeaders.referer) reqHeaders.referer = tab.url;
+  if (!reqHeaders['user-agent'] && typeof navigator !== 'undefined' && navigator.userAgent) {
+    reqHeaders['user-agent'] = navigator.userAgent;
+  }
   const taskInfo = {
     url,
     filename: url.split('?')[0].split('/').pop() || '',

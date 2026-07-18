@@ -5,17 +5,29 @@
   "description": "__MSG_extensionDescription__",
   "default_locale": "zh_CN",
   "permissions": [
+    "cookies",
     "declarativeNetRequestWithHostAccess",
     "downloads",
     "scripting",
     "storage",
     "tabs",
+    "webNavigation",
     "webRequest",
-    "webRequestBlocking",
     "contextMenus"
   ],
   "host_permissions": [
     "<all_urls>"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "dnr-capture.html",
+        "dnr-capture.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
   ],
   "action": {
     "default_popup": "popup.html",

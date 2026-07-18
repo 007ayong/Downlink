@@ -100,6 +100,27 @@
     );
   }
 
+  function looksLikeSafariRedirectDownloadLink(link) {
+    if (!link?.href) return false;
+    let parsed;
+    try {
+      parsed = new URL(link.href);
+    } catch {
+      return false;
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+
+    const label = [link.getAttribute?.('aria-label') || '', link.textContent || '']
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const path = parsed.pathname;
+    const downloadActionLabel = /^(?:download|export|save)(?:\s+(?:file|asset|release|archive))?$|^(?:立即下载|下载|导出|保存|生成)(?:文件|资源|安装包|压缩包)?$/i.test(label);
+    const redirectEndpoint = /\/(?:downloads?|exports?)(?:\/|$)/i.test(path);
+    const endpointHasOpaqueTarget = Boolean(parsed.search) || /\/(?:downloads?|exports?)\/(?:\d+|token(?:\/|$)|[a-f0-9-]{8,})\/?$/i.test(path);
+    return downloadActionLabel || (redirectEndpoint && endpointHasOpaqueTarget);
+  }
+
   function cleanLinkFilename(value = '') {
     return String(value || '')
       .replace(/\s+/g, ' ')
@@ -125,24 +146,31 @@
 
   function trackDownloadClickIntent(event) {
     const link = findLink(event.target);
-    if (!looksLikeDownloadLink(link)) return;
-    return sendTrackDownloadClickIntent(link);
+    const isDownloadLike = looksLikeDownloadLink(link);
+    const isSafariRedirectDownload = isSafariExtensionRuntime() && looksLikeSafariRedirectDownloadLink(link);
+    if (!isDownloadLike && !isSafariRedirectDownload) return;
+    return sendTrackDownloadClickIntent(link, {
+      includeFilename: isDownloadLike,
+      allowNavigationIntent: isSafariRedirectDownload,
+    });
   }
 
-  function sendTrackDownloadClickIntent(link) {
-    if (!looksLikeDownloadLink(link)) return Promise.resolve();
+  function sendTrackDownloadClickIntent(link, { includeFilename = true, allowNavigationIntent = false } = {}) {
+    if (!looksLikeDownloadLink(link) && !allowNavigationIntent) return Promise.resolve();
     const message = {
       type: 'TRACK_DOWNLOAD_CLICK',
       url: link.href || '',
     };
-    const filename = inferLinkFilename(link);
+    const filename = includeFilename ? inferLinkFilename(link) : '';
     if (filename) message.filename = filename;
     return sendRuntimeMessage(message).catch(() => {});
   }
 
   function handleTrackedNewTabDownloadClick(event) {
     const link = findLink(event.target);
-    if (!link?.href || !looksLikeDownloadLink(link)) return false;
+    const isDirectDownload = looksLikeDownloadLink(link);
+    const isRedirectDownload = looksLikeSafariRedirectDownloadLink(link);
+    if (!link?.href || (!isDirectDownload && !isRedirectDownload)) return false;
 
     const target = String(link.target || '').trim();
     if (!target || target.toLowerCase() === '_self') return false;
@@ -167,7 +195,9 @@
     if (event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return false;
 
     const link = findLink(event.target);
-    if (!link?.href || !looksLikeDownloadLink(link)) return false;
+    const isDirectDownload = looksLikeDownloadLink(link);
+    const isRedirectDownload = looksLikeSafariRedirectDownloadLink(link);
+    if (!link?.href || (!isDirectDownload && !isRedirectDownload)) return false;
     try {
       if (!['http:', 'https:'].includes(new URL(link.href).protocol)) return false;
     } catch {
@@ -183,7 +213,8 @@
       url: link.href,
       referrer: window.location.href || '',
     };
-    const filename = inferLinkFilename(link);
+    if (isRedirectDownload && !isDirectDownload) message.redirectCandidate = true;
+    const filename = isDirectDownload ? inferLinkFilename(link) : '';
     if (filename) message.filename = filename;
 
     let settled = false;

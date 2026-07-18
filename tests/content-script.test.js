@@ -270,6 +270,115 @@ test('Safari restores navigation when background capture never responds', async 
   assert.equal(runtime.locationHref, 'https://files.example/file.zip');
 });
 
+test('Safari tracks opaque link navigations so redirected downloads can be taken over', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+  const link = createElement({
+    href: 'https://files.example/export?id=42',
+    textContent: '生成文件',
+  });
+
+  const event = await runtime.dispatchPointerdown(link);
+
+  assert.equal(event.defaultPrevented, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(messages)), [{
+    type: 'TRACK_DOWNLOAD_CLICK',
+    url: 'https://files.example/export?id=42',
+  }]);
+});
+
+test('Safari prevents browser navigation when an opaque download endpoint is clicked', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true, pending: true };
+    },
+  });
+  const link = createElement({
+    href: 'https://files.example/download?id=42',
+    textContent: '下载',
+  });
+
+  const event = await runtime.dispatchClick(link);
+
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(runtime.locationHref, 'https://page.example/current');
+  assert.deepEqual(JSON.parse(JSON.stringify(messages)), [{
+    type: 'CAPTURE_LINK_DOWNLOAD',
+    url: 'https://files.example/download?id=42',
+    referrer: 'https://page.example/current',
+    redirectCandidate: true,
+  }]);
+});
+
+test('Safari leaves root file verification pages available to run their JavaScript challenge', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true, pending: true };
+    },
+  });
+  const link = createElement({
+    href: 'https://developer3.lanrar.com/file/?BWMCPAAxADFVXAI6UGVXO1doBT0AHQto',
+    textContent: '获取文件',
+  });
+
+  const event = await runtime.dispatchClick(link);
+
+  assert.equal(event.defaultPrevented, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(messages)), []);
+});
+
+test('Safari intercepts the final dynamically generated immediate-download link', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true, pending: true };
+    },
+  });
+  const link = createElement({
+    href: 'https://cdn.example.com/signed-resource?id=42',
+    textContent: '立即下载',
+  });
+
+  const event = await runtime.dispatchClick(link);
+
+  assert.equal(event.defaultPrevented, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(messages)), [{
+    type: 'CAPTURE_LINK_DOWNLOAD',
+    url: 'https://cdn.example.com/signed-resource?id=42',
+    referrer: 'https://page.example/current',
+    redirectCandidate: true,
+  }]);
+});
+
+test('non-Safari browsers do not track ordinary link navigations', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+  const link = createElement({ href: 'https://example.com/account', textContent: 'Account' });
+
+  await runtime.dispatchPointerdown(link);
+
+  assert.deepEqual(messages, []);
+});
+
 test('Safari does not intercept ordinary pages whose label only mentions download', async () => {
   const messages = [];
   const runtime = loadContentScript({
