@@ -8,6 +8,8 @@
 import SafariServices
 import os.log
 
+private let localDNRBridgeURL = "http://127.0.0.1:17651/downlink-dnr/7f459ea1-29d8-4d22-90c3-9fbfd95071ac"
+
 class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
 
     func beginRequest(with context: NSExtensionContext) {
@@ -29,14 +31,22 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
 
         os_log(.default, "Received message from browser.runtime.sendNativeMessage: %@ (profile: %@)", String(describing: message), profile?.uuidString ?? "none")
 
-        let response = NSExtensionItem()
-        if #available(iOS 15.0, macOS 11.0, *) {
-            response.userInfo = [ SFExtensionMessageKey: [ "echo": message ] ]
+        let reply: [String: Any]
+        if let payload = message as? [String: Any], payload["type"] as? String == "START_DNR_BRIDGE" {
+            // The containing macOS app owns the persistent loopback listener.
+            // JavaScript probes this URL before it installs any DNR rule.
+            reply = ["ok": true, "bridgeUrl": localDNRBridgeURL]
         } else {
-            response.userInfo = [ "message": [ "echo": message ] ]
+            reply = ["echo": message as Any]
         }
 
-        context.completeRequest(returningItems: [ response ], completionHandler: nil)
-    }
+        let response = NSExtensionItem()
+        if #available(iOS 15.0, macOS 11.0, *) {
+            response.userInfo = [SFExtensionMessageKey: reply]
+        } else {
+            response.userInfo = ["message": reply]
+        }
 
+        context.completeRequest(returningItems: [response], completionHandler: nil)
+    }
 }

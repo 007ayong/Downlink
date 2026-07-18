@@ -85,6 +85,7 @@ const {
 } = globalThis.ConfigDefaults;
 const DEFAULT_MEDIA_SNIFFING_BLACKLIST = 'x.com,youtube.com';
 const DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST = 'web.telegram.org';
+const CONFIG_STORAGE_AREA_KEY = '__downlinkConfigStorageArea';
 
 const DEFAULT_CONFIG = {
   language: 'auto',
@@ -147,6 +148,8 @@ let pendingDownloads = {};
 let hiddenTaskGids = {};
 let uiAlert = null;
 let taskSurfaceOpenPromise = null;
+let taskFallbackWindowOpenPromise = null;
+let taskFallbackWindowId = null;
 let autoCaptureTogglePromise = Promise.resolve();
 const autoCapturePausedTabs = new Set();
 const mediaBlacklistBlockedTabs = new Set();
@@ -160,11 +163,20 @@ const responseHeadersCache = new Map();
 const redirectIntents = new Map();
 const dnrNavigationCandidates = new Map();
 const dnrRedirectBridgeNavigations = new Map();
+const safariCommittedTabPages = new Map();
+const safariCreatedNavigationSources = new Map();
 const safariUrlCaptureClaims = new Map();
-const safariRedirectChainClaims = new Map();
+const safariDnrBypassRules = new Map();
 const SAFARI_DOWNLOAD_REDIRECT_RULE_IDS = Array.from({ length: 100 }, (_, index) => 80000001 + index);
+const SAFARI_DOWNLOAD_BYPASS_RULE_ID_BASE = 81000000;
 const SAFARI_DOWNLOAD_ENDPOINT_REDIRECT_PATTERNS = [];
+const SAFARI_NATIVE_APP_ID = 'cc.winapps.downlink.DownlinkSafariTest';
+const SAFARI_LOCAL_BRIDGE_KEEPALIVE_MS = 5000;
 const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
+let safariLocalBridgeUrl = '';
+let safariLocalBridgeStartPromise = null;
+let safariLocalBridgeKeepaliveTimer = null;
+let activeConfigStorageArea = '';
 let contextMenuRefreshVersion = 0;
 const backgroundSessionStartedAt = Date.now();
 const RESTORED_DOWNLOAD_GRACE_MS = 5000;
@@ -253,53 +265,67 @@ async function getCookieHeaderForUrl(url = '') {
 }
 
 async function loadStoredConfig() {
+  let localStored = {};
   try {
-    return await storageGet(chrome.storage.sync, DEFAULT_CONFIG);
+    localStored = await storageGet(chrome.storage.local, {});
+  } catch {}
+
+  if (localStored?.[CONFIG_STORAGE_AREA_KEY] === 'local') {
+    activeConfigStorageArea = 'local';
+    const { [CONFIG_STORAGE_AREA_KEY]: _storageArea, ...localConfig } = localStored;
+    return { ...DEFAULT_CONFIG, ...localConfig };
+  }
+
+  try {
+    const syncStored = await storageGet(chrome.storage.sync, {});
+    const { [CONFIG_STORAGE_AREA_KEY]: _storageArea, ...localConfig } = localStored || {};
+    const hasLocalConfig = Object.keys(DEFAULT_CONFIG).some((key) => Object.prototype.hasOwnProperty.call(localConfig, key));
+    const hasSyncConfig = Object.keys(DEFAULT_CONFIG).some((key) => Object.prototype.hasOwnProperty.call(syncStored, key));
+    if (localStored?.[CONFIG_STORAGE_AREA_KEY] === 'sync') {
+      activeConfigStorageArea = 'sync';
+      return { ...DEFAULT_CONFIG, ...(hasSyncConfig ? syncStored : (hasLocalConfig ? localConfig : {})) };
+    }
+    if (hasSyncConfig) {
+      activeConfigStorageArea = 'sync';
+      return { ...DEFAULT_CONFIG, ...syncStored };
+    }
+
+    // Older builds did not persist which storage area won. If sync is empty
+    // but local contains config values, preserve that local fallback state.
+    activeConfigStorageArea = hasLocalConfig ? 'local' : 'sync';
+    return hasLocalConfig ? { ...DEFAULT_CONFIG, ...localConfig } : { ...DEFAULT_CONFIG };
   } catch {
-    return storageGet(chrome.storage.local, DEFAULT_CONFIG).catch(() => DEFAULT_CONFIG);
+    // A sync-backed profile may temporarily be unreadable. Use its local
+    // cache now, but keep listening to sync so recovery or another-device
+    // update is not ignored. A later failed save explicitly switches the
+    // marker to local.
+    activeConfigStorageArea = localStored?.[CONFIG_STORAGE_AREA_KEY] === 'sync' ? 'sync' : 'local';
+    const { [CONFIG_STORAGE_AREA_KEY]: _storageArea, ...localConfig } = localStored || {};
+    return { ...DEFAULT_CONFIG, ...localConfig };
   }
 }
 
 function loadStoredConfigCallback(callback) {
-  let settled = false;
-  const finish = (stored) => {
-    if (settled) return;
-    settled = true;
-    callback(stored || DEFAULT_CONFIG);
-  };
-  const fallbackToLocal = () => {
-    try {
-      const localResult = chrome.storage.local?.get?.(DEFAULT_CONFIG, (stored) => finish(stored));
-      if (localResult && typeof localResult.then === 'function') {
-        localResult.then((stored) => finish(stored)).catch(() => finish(DEFAULT_CONFIG));
-      }
-      if (!chrome.storage.local?.get) finish(DEFAULT_CONFIG);
-    } catch {
-      finish(DEFAULT_CONFIG);
-    }
-  };
-
-  try {
-    const syncResult = chrome.storage.sync?.get?.(DEFAULT_CONFIG, (stored) => {
-      const error = getRuntimeLastErrorMessage();
-      if (error) fallbackToLocal();
-      else finish(stored);
-    });
-    if (syncResult && typeof syncResult.then === 'function') {
-      syncResult.then((stored) => finish(stored)).catch(fallbackToLocal);
-    }
-    if (!chrome.storage.sync?.get) fallbackToLocal();
-  } catch {
-    fallbackToLocal();
-  }
+  loadStoredConfig().then(callback).catch(() => callback(DEFAULT_CONFIG));
 }
 
 async function saveStoredConfig(nextConfig) {
   try {
     await storageSet(chrome.storage.sync, nextConfig);
+    activeConfigStorageArea = 'sync';
+    // Keep a local cache so a temporarily unavailable sync store does not
+    // reset the extension to defaults on the next Safari launch.
+    await storageSet(chrome.storage.local, {
+      ...nextConfig,
+      [CONFIG_STORAGE_AREA_KEY]: 'sync',
+    }).catch(() => {});
     return 'sync';
   } catch {
-    await storageSet(chrome.storage.local, nextConfig);
+    activeConfigStorageArea = 'local';
+    await storageSet(chrome.storage.local, {
+      ...nextConfig,
+      [CONFIG_STORAGE_AREA_KEY]: 'local',
+    });
     return 'local';
   }
 }
@@ -386,10 +412,12 @@ function buildSafariDownloadRedirectPatterns(nextConfig = config) {
     .filter(Boolean);
   const matchAnyExtension = !configuredExtensions.length || configuredExtensions.includes('*');
   const extensionPatterns = matchAnyExtension
-    ? ['\\.[a-zA-Z0-9]+$', '\\.[a-zA-Z0-9]+[?]']
-    : configuredExtensions.flatMap((extension) => {
-    const escaped = extension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return [`\\.${escaped}$`, `\\.${escaped}[?]`];
+    ? ['^(https?://[^/?#]+/[^?#]*\\.[a-zA-Z0-9]+(?:[?][^#]*)?)$']
+    : configuredExtensions.map((extension) => {
+      const escaped = extension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // Capture the complete URL so regexSubstitution can carry it through
+      // the loopback bridge even when DNR runs before webRequest observers.
+      return `^(https?://[^/?#]+/[^?#]*\\.${escaped}(?:[?][^#]*)?)$`;
     });
   return [...SAFARI_DOWNLOAD_ENDPOINT_REDIRECT_PATTERNS, ...extensionPatterns];
 }
@@ -448,11 +476,258 @@ function isLanrarVerificationDownloadUrl(url = '') {
   }
 }
 
-async function installSafariDownloadRedirectRules() {
-  if (!chrome.declarativeNetRequest?.updateSessionRules) {
-    writeProbeLog('DNR download redirect unavailable');
+function isValidSafariLocalBridgeUrl(value = '') {
+  try {
+    const parsed = new URL(String(value || ''));
+    return parsed.protocol === 'http:' && parsed.hostname === '127.0.0.1' && Number(parsed.port) > 0 &&
+      /^\/downlink-dnr\/[a-f0-9-]+$/i.test(parsed.pathname);
+  } catch {
     return false;
   }
+}
+
+function safariLocalBridgeTargetUrl(value = '') {
+  try {
+    const parsed = new URL(String(value || ''));
+    if (parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1' ||
+        !/^\/downlink-dnr\/[a-f0-9-]+\/$/i.test(parsed.pathname)) return '';
+    const targetUrl = parsed.hash.slice(1);
+    return /^https?:\/\//i.test(targetUrl) ? targetUrl : '';
+  } catch {
+    return '';
+  }
+}
+
+function safariLocalBridgeRequestTargetUrl(value = '') {
+  try {
+    const parsed = new URL(String(value || ''));
+    if (!isValidSafariLocalBridgeUrl(`${parsed.origin}${parsed.pathname.replace(/\/$/, '')}`)) return '';
+    if (safariLocalBridgeUrl) {
+      const activeBridge = new URL(safariLocalBridgeUrl);
+      if (parsed.origin !== activeBridge.origin || parsed.pathname !== `${activeBridge.pathname}/`) return '';
+    }
+    const marker = '?url=';
+    const serialized = String(value || '').split('#', 1)[0];
+    const markerIndex = serialized.indexOf(marker);
+    if (markerIndex < 0) return '';
+    const carriedValue = serialized.slice(markerIndex + marker.length);
+    let targetUrl = carriedValue;
+    // Preserve percent-encoding inside an already serialized target URL. Only
+    // decode when Safari encoded the entire scheme as a query value.
+    if (/^https?%3a%2f%2f/i.test(carriedValue)) {
+      try {
+        targetUrl = decodeURIComponent(carriedValue);
+      } catch {}
+    }
+    return /^https?:\/\//i.test(targetUrl) ? targetUrl : '';
+  } catch {
+    return '';
+  }
+}
+
+function isValidSafariLocalBridgeMessageContext(senderUrl = '', targetUrl = '', candidate = null) {
+  const senderTargetUrl = safariLocalBridgeTargetUrl(senderUrl);
+  return Boolean(
+    senderTargetUrl &&
+    senderTargetUrl === targetUrl &&
+    (!candidate || candidate.url === targetUrl)
+  );
+}
+
+function isSafariLocalBridgeNavigationUrl(value = '') {
+  return Boolean(safariLocalBridgeTargetUrl(value));
+}
+
+function isUsableSafariBridgeSourcePage(value = '', targetUrl = '') {
+  const url = String(value || '');
+  if (!/^https?:\/\//i.test(url) || url === targetUrl) return false;
+  return !isSafariLocalBridgeNavigationUrl(url);
+}
+
+function rememberSafariCommittedPage(tabId, url = '', windowId) {
+  if (typeof tabId !== 'number' || !isUsableSafariBridgeSourcePage(url) || isSafariDnrDownloadCandidate(url)) return false;
+  safariCommittedTabPages.set(tabId, {
+    sourcePageUrl: String(url),
+    sourceTabId: tabId,
+    sourceWindowId: typeof windowId === 'number' ? windowId : undefined,
+  });
+  return true;
+}
+
+function getSafariNavigationSource(tabId, targetUrl = '') {
+  if (typeof tabId !== 'number') return {};
+  cleanExpired(safariCreatedNavigationSources);
+  const createdSource = safariCreatedNavigationSources.get(tabId);
+  const committedSource = safariCommittedTabPages.get(tabId);
+  const source = createdSource || committedSource || {};
+  return {
+    sourcePageUrl: isUsableSafariBridgeSourcePage(source.sourcePageUrl, targetUrl) ? source.sourcePageUrl : '',
+    sourceTabId: typeof source.sourceTabId === 'number' ? source.sourceTabId : undefined,
+    sourceWindowId: typeof source.sourceWindowId === 'number' ? source.sourceWindowId : undefined,
+  };
+}
+
+function sendSafariNativeMessage(message = {}) {
+  if (!chrome.runtime?.sendNativeMessage) return Promise.reject(new Error('native-messaging-unavailable'));
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (response, error = '') => {
+      if (settled) return;
+      settled = true;
+      if (error) reject(new Error(error));
+      else resolve(response);
+    };
+    try {
+      const result = chrome.runtime.sendNativeMessage(SAFARI_NATIVE_APP_ID, message, (response) => {
+        const error = getRuntimeLastErrorMessage();
+        finish(response, error);
+      });
+      result?.then?.((response) => finish(response)).catch?.((error) => finish(null, error?.message || String(error)));
+    } catch (error) {
+      finish(null, error?.message || String(error));
+    }
+  });
+}
+
+function clearSafariDownloadRules() {
+  return chrome.declarativeNetRequest?.updateSessionRules?.({
+    removeRuleIds: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS,
+    addRules: [],
+  }).catch(() => {});
+}
+
+function safariDnrBypassRuleId(tabId) {
+  return SAFARI_DOWNLOAD_BYPASS_RULE_ID_BASE + (Math.abs(Number(tabId)) % 1000000);
+}
+
+async function clearSafariDnrBypassRule(tabId) {
+  if (typeof tabId !== 'number' || !chrome.declarativeNetRequest?.updateSessionRules) return;
+  const entry = safariDnrBypassRules.get(tabId);
+  safariDnrBypassRules.delete(tabId);
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [entry?.ruleId || safariDnrBypassRuleId(tabId)],
+    addRules: [],
+  }).catch(() => {});
+}
+
+async function installSafariDnrBypassRule(tabId, url = '') {
+  if (typeof tabId !== 'number' || !/^https?:\/\//i.test(url) || !chrome.declarativeNetRequest?.updateSessionRules) {
+    return false;
+  }
+  const ruleId = safariDnrBypassRuleId(tabId);
+  try {
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [ruleId],
+      addRules: [{
+        id: ruleId,
+        priority: 100,
+        action: { type: 'allow' },
+        condition: {
+          // Keep the entire resumed redirect chain in Safari. Restricting the
+          // rule to the first URL lets a terminal .zip/.exe redirect hit the
+          // takeover rule again and creates a browser + Downlink duplicate.
+          regexFilter: '^https?://',
+          isUrlFilterCaseSensitive: false,
+          resourceTypes: ['main_frame', 'other'],
+          tabIds: [tabId],
+        },
+      }],
+    });
+    safariDnrBypassRules.set(tabId, { ruleId, url, expiresAt: Date.now() + 30000 });
+    setTimeout(() => clearSafariDnrBypassRule(tabId).catch(() => {}), 30000);
+    return true;
+  } catch (error) {
+    writeProbeLog('Safari DNR one-shot bypass rule installation failed', {
+      tabId,
+      url,
+      message: error?.message || String(error),
+    });
+    return false;
+  }
+}
+
+async function isSafariDnrBypassActive(tabId, url = '') {
+  if (typeof tabId !== 'number' || !/^https?:\/\//i.test(url)) return false;
+  const cached = safariDnrBypassRules.get(tabId);
+  if (cached && cached.expiresAt > Date.now()) return true;
+  if (!chrome.declarativeNetRequest?.getSessionRules) return false;
+  const ruleId = safariDnrBypassRuleId(tabId);
+  const rules = await chrome.declarativeNetRequest.getSessionRules().catch(() => []);
+  const persisted = rules.find((rule) => rule.id === ruleId && rule.action?.type === 'allow');
+  if (!persisted) return false;
+  safariDnrBypassRules.set(tabId, { ruleId, url, expiresAt: Date.now() + 30000 });
+  return true;
+}
+
+async function probeSafariLocalBridge(bridgeUrl = '') {
+  if (!isValidSafariLocalBridgeUrl(bridgeUrl) || typeof fetch !== 'function') return false;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timeout = setTimeout(() => controller?.abort(), 1000);
+  try {
+    const response = await fetch(`${bridgeUrl}/`, {
+      cache: 'no-store',
+      signal: controller?.signal,
+    });
+    return response.ok;
+  } catch (error) {
+    writeProbeLog('Safari local DNR bridge health check failed', {
+      bridgeUrl,
+      message: error?.message || String(error),
+    });
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function ensureSafariLocalBridge({ force = false } = {}) {
+  if (!force && isValidSafariLocalBridgeUrl(safariLocalBridgeUrl)) return Promise.resolve(safariLocalBridgeUrl);
+  if (safariLocalBridgeStartPromise) return safariLocalBridgeStartPromise;
+
+  safariLocalBridgeStartPromise = Promise.race([
+    sendSafariNativeMessage({ type: 'START_DNR_BRIDGE' }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('native-bridge-timeout')), 2500)),
+  ]).then(async (response) => {
+    const bridgeUrl = String(response?.bridgeUrl || '');
+    if (!response?.ok || !isValidSafariLocalBridgeUrl(bridgeUrl)) {
+      throw new Error(response?.error || 'native-bridge-invalid-response');
+    }
+    if (!await probeSafariLocalBridge(bridgeUrl)) throw new Error('native-bridge-health-check-failed');
+    safariLocalBridgeUrl = bridgeUrl;
+    return bridgeUrl;
+  }).catch((error) => {
+    safariLocalBridgeUrl = '';
+    writeProbeLog('Safari local DNR bridge unavailable', {
+      message: error?.message || String(error),
+    });
+    return '';
+  }).finally(() => {
+    safariLocalBridgeStartPromise = null;
+  });
+  return safariLocalBridgeStartPromise;
+}
+
+function startSafariLocalBridgeKeepalive() {
+  if (safariLocalBridgeKeepaliveTimer) return;
+  safariLocalBridgeKeepaliveTimer = setInterval(async () => {
+    if (!config.autoCapture) return;
+    const previousUrl = safariLocalBridgeUrl;
+    const bridgeUrl = await ensureSafariLocalBridge({ force: true });
+    if (bridgeUrl && bridgeUrl === previousUrl) return;
+    if (!bridgeUrl) {
+      await clearSafariDownloadRules();
+      return;
+    }
+    await installSafariDownloadRedirectRules();
+  }, SAFARI_LOCAL_BRIDGE_KEEPALIVE_MS);
+}
+
+async function installSafariDownloadRedirectRules() {
+  if (!chrome.declarativeNetRequest?.updateSessionRules) {
+    writeProbeLog('DNR local bridge redirect unavailable');
+    return false;
+  }
+  const bridgeUrl = config.autoCapture ? await ensureSafariLocalBridge() : '';
   const redirectPatterns = buildSafariDownloadRedirectPatterns();
   const supportedPatterns = [];
   for (let index = 0; index < redirectPatterns.length; index += 1) {
@@ -478,29 +753,58 @@ async function installSafariDownloadRedirectRules() {
     }
     supportedPatterns.push({ index, regexFilter });
   }
-  const addRules = config.autoCapture ? supportedPatterns.map(({ index, regexFilter }) => ({
+  const addRules = config.autoCapture && bridgeUrl ? supportedPatterns.map(({ index, regexFilter }) => ({
     id: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS[index],
     priority: 10,
-    action: { type: 'block' },
+    action: {
+      type: 'redirect',
+      // Keep the target in both the request query and document fragment. A
+      // Safari download can be classified as `other`, in which case no bridge
+      // document/content script exists; onSendHeaders reads the query instead.
+      // Main-frame navigations continue to use the fragment confirmation.
+      redirect: { regexSubstitution: `${bridgeUrl}/?url=\\1#\\1` },
+    },
     condition: {
       regexFilter,
+      isUrlFilterCaseSensitive: false,
       // Safari may reclassify a main-frame navigation as "other" after one or
       // more redirects when the response becomes a browser download.
       resourceTypes: ['main_frame', 'other'],
     },
   })) : [];
   try {
+    // Clear legacy block/fixed-URL rules in a separate transaction. Safari
+    // keeps the old rules when a combined remove+add update rejects a new
+    // regexSubstitution rule.
     await chrome.declarativeNetRequest.updateSessionRules({
       removeRuleIds: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS,
-      addRules,
+      addRules: [],
     });
-    writeProbeLog('DNR download redirect rules installed', {
+    if (addRules.length) {
+      await chrome.declarativeNetRequest.updateSessionRules({
+        removeRuleIds: [],
+        addRules,
+      });
+    }
+    let installedRules = [];
+    if (chrome.declarativeNetRequest.getSessionRules) {
+      installedRules = await chrome.declarativeNetRequest.getSessionRules().catch(() => []);
+    }
+    // Safari 26.3 rejects safari-web-extension:// as a main-frame redirect
+    // destination and exposes an error page for block rules. A loopback-only
+    // native HTTP server returns a blank 200 page that the content script can
+    // consume, so Safari neither downloads nor exposes a blocker error page.
+    writeProbeLog('DNR local bridge redirect rules installed', {
       ruleIds: addRules.map((rule) => rule.id),
       patterns: redirectPatterns,
+      bridgeUrl,
+      installedRedirects: installedRules
+        .filter((rule) => SAFARI_DOWNLOAD_REDIRECT_RULE_IDS.includes(rule.id))
+        .map((rule) => rule.action?.redirect || {}),
     });
     return true;
   } catch (error) {
-    writeProbeLog('DNR download redirect rule installation failed', {
+    writeProbeLog('DNR local bridge redirect rule installation failed', {
       message: error?.message || String(error),
     });
     return false;
@@ -583,8 +887,12 @@ async function saveConfigAndSync(nextConfig) {
   await saveStoredConfig(storedConfig);
   config = normalizeConfig({ ...config, ...nextConfig });
   applyLocaleFromConfig(config);
+  const autoCaptureChanged = previousAutoCapture !== config.autoCapture;
+  if (autoCaptureChanged || Object.prototype.hasOwnProperty.call(nextConfig, 'captureExtensions')) {
+    await installSafariDownloadRedirectRules();
+  }
   if (
-    previousAutoCapture !== config.autoCapture ||
+    autoCaptureChanged ||
     previousMediaSniffingEnabled !== isMediaSniffingEnabled(config) ||
     previousMediaSniffingBlacklist !== config.mediaSniffingBlacklist
   ) {
@@ -765,6 +1073,50 @@ async function openTaskSurface() {
   }
 }
 
+async function openTaskFallbackWindow(taskInfo = {}) {
+  if (!chrome.windows?.create || !chrome.runtime?.getURL) return false;
+  if (taskFallbackWindowOpenPromise) return taskFallbackWindowOpenPromise;
+
+  taskFallbackWindowOpenPromise = (async () => {
+    if (typeof taskFallbackWindowId === 'number' && chrome.windows?.update) {
+      try {
+        await callChromeApi(chrome.windows.update.bind(chrome.windows), taskFallbackWindowId, { focused: true });
+        console.info('[Downlink][popup] focused existing fallback task window', { windowId: taskFallbackWindowId });
+        return true;
+      } catch {
+        taskFallbackWindowId = null;
+      }
+    }
+
+    try {
+      const created = await callChromeApi(chrome.windows.create.bind(chrome.windows), {
+        url: chrome.runtime.getURL('popup.html'),
+        type: 'popup',
+        width: 520,
+        height: 720,
+        focused: true,
+      });
+      taskFallbackWindowId = typeof created?.id === 'number' ? created.id : null;
+      console.info('[Downlink][popup] fallback task window opened', {
+        windowId: taskFallbackWindowId,
+        url: taskInfo.url || '',
+      });
+      return true;
+    } catch (error) {
+      console.warn('[Downlink][popup] failed to open fallback task window', {
+        error: error?.message || String(error),
+      });
+      return false;
+    }
+  })();
+
+  try {
+    return await taskFallbackWindowOpenPromise;
+  } finally {
+    taskFallbackWindowOpenPromise = null;
+  }
+}
+
 function getTab(tabId) {
   return new Promise((resolve) => {
     if (typeof tabId !== 'number' || tabId < 0 || !chrome.tabs?.get) {
@@ -778,6 +1130,24 @@ function getTab(tabId) {
       }
       resolve(tab);
     });
+  });
+}
+
+function callChromeApi(method, ...args) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (value, error = '') => {
+      if (settled) return;
+      settled = true;
+      if (error) reject(new Error(error));
+      else resolve(value);
+    };
+    try {
+      const result = method(...args, (value) => finish(value, getRuntimeLastErrorMessage()));
+      result?.then?.((value) => finish(value)).catch?.((error) => finish(null, error?.message || String(error)));
+    } catch (error) {
+      finish(null, error?.message || String(error));
+    }
   });
 }
 
@@ -806,7 +1176,67 @@ async function openTaskSurfaceForTask(taskInfo = {}) {
     tabId: taskInfo.sourceTabId,
     windowId: taskInfo.sourceWindowId,
   });
-  return openTaskSurface();
+  if (await openTaskSurface()) return true;
+  return openTaskFallbackWindow(taskInfo);
+}
+
+function scheduleSafariBridgePendingSurface(key = '') {
+  if (!key) return;
+  // The bridge content script calls history.back() after receiving the
+  // capture response. Opening Safari's action popup before that navigation
+  // makes Safari immediately dismiss it, so wait until the source page is
+  // active again. openTaskSurfaceForTask provides a standalone popup-window
+  // fallback when Safari rejects action.openPopup without a user gesture.
+  setTimeout(() => {
+    const taskInfo = pendingDownloads[key];
+    if (!taskInfo) return;
+    openTaskSurfaceForTask(taskInfo).catch(() => {});
+  }, 300);
+}
+
+function scheduleSafariBridgeRecovery({ tabId, sourceTabId, openerTabId, sourcePageUrl = '', targetUrl = '' } = {}) {
+  if (typeof tabId !== 'number') return '';
+  const externalSourceTabId = [sourceTabId, openerTabId]
+    .find((value) => typeof value === 'number' && value !== tabId);
+  const returnUrl = isUsableSafariBridgeSourcePage(sourcePageUrl, targetUrl) ? sourcePageUrl : '';
+  const mode = typeof externalSourceTabId === 'number' && chrome.tabs?.remove
+    ? 'close'
+    : 'replace';
+  setTimeout(async () => {
+    try {
+      if (mode === 'close') {
+        if (chrome.tabs?.update) {
+          await callChromeApi(chrome.tabs.update.bind(chrome.tabs), externalSourceTabId, { active: true }).catch(() => {});
+        }
+        await callChromeApi(chrome.tabs.remove.bind(chrome.tabs), tabId);
+      } else if (chrome.tabs?.update) {
+        // Never replay browser history here. In a multi-hop download redirect the
+        // previous history entry is commonly the terminal file URL, so going
+        // back immediately triggers the same DNR rule again.
+        await callChromeApi(chrome.tabs.update.bind(chrome.tabs), tabId, {
+          url: returnUrl || 'about:blank',
+        });
+      }
+      writeProbeLog('successful local bridge navigation recovered', {
+        tabId,
+        sourceTabId,
+        openerTabId,
+        externalSourceTabId,
+        returnUrl,
+        mode,
+      });
+    } catch (error) {
+      writeProbeLog('successful local bridge navigation recovery failed', {
+        tabId,
+        sourceTabId,
+        openerTabId,
+        returnUrl,
+        mode,
+        message: error?.message || String(error),
+      });
+    }
+  }, 50);
+  return mode;
 }
 
 async function closeFirefoxInterceptedDownloadTab() {
@@ -1064,6 +1494,7 @@ function captureSafariUrlDirectly({
   windowId,
   captureSource = 'safari-dnr-block',
   captureReason = 'url-extension',
+  openPendingSurface = true,
 } = {}) {
   const captureKey = `${typeof tabId === 'number' ? tabId : -1}:${url}`;
   cleanExpired(safariUrlCaptureClaims);
@@ -1072,6 +1503,10 @@ function captureSafariUrlDirectly({
 
   const promise = (async () => {
     await configReady;
+    if (await isSafariDnrBypassActive(tabId, url)) {
+      writeProbeLog('Safari URL capture skipped for active browser bypass', { tabId, url });
+      return { ok: false, bypass: true, resumeUrl: url };
+    }
     if (!config.autoCapture || !isSafariDnrDownloadCandidate(url) || isDownloadInterceptionBlockedForSource(sourcePageUrl, referrer)) {
       return { ok: false, bypass: true };
     }
@@ -1116,7 +1551,7 @@ function captureSafariUrlDirectly({
     });
     return queueOrSendCapturedDownload(taskInfo, {
       openPopupOnFailure: false,
-      openPendingSurface: true,
+      openPendingSurface,
     });
   })().catch((error) => {
     writeProbeLog('Safari URL capture failed', {
@@ -1288,13 +1723,15 @@ function rememberSafariDnrRedirectCandidate(details = {}, redirectUrl = details.
   if (!config.autoCapture || !['main_frame', 'other'].includes(details.type) || typeof details.tabId !== 'number') return false;
   if (!isSafariDnrDownloadCandidate(redirectUrl)) return false;
   const requestMeta = requestHeadersCache.get(details.url) || {};
+  const navigationSource = getSafariNavigationSource(details.tabId, redirectUrl);
   dnrNavigationCandidates.set(details.tabId, {
     url: redirectUrl,
-    referrer: details.url,
-    sourcePageUrl: requestMeta.sourcePageUrl || details.initiator || requestMeta.headers?.referer || details.url,
+    referrer: navigationSource.sourcePageUrl || requestMeta.sourcePageUrl || details.initiator || requestMeta.headers?.referer || details.url,
+    sourcePageUrl: navigationSource.sourcePageUrl || requestMeta.sourcePageUrl || details.initiator || requestMeta.headers?.referer || details.url,
+    stableSourcePageUrl: navigationSource.sourcePageUrl,
     sourceFilename: requestMeta.sourceFilename || filenameFromSafariRedirectUrl(redirectUrl),
-    sourceTabId: requestMeta.sourceTabId,
-    sourceWindowId: requestMeta.sourceWindowId,
+    sourceTabId: navigationSource.sourceTabId ?? requestMeta.sourceTabId,
+    sourceWindowId: navigationSource.sourceWindowId ?? requestMeta.sourceWindowId,
     requestId: details.requestId,
     expiresAt: Date.now() + 30000,
   });
@@ -1376,6 +1813,40 @@ function scheduleSafariBlockedNavigationRecovery(args = {}) {
   }
 }
 
+async function recoverSafariLocalBridgeFailure(details = {}, candidate = {}) {
+  if (typeof details.tabId !== 'number') return false;
+  const tab = await getTab(details.tabId);
+  const hasSourcePage = /^https?:\/\//i.test(String(candidate.sourcePageUrl || ''));
+  if (typeof tab?.openerTabId === 'number' && !hasSourcePage && chrome.tabs?.remove) {
+    try {
+      await callChromeApi(chrome.tabs.remove.bind(chrome.tabs), details.tabId);
+      writeProbeLog('failed local bridge download tab closed', {
+        tabId: details.tabId,
+        openerTabId: tab.openerTabId,
+        url: details.url,
+      });
+      return true;
+    } catch {}
+  }
+  if (chrome.tabs?.goBack) {
+    try {
+      await callChromeApi(chrome.tabs.goBack.bind(chrome.tabs), details.tabId);
+      writeProbeLog('failed local bridge navigation went back', {
+        tabId: details.tabId,
+        url: details.url,
+      });
+      return true;
+    } catch {}
+  }
+  scheduleSafariBlockedNavigationRecovery({
+    tabId: details.tabId,
+    blockedUrl: details.url,
+    fallbackUrl: safariBlockedNavigationFallback(candidate, details.url),
+    trigger: 'local-bridge-onErrorOccurred',
+  });
+  return true;
+}
+
 function navigateSafariRedirectToDnrBridge(details = {}, redirectUrl = details.redirectUrl || '', trigger = 'redirect') {
   if (!rememberSafariDnrRedirectCandidate(details, redirectUrl)) return false;
   const navigationKey = `${details.tabId}:${redirectUrl}`;
@@ -1383,53 +1854,15 @@ function navigateSafariRedirectToDnrBridge(details = {}, redirectUrl = details.r
   if (dnrRedirectBridgeNavigations.has(navigationKey)) return true;
   dnrRedirectBridgeNavigations.set(navigationKey, { expiresAt: Date.now() + 30000 });
 
-  const candidate = dnrNavigationCandidates.get(details.tabId) || {};
-  const fallbackUrl = safariBlockedNavigationFallback(candidate, redirectUrl);
-  cleanExpired(safariRedirectChainClaims);
-  const redirectChainKey = details.requestId
-    ? `request:${details.requestId}`
-    : `tab:${details.tabId}:${candidate.sourcePageUrl || details.initiator || details.url}`;
-  const existingChainClaim = safariRedirectChainClaims.get(redirectChainKey);
-  writeProbeLog('redirect download takeover requested', {
+  writeProbeLog('redirect download candidate recorded for DNR bridge', {
     trigger,
     tabId: details.tabId,
     sourceUrl: details.url,
     redirectUrl,
-    fallbackUrl,
-    redirectChainKey,
-    reusedChainClaim: Boolean(existingChainClaim?.promise),
   });
-  const capturePromise = existingChainClaim?.promise || captureSafariUrlDirectly({
-    url: redirectUrl,
-    referrer: details.url,
-    sourcePageUrl: candidate.sourcePageUrl || details.url,
-    sourceFilename: candidate.sourceFilename || filenameFromSafariRedirectUrl(redirectUrl),
-    sourceTabId: candidate.sourceTabId,
-    tabId: details.tabId,
-    windowId: candidate.sourceWindowId,
-    captureSource: 'safari-redirect-response',
-    captureReason: 'redirect-url-extension',
-  });
-  if (!existingChainClaim?.promise) {
-    safariRedirectChainClaims.set(redirectChainKey, {
-      promise: capturePromise,
-      url: redirectUrl,
-      expiresAt: Date.now() + 10000,
-    });
-  } else {
-    writeProbeLog('redirect chain duplicate capture skipped', {
-      redirectChainKey,
-      firstUrl: existingChainClaim.url || '',
-      redirectUrl,
-      tabId: details.tabId,
-    });
-  }
-  capturePromise.finally(() => scheduleSafariBlockedNavigationRecovery({
-    tabId: details.tabId,
-    blockedUrl: redirectUrl,
-    fallbackUrl,
-    trigger: `${trigger}-capture-settled`,
-  }));
+  // Observation alone is not proof that Safari's final request was stopped.
+  // The task is submitted only after webNavigation reaches the loopback URL,
+  // which can happen only after the DNR redirect has actually won.
   return true;
 }
 
@@ -1478,13 +1911,101 @@ const configReady = new Promise((resolve) => {
   });
 });
 
-configReady.then(() => installSafariDownloadRedirectRules()).catch(() => {});
+configReady.then(() => {
+  startSafariLocalBridgeKeepalive();
+  return installSafariDownloadRedirectRules();
+}).catch(() => {});
 
-chrome.webNavigation?.onBeforeNavigate?.addListener?.((details) => {
-  if (details.frameId !== 0 || typeof details.tabId !== 'number' || !isSafariDnrDownloadCandidate(details.url)) return;
+chrome.webNavigation?.onCommitted?.addListener?.((details) => {
+  if (details.frameId !== 0 || typeof details.tabId !== 'number') return;
+  getTab(details.tabId).then((tab) => {
+    rememberSafariCommittedPage(details.tabId, details.url, tab?.windowId);
+  }).catch(() => {});
+});
+
+chrome.webNavigation?.onCreatedNavigationTarget?.addListener?.((details) => {
+  if (typeof details.tabId !== 'number' || typeof details.sourceTabId !== 'number') return;
+  const committedSource = safariCommittedTabPages.get(details.sourceTabId) || {};
+  const navigationSource = {
+    sourcePageUrl: isUsableSafariBridgeSourcePage(committedSource.sourcePageUrl, details.url)
+      ? committedSource.sourcePageUrl
+      : '',
+    sourceTabId: details.sourceTabId,
+    sourceWindowId: committedSource.sourceWindowId,
+    expiresAt: Date.now() + 30000,
+  };
+  // Record the source tab synchronously. A cached/loopback redirect can reach
+  // the bridge before tabs.get(sourceTabId) resolves in Safari.
+  safariCreatedNavigationSources.set(details.tabId, navigationSource);
+  cleanExpired(safariCreatedNavigationSources);
+  getTab(details.sourceTabId).then((sourceTab) => {
+    const sourcePageUrl = String(sourceTab?.url || navigationSource.sourcePageUrl || '');
+    navigationSource.sourcePageUrl = isUsableSafariBridgeSourcePage(sourcePageUrl, details.url) ? sourcePageUrl : '';
+    navigationSource.sourceWindowId = sourceTab?.windowId;
+    writeProbeLog('Safari created navigation target source recorded', {
+      tabId: details.tabId,
+      sourceTabId: details.sourceTabId,
+      sourcePageUrl,
+      targetUrl: details.url || '',
+    });
+  }).catch(() => {});
+});
+
+chrome.webNavigation?.onBeforeNavigate?.addListener?.(async (details) => {
+  if (details.frameId !== 0 || typeof details.tabId !== 'number') return;
+  const bridgedUrl = safariLocalBridgeTargetUrl(details.url);
+  if (bridgedUrl) {
+    cleanExpired(dnrNavigationCandidates);
+    const candidate = dnrNavigationCandidates.get(details.tabId);
+    if (candidate && candidate.url !== bridgedUrl) {
+      writeProbeLog('local DNR bridge navigation rejected for mismatched candidate', {
+        tabId: details.tabId,
+        url: bridgedUrl,
+        candidateUrl: candidate?.url || '',
+      });
+      return;
+    }
+    if (!candidate) {
+      // Safari may apply DNR before webNavigation/webRequest reports the
+      // original URL. Wait for the content script running in the real
+      // loopback document to confirm sender URL and target instead of
+      // rejecting a takeover that has already stopped the browser download.
+      writeProbeLog('local DNR bridge navigation awaiting document confirmation', {
+        tabId: details.tabId,
+        url: bridgedUrl,
+      });
+      return;
+    }
+    writeProbeLog('local DNR bridge navigation confirmed takeover; awaiting document confirmation', {
+      tabId: details.tabId,
+      url: bridgedUrl,
+      sourcePageUrl: candidate.sourcePageUrl || '',
+    });
+    return;
+  }
+  if (!isSafariDnrDownloadCandidate(details.url)) return;
+  if (await isSafariDnrBypassActive(details.tabId, details.url)) {
+    writeProbeLog('DNR download navigation left to Safari by active bypass', {
+      tabId: details.tabId,
+      url: details.url,
+    });
+    return;
+  }
+  const existingCandidate = dnrNavigationCandidates.get(details.tabId);
+  if (existingCandidate?.url === details.url) {
+    writeProbeLog('DNR download navigation reused redirect candidate', {
+      tabId: details.tabId,
+      url: details.url,
+    });
+    return;
+  }
+  const navigationSource = getSafariNavigationSource(details.tabId, details.url);
   const candidate = {
     url: details.url,
-    sourcePageUrl: '',
+    sourcePageUrl: navigationSource.sourcePageUrl,
+    stableSourcePageUrl: navigationSource.sourcePageUrl,
+    sourceTabId: navigationSource.sourceTabId,
+    sourceWindowId: navigationSource.sourceWindowId,
     sourceFilename: filenameFromSafariRedirectUrl(details.url),
     expiresAt: Date.now() + 30000,
   };
@@ -1493,22 +2014,7 @@ chrome.webNavigation?.onBeforeNavigate?.addListener?.((details) => {
   getTab(details.tabId).then((tab) => {
     const currentUrl = String(tab?.url || '');
     if (/^https?:\/\//i.test(currentUrl) && currentUrl !== candidate.url) candidate.sourcePageUrl = currentUrl;
-    const capturePromise = captureSafariUrlDirectly({
-      url: details.url,
-      referrer: candidate.sourcePageUrl,
-      sourcePageUrl: candidate.sourcePageUrl,
-      sourceFilename: candidate.sourceFilename,
-      tabId: details.tabId,
-      windowId: tab?.windowId,
-      captureSource: 'safari-dnr-block',
-      captureReason: 'main-frame-url-extension',
-    });
-    capturePromise.finally(() => scheduleSafariBlockedNavigationRecovery({
-      tabId: details.tabId,
-      blockedUrl: details.url,
-      fallbackUrl: safariBlockedNavigationFallback(candidate, details.url),
-      trigger: 'onBeforeNavigate-capture-settled',
-    }));
+    if (typeof candidate.sourceWindowId !== 'number') candidate.sourceWindowId = tab?.windowId;
   }).catch(() => {});
   writeProbeLog('DNR download navigation candidate observed', {
     tabId: details.tabId,
@@ -1520,6 +2026,15 @@ chrome.webNavigation?.onErrorOccurred?.addListener?.((details) => {
   if (details.frameId !== 0 || typeof details.tabId !== 'number') return;
   cleanExpired(dnrNavigationCandidates);
   const candidate = dnrNavigationCandidates.get(details.tabId);
+  if (isSafariLocalBridgeNavigationUrl(details.url)) {
+    writeProbeLog('local DNR bridge navigation error observed', {
+      tabId: details.tabId,
+      url: details.url,
+      error: details.error || '',
+    });
+    recoverSafariLocalBridgeFailure(details, candidate || {}).catch(() => {});
+    return;
+  }
   if (!candidate || candidate.url !== details.url || !isSafariDnrDownloadCandidate(details.url)) return;
   writeProbeLog('blocked download navigation error observed', {
     tabId: details.tabId,
@@ -1536,9 +2051,13 @@ chrome.webNavigation?.onErrorOccurred?.addListener?.((details) => {
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName && !['sync', 'local'].includes(areaName)) return;
+  if (!activeConfigStorageArea || (areaName && areaName !== activeConfigStorageArea)) return;
   const previousMediaSniffingEnabled = isMediaSniffingEnabled(config);
   const previousAutoCapture = config.autoCapture;
-  for (const key in changes) config[key] = changes[key].newValue;
+  for (const key in changes) {
+    if (key === CONFIG_STORAGE_AREA_KEY) continue;
+    config[key] = changes[key].newValue;
+  }
   config = normalizeConfig(config);
   applyLocaleFromConfig(config);
   if (changes.language) refreshContextMenus();
@@ -1746,7 +2265,7 @@ function updateActionBadgeForTab(tabId, count, isPaused = false) {
     const isCaptureDisabled = !config.autoCapture;
     chrome.action.setBadgeBackgroundColor({ color: isCaptureDisabled || isPaused ? '#6b7280' : '#e05c2a', tabId });
     chrome.action.setBadgeTextColor?.({ color: '#ffffff', tabId });
-    chrome.action.setBadgeText({ text: isCaptureDisabled ? '✕' : (count > 0 ? String(Math.min(count, 99)) : ''), tabId });
+    chrome.action.setBadgeText({ text: isCaptureDisabled ? 'OFF' : (count > 0 ? String(Math.min(count, 99)) : ''), tabId });
   } catch {}
 }
 
@@ -1917,6 +2436,49 @@ function handleSafariSendHeaders(details) {
     if (!config.autoCapture) return;
     const headers = {};
     for (const header of details.requestHeaders || []) headers[header.name.toLowerCase()] = header.value;
+    const bridgeTargetUrl = safariLocalBridgeRequestTargetUrl(details.url);
+    if (bridgeTargetUrl && details.type === 'other' && typeof details.tabId === 'number') {
+      cleanExpired(dnrNavigationCandidates);
+      const candidate = dnrNavigationCandidates.get(details.tabId);
+      if (candidate && candidate.url !== bridgeTargetUrl) {
+        writeProbeLog('local DNR other-resource request rejected for mismatched candidate', {
+          tabId: details.tabId,
+          url: bridgeTargetUrl,
+          candidateUrl: candidate.url || '',
+        });
+        return;
+      }
+      if (candidate) dnrNavigationCandidates.delete(details.tabId);
+      const navigationSource = getSafariNavigationSource(details.tabId, bridgeTargetUrl);
+      const sourcePageUrl = String(candidate?.sourcePageUrl || navigationSource.sourcePageUrl || details.initiator || headers.referer || '');
+      const referrer = String(candidate?.referrer || sourcePageUrl);
+      writeProbeLog('local DNR other-resource takeover confirmed', {
+        tabId: details.tabId,
+        url: bridgeTargetUrl,
+        sourcePageUrl,
+      });
+      captureSafariUrlDirectly({
+        url: bridgeTargetUrl,
+        referrer,
+        sourcePageUrl,
+        sourceFilename: candidate?.sourceFilename || filenameFromSafariRedirectUrl(bridgeTargetUrl),
+        sourceTabId: candidate?.sourceTabId ?? navigationSource.sourceTabId,
+        tabId: details.tabId,
+        windowId: candidate?.sourceWindowId ?? navigationSource.sourceWindowId,
+        captureSource: 'safari-local-dnr-other',
+        captureReason: 'dnr-regex-substitution-other',
+        openPendingSurface: true,
+      }).then((result) => {
+        writeProbeLog('local DNR other-resource takeover completed', {
+          tabId: details.tabId,
+          url: bridgeTargetUrl,
+          ok: Boolean(result?.ok),
+          pending: Boolean(result?.pending),
+          error: result?.error || '',
+        });
+      }).catch(() => {});
+      return;
+    }
     const previewRequest = mediaManager.getActivePreviewRequestInfo(details.url);
     if (previewRequest) {
       const actualHeaders = Object.keys(headers);
@@ -1960,9 +2522,22 @@ try {
 
 // Safari 的 webRequest 只能观察响应；返回 { cancel: true } 不会可靠地停止下载。
 // 响应头链路记录 302 目标，DNR 在目标请求发出前完成真正接管。
-function handleSafariHeadersReceived(details) {
+async function handleSafariHeadersReceived(details) {
     // media sniffing：fire-and-forget，不阻塞监听器返回值
     runMediaSniffing(details);
+    if (await isSafariDnrBypassActive(details.tabId, details.url)) {
+      // Keep the allow rule across 3xx hops. Once the terminal response has
+      // passed DNR evaluation it is safe to remove the one-shot rule.
+      if (!isRedirectStatus(details.statusCode)) {
+        setTimeout(() => clearSafariDnrBypassRule(details.tabId).catch(() => {}), 1000);
+      }
+      writeProbeLog('Safari response left to browser by active bypass', {
+        tabId: details.tabId,
+        url: details.url,
+        statusCode: details.statusCode,
+      });
+      return;
+    }
     if (!config.autoCapture) return;
 
     const contentDisposition = getResponseHeaderValue(details.responseHeaders, 'content-disposition');
@@ -1970,6 +2545,14 @@ function handleSafariHeadersReceived(details) {
     const redirectUrl = resolveRedirectUrl(details.url, getResponseHeaderValue(details.responseHeaders, 'location'));
     const totalBytes = parseResponseSize(details.responseHeaders);
     const requestMeta = requestHeadersCache.get(details.url) || {};
+    const explicitAttachment = /attachment/i.test(contentDisposition);
+    const downloadLikeRequest = isUserDownloadLikeResponse(details);
+
+    // Playback segments and XHR/fetch resources may use configured download
+    // suffixes such as .m4s, but they are not browser download navigations.
+    // Keep media sniffing above, then leave these responses out of the download
+    // caches, candidate map, and persistent probe log.
+    if (!isRedirectStatus(details.statusCode) && !explicitAttachment && !downloadLikeRequest) return;
 
     if (contentDisposition || contentType) {
       responseHeadersCache.set(details.url, {
@@ -2056,7 +2639,11 @@ function handleSafariHeadersReceived(details) {
 
 try {
   chrome.webRequest.onBeforeRedirect?.addListener?.(
-    (details) => navigateSafariRedirectToDnrBridge(details, details.redirectUrl, 'onBeforeRedirect'),
+    (details) => {
+      isSafariDnrBypassActive(details.tabId, details.redirectUrl || details.url).then((bypassed) => {
+        if (!bypassed) navigateSafariRedirectToDnrBridge(details, details.redirectUrl, 'onBeforeRedirect');
+      }).catch(() => {});
+    },
     { urls: ['<all_urls>'] }
   );
   writeProbeLog('onBeforeRedirect listener registered');
@@ -2135,6 +2722,78 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }),
         });
         break;
+      case 'REGISTER_SAFARI_PAGE_CONTEXT':
+        sendResponse({
+          ok: rememberSafariCommittedPage(
+            sender?.tab?.id,
+            msg.url,
+            sender?.tab?.windowId
+          ),
+        });
+        break;
+      case 'CAPTURE_LOCAL_DNR_BRIDGE': {
+        const tabId = sender?.tab?.id;
+        const openerTabId = sender?.tab?.openerTabId;
+        const url = String(msg.url || '');
+        const senderUrl = String(sender?.url || sender?.tab?.url || '');
+        cleanExpired(dnrNavigationCandidates);
+        const candidate = typeof tabId === 'number' ? dnrNavigationCandidates.get(tabId) : null;
+        if (!isValidSafariLocalBridgeMessageContext(senderUrl, url, candidate)) {
+          writeProbeLog('local DNR bridge message rejected for invalid document context', {
+            tabId,
+            url,
+            senderUrl,
+            candidateUrl: candidate?.url || '',
+          });
+          sendResponse({ ok: false, error: 'invalid-dnr-document-context' });
+          break;
+        }
+        if (candidate) dnrNavigationCandidates.delete(tabId);
+        const sourcePageUrl = String(candidate?.sourcePageUrl || msg.referrer || '');
+        const stableSourcePageUrl = String(candidate?.stableSourcePageUrl || '');
+        const referrer = String(candidate?.referrer || sourcePageUrl);
+        if (!config.autoCapture || !isSafariDnrDownloadCandidate(url) || isDownloadInterceptionBlockedForSource(sourcePageUrl, referrer)) {
+          const bypass = await installSafariDnrBypassRule(tabId, url);
+          sendResponse({
+            ok: false,
+            error: 'download-not-eligible',
+            bypass,
+            resumeUrl: bypass ? url : '',
+          });
+          break;
+        }
+        writeProbeLog('local DNR bridge carried download target', {
+          tabId,
+          url,
+          referrer,
+          sourcePageUrl,
+        });
+        const result = await captureSafariUrlDirectly({
+          url,
+          referrer,
+          sourcePageUrl,
+          sourceFilename: candidate?.sourceFilename || filenameFromSafariRedirectUrl(url),
+          sourceTabId: candidate?.sourceTabId ?? openerTabId,
+          tabId,
+          windowId: candidate?.sourceWindowId ?? sender?.tab?.windowId,
+          captureSource: 'safari-local-dnr-bridge',
+          captureReason: 'dnr-regex-substitution',
+          openPendingSurface: false,
+        });
+        const sourceTabId = candidate?.sourceTabId ?? openerTabId;
+        const recoveryMode = result?.ok ? scheduleSafariBridgeRecovery({
+          tabId,
+          sourceTabId,
+          openerTabId,
+          sourcePageUrl: stableSourcePageUrl,
+          targetUrl: url,
+        }) : '';
+        const bridgeHandled = Boolean(result?.ok && recoveryMode);
+        const closeBridgeTab = recoveryMode === 'close';
+        sendResponse({ ...result, url, bridgeHandled, closeBridgeTab, recoveryMode });
+        if (result?.pending && result?.key) scheduleSafariBridgePendingSurface(result.key);
+        break;
+      }
       case 'CAPTURE_DNR_DOWNLOAD': {
         const tabId = sender?.tab?.id;
         cleanExpired(dnrNavigationCandidates);
@@ -2147,40 +2806,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: false, error: 'download-not-eligible', bypass: true });
           break;
         }
-        const cachedRequest = requestHeadersCache.get(url) || {};
-        const cookieHeader = await getCookieHeaderForUrl(url);
-        const headers = { ...(cachedRequest.headers || {}) };
-        if (cookieHeader) headers.cookie = cookieHeader;
-        if (referrer && !headers.referer) headers.referer = referrer;
-        if (!headers['user-agent'] && typeof navigator !== 'undefined' && navigator.userAgent) {
-          headers['user-agent'] = navigator.userAgent;
-        }
-        const taskInfo = {
-          key: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          url,
-          filename: '',
-          headers,
-          method: 'GET',
-          origin: deriveOrigin(url, referrer),
-          referrer,
-          captureSource: 'safari-dnr',
-          captureReason: 'main-frame-redirect',
-          sourceTabId: tabId,
-          sourceWindowId: sender?.tab?.windowId,
-          sourcePageUrl,
-          addedAt: Date.now(),
-        };
-        writeProbeLog('DNR download bridge captured navigation', {
+        writeProbeLog('DNR download bridge received navigation', {
           tabId,
           url,
-          sourcePageUrl,
           referrer,
-          headerNames: Object.keys(headers),
-          cookieCount: cookieHeader ? cookieHeader.split('; ').length : 0,
+          sourcePageUrl,
         });
-        const result = await queueOrSendCapturedDownload(taskInfo, {
-          openPopupOnFailure: false,
-          openPendingSurface: false,
+        const result = await captureSafariUrlDirectly({
+          url,
+          referrer,
+          sourcePageUrl,
+          sourceFilename: candidate?.sourceFilename || '',
+          sourceTabId: candidate?.sourceTabId,
+          tabId,
+          windowId: candidate?.sourceWindowId ?? sender?.tab?.windowId,
+          captureSource: 'safari-dnr-bridge',
+          captureReason: 'main-frame-redirect',
         });
         sendResponse({ ...result, url });
         break;
@@ -2201,7 +2842,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
 
         const referrer = sourcePageUrl;
-        const redirectCandidate = msg.redirectCandidate === true;
         const cachedRequest = requestHeadersCache.get(url) || {};
         const cookieHeader = await getCookieHeaderForUrl(url);
         const headers = { ...(cachedRequest.headers || {}) };
@@ -2213,10 +2853,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const taskInfo = {
           key: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
           url,
-          // Opaque download endpoints often redirect to a signed URL whose final
-          // response owns the filename. Leave it unset so the downloader can use
-          // that response instead of receiving "download" or "export" as a name.
-          filename: redirectCandidate ? '' : resolveCapturedFilename(msg.filename || filenameFromUrl(url), {
+          filename: resolveCapturedFilename(msg.filename || filenameFromUrl(url), {
             sourceFilename: msg.filename || '',
             candidates: [filenameFromUrl(url)],
           }),
@@ -2224,8 +2861,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           method: 'GET',
           origin: deriveOrigin(url, referrer),
           referrer,
-          captureSource: redirectCandidate ? 'safari-redirect-click' : 'safari-link-click',
-          captureReason: redirectCandidate ? 'redirect-endpoint' : 'pre-navigation',
+          captureSource: 'safari-link-click',
+          captureReason: 'pre-navigation',
           sourceTabId: sender?.tab?.id,
           sourceWindowId: sender?.tab?.windowId,
           sourcePageUrl,
@@ -2596,8 +3233,15 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   autoCapturePausedTabs.delete(tabId);
   mediaBlacklistBlockedTabs.delete(tabId);
+  safariCommittedTabPages.delete(tabId);
+  safariCreatedNavigationSources.delete(tabId);
+  dnrNavigationCandidates.delete(tabId);
   mediaManager.clearTabState(tabId);
   mediaManager.clearPreviewRule(tabId);
+});
+
+chrome.windows?.onRemoved?.addListener?.((windowId) => {
+  if (windowId === taskFallbackWindowId) taskFallbackWindowId = null;
 });
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {

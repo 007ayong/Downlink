@@ -1,8 +1,10 @@
 (function initDownloadClickTracking() {
   const defaultCaptureExtensions = globalThis.ConfigDefaults?.DEFAULT_CAPTURE_EXTENSIONS || '';
   const legacyDefaultCaptureExtensions = globalThis.ConfigDefaults?.LEGACY_DEFAULT_CAPTURE_EXTENSIONS || '';
+  const configStorageAreaKey = '__downlinkConfigStorageArea';
   const safariCaptureResponseTimeoutMs = 2500;
   let captureExtensionPattern = buildCaptureExtensionPattern(defaultCaptureExtensions);
+  let activeConfigStorageArea = '';
 
   function isSafariExtensionRuntime() {
     try {
@@ -33,31 +35,60 @@
     captureExtensionPattern = buildCaptureExtensionPattern(normalizeCaptureExtensionsConfig(value));
   }
 
-  function loadStoredCaptureExtensions() {
-    const defaults = { captureExtensions: defaultCaptureExtensions };
-    const finish = (stored = {}) => applyCaptureExtensions(stored.captureExtensions);
-    const fallbackToLocal = () => {
+  function getStoredConfig(storageArea, defaults = {}) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (stored, error = '') => {
+        if (settled) return;
+        settled = true;
+        if (error) reject(new Error(error));
+        else resolve(stored || {});
+      };
       try {
-        const localResult = chrome.storage.local?.get?.(defaults, finish);
-        if (localResult && typeof localResult.then === 'function') localResult.then(finish).catch(() => finish(defaults));
-        if (!chrome.storage.local?.get) finish(defaults);
-      } catch {
-        finish(defaults);
-      }
-    };
-
-    try {
-      const syncResult = chrome.storage.sync?.get?.(defaults, (stored) => {
-        if (chrome.runtime?.lastError) {
-          fallbackToLocal();
+        if (!storageArea?.get) {
+          finish(null, 'storage-unavailable');
           return;
         }
-        finish(stored);
-      });
-      if (syncResult && typeof syncResult.then === 'function') syncResult.then(finish).catch(fallbackToLocal);
-      if (!chrome.storage.sync?.get) fallbackToLocal();
+        const result = storageArea.get(defaults, (stored) => {
+          finish(stored, chrome.runtime?.lastError?.message || '');
+        });
+        result?.then?.((stored) => finish(stored)).catch?.((error) => finish(null, error?.message || String(error)));
+      } catch (error) {
+        finish(null, error?.message || String(error));
+      }
+    });
+  }
+
+  async function loadStoredCaptureExtensions() {
+    let localStored = {};
+    try {
+      localStored = await getStoredConfig(chrome.storage.local, {});
+    } catch {}
+
+    const localHasConfig = Object.prototype.hasOwnProperty.call(localStored, 'captureExtensions');
+    if (localStored?.[configStorageAreaKey] === 'local') {
+      activeConfigStorageArea = 'local';
+      applyCaptureExtensions(localHasConfig ? localStored.captureExtensions : defaultCaptureExtensions);
+      return;
+    }
+
+    try {
+      const syncStored = await getStoredConfig(chrome.storage.sync, {});
+      const syncHasConfig = Object.prototype.hasOwnProperty.call(syncStored, 'captureExtensions');
+      if (localStored?.[configStorageAreaKey] === 'sync') {
+        activeConfigStorageArea = 'sync';
+        applyCaptureExtensions(syncHasConfig
+          ? syncStored.captureExtensions
+          : (localHasConfig ? localStored.captureExtensions : defaultCaptureExtensions));
+        return;
+      }
+      activeConfigStorageArea = syncHasConfig ? 'sync' : (localHasConfig ? 'local' : 'sync');
+      applyCaptureExtensions(syncHasConfig
+        ? syncStored.captureExtensions
+        : (localHasConfig ? localStored.captureExtensions : defaultCaptureExtensions));
     } catch {
-      fallbackToLocal();
+      activeConfigStorageArea = localStored?.[configStorageAreaKey] === 'sync' ? 'sync' : 'local';
+      applyCaptureExtensions(localHasConfig ? localStored.captureExtensions : defaultCaptureExtensions);
     }
   }
 
@@ -82,6 +113,61 @@
     }
   }
 
+  function safariLocalBridgeTarget() {
+    if (!isSafariExtensionRuntime()) return '';
+    const match = String(window.location.href || '').match(
+      /^http:\/\/127\.0\.0\.1:\d+\/downlink-dnr\/[a-f0-9-]+\/(?:\?url=[^#]*)?#(https?:\/\/.*)$/i
+    );
+    return match?.[1] || '';
+  }
+
+  function handleSafariLocalBridgeNavigation() {
+    const targetUrl = safariLocalBridgeTarget();
+    if (!targetUrl) return false;
+    const referrer = String(document.referrer || '');
+    let recovered = false;
+    const recover = () => {
+      if (recovered) return;
+      recovered = true;
+      if (window.history.length > 1) {
+        window.history.back();
+        return;
+      }
+      window.location.replace(/^https?:\/\//i.test(referrer) ? referrer : 'about:blank');
+    };
+    const timeout = setTimeout(recover, safariCaptureResponseTimeoutMs);
+    sendRuntimeMessage({
+      type: 'CAPTURE_LOCAL_DNR_BRIDGE',
+      url: targetUrl,
+      referrer,
+    }).then((response) => {
+      clearTimeout(timeout);
+      if (response?.bridgeHandled || response?.closeBridgeTab) {
+        recovered = true;
+        if (response?.closeBridgeTab) {
+          try { window.close(); } catch {}
+        }
+        return;
+      }
+      if (response?.bypass && response?.resumeUrl === targetUrl) {
+        recovered = true;
+        window.location.replace(targetUrl);
+        return;
+      }
+      recover();
+    }).catch(recover);
+    return true;
+  }
+
+  if (handleSafariLocalBridgeNavigation()) return;
+
+  if (isSafariExtensionRuntime() && window === window.top && /^https?:\/\//i.test(window.location.href || '')) {
+    sendRuntimeMessage({
+      type: 'REGISTER_SAFARI_PAGE_CONTEXT',
+      url: window.location.href || '',
+    }).catch(() => {});
+  }
+
   function looksLikeDownloadLink(link) {
     if (!link) return false;
     const href = link.href || '';
@@ -95,30 +181,8 @@
       downloadAttr !== undefined && downloadAttr !== null ||
       captureExtensionPattern?.test(href) ||
       /\/artifacts?\/[^/]+\/?$/i.test(path) ||
-      (/\bartifact\b/i.test(label) && /\/artifacts?(?:\/|$)/i.test(path)) ||
-      (/^download(?:\s+(?:file|asset|release|archive))?$/i.test(label) && /\/downloads?(?:\/|$)/i.test(path))
+      (/\bartifact\b/i.test(label) && /\/artifacts?(?:\/|$)/i.test(path))
     );
-  }
-
-  function looksLikeSafariRedirectDownloadLink(link) {
-    if (!link?.href) return false;
-    let parsed;
-    try {
-      parsed = new URL(link.href);
-    } catch {
-      return false;
-    }
-    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
-
-    const label = [link.getAttribute?.('aria-label') || '', link.textContent || '']
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const path = parsed.pathname;
-    const downloadActionLabel = /^(?:download|export|save)(?:\s+(?:file|asset|release|archive))?$|^(?:立即下载|下载|导出|保存|生成)(?:文件|资源|安装包|压缩包)?$/i.test(label);
-    const redirectEndpoint = /\/(?:downloads?|exports?)(?:\/|$)/i.test(path);
-    const endpointHasOpaqueTarget = Boolean(parsed.search) || /\/(?:downloads?|exports?)\/(?:\d+|token(?:\/|$)|[a-f0-9-]{8,})\/?$/i.test(path);
-    return downloadActionLabel || (redirectEndpoint && endpointHasOpaqueTarget);
   }
 
   function cleanLinkFilename(value = '') {
@@ -146,31 +210,24 @@
 
   function trackDownloadClickIntent(event) {
     const link = findLink(event.target);
-    const isDownloadLike = looksLikeDownloadLink(link);
-    const isSafariRedirectDownload = isSafariExtensionRuntime() && looksLikeSafariRedirectDownloadLink(link);
-    if (!isDownloadLike && !isSafariRedirectDownload) return;
-    return sendTrackDownloadClickIntent(link, {
-      includeFilename: isDownloadLike,
-      allowNavigationIntent: isSafariRedirectDownload,
-    });
+    if (!looksLikeDownloadLink(link)) return;
+    return sendTrackDownloadClickIntent(link);
   }
 
-  function sendTrackDownloadClickIntent(link, { includeFilename = true, allowNavigationIntent = false } = {}) {
-    if (!looksLikeDownloadLink(link) && !allowNavigationIntent) return Promise.resolve();
+  function sendTrackDownloadClickIntent(link) {
+    if (!looksLikeDownloadLink(link)) return Promise.resolve();
     const message = {
       type: 'TRACK_DOWNLOAD_CLICK',
       url: link.href || '',
     };
-    const filename = includeFilename ? inferLinkFilename(link) : '';
+    const filename = inferLinkFilename(link);
     if (filename) message.filename = filename;
     return sendRuntimeMessage(message).catch(() => {});
   }
 
   function handleTrackedNewTabDownloadClick(event) {
     const link = findLink(event.target);
-    const isDirectDownload = looksLikeDownloadLink(link);
-    const isRedirectDownload = looksLikeSafariRedirectDownloadLink(link);
-    if (!link?.href || (!isDirectDownload && !isRedirectDownload)) return false;
+    if (!link?.href || !looksLikeDownloadLink(link)) return false;
 
     const target = String(link.target || '').trim();
     if (!target || target.toLowerCase() === '_self') return false;
@@ -195,9 +252,7 @@
     if (event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return false;
 
     const link = findLink(event.target);
-    const isDirectDownload = looksLikeDownloadLink(link);
-    const isRedirectDownload = looksLikeSafariRedirectDownloadLink(link);
-    if (!link?.href || (!isDirectDownload && !isRedirectDownload)) return false;
+    if (!link?.href || !looksLikeDownloadLink(link)) return false;
     try {
       if (!['http:', 'https:'].includes(new URL(link.href).protocol)) return false;
     } catch {
@@ -213,8 +268,7 @@
       url: link.href,
       referrer: window.location.href || '',
     };
-    if (isRedirectDownload && !isDirectDownload) message.redirectCandidate = true;
-    const filename = isDirectDownload ? inferLinkFilename(link) : '';
+    const filename = inferLinkFilename(link);
     if (filename) message.filename = filename;
 
     let settled = false;
@@ -247,9 +301,20 @@
     if (event.detail !== 0) return;
   }, true);
 
-  loadStoredCaptureExtensions();
+  loadStoredCaptureExtensions().catch(() => applyCaptureExtensions(defaultCaptureExtensions));
   chrome.storage.onChanged?.addListener?.((changes, areaName) => {
     if (areaName && !['sync', 'local'].includes(areaName)) return;
+    if (areaName === 'local' && Object.prototype.hasOwnProperty.call(changes || {}, configStorageAreaKey)) {
+      const nextArea = changes[configStorageAreaKey]?.newValue;
+      if (nextArea === 'sync' || nextArea === 'local') activeConfigStorageArea = nextArea;
+      if (activeConfigStorageArea === 'local' && Object.prototype.hasOwnProperty.call(changes || {}, 'captureExtensions')) {
+        applyCaptureExtensions(changes.captureExtensions.newValue);
+      } else {
+        loadStoredCaptureExtensions().catch(() => {});
+      }
+      return;
+    }
+    if (activeConfigStorageArea && areaName && areaName !== activeConfigStorageArea) return;
     if (!Object.prototype.hasOwnProperty.call(changes || {}, 'captureExtensions')) return;
     applyCaptureExtensions(changes.captureExtensions.newValue);
   });

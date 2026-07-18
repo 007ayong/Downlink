@@ -52,23 +52,39 @@ function flushAsyncHandlers() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function actionableMessages(messages) {
+  return messages.filter((message) => message?.type !== 'REGISTER_SAFARI_PAGE_CONTEXT');
+}
+
 function loadContentScript({
   config = {},
+  localConfig = {},
+  syncGetError = false,
   sendMessage,
   runtimeUrl = 'chrome-extension://test/',
+  initialLocation = 'https://page.example/current',
+  referrer = '',
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
 } = {}) {
   const listeners = {};
   const storageChangeListeners = [];
   const openedWindows = [];
-  let assignedLocation = 'https://page.example/current';
+  let assignedLocation = initialLocation;
+  let historyBackCount = 0;
+  let windowCloseCount = 0;
 
   const context = {
     URL,
     setTimeout: setTimeoutFn,
     clearTimeout: clearTimeoutFn,
     window: {
+      history: {
+        length: 2,
+        back() {
+          historyBackCount += 1;
+        },
+      },
       open(url, target) {
         const openedWindow = {
           url,
@@ -78,11 +94,15 @@ function loadContentScript({
         openedWindows.push(openedWindow);
         return openedWindow;
       },
+      close() {
+        windowCloseCount += 1;
+      },
     },
     location: {
       href: assignedLocation,
     },
     document: {
+      referrer,
       addEventListener(type, listener, options) {
         listeners[type] ||= [];
         listeners[type].push({ listener, options });
@@ -98,12 +118,13 @@ function loadContentScript({
       storage: {
         sync: {
           get(defaults, callback) {
+            if (syncGetError) throw new Error('sync unavailable');
             callback?.({ ...defaults, ...config });
           },
         },
         local: {
           get(defaults, callback) {
-            callback?.({ ...defaults });
+            callback?.({ ...defaults, ...localConfig });
           },
         },
         onChanged: {
@@ -114,6 +135,7 @@ function loadContentScript({
       },
     },
   };
+  context.window.top = context.window;
 
   Object.defineProperty(context, 'location', {
     get() {
@@ -131,6 +153,9 @@ function loadContentScript({
           return assignedLocation;
         },
         set href(value) {
+          assignedLocation = String(value);
+        },
+        replace(value) {
           assignedLocation = String(value);
         },
       };
@@ -178,8 +203,82 @@ function loadContentScript({
     get locationHref() {
       return assignedLocation;
     },
+    get historyBackCount() {
+      return historyBackCount;
+    },
+    get windowCloseCount() {
+      return windowCloseCount;
+    },
   };
 }
+
+test('Safari local DNR bridge carries the original target to background before going back', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    initialLocation: 'http://127.0.0.1:49152/downlink-dnr/123e4567-e89b-12d3-a456-426614174000/?url=https://files.example/release.zip?token=abc#https://files.example/release.zip?token=abc',
+    referrer: 'https://page.example/current',
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+
+  await flushAsyncHandlers();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(actionableMessages(messages))), [{
+    type: 'CAPTURE_LOCAL_DNR_BRIDGE',
+    url: 'https://files.example/release.zip?token=abc',
+    referrer: 'https://page.example/current',
+  }]);
+  assert.equal(runtime.historyBackCount, 1);
+});
+
+test('Safari local DNR bridge resumes the original URL when background requests a bypass', async () => {
+  const targetUrl = 'https://files.example/release.zip?token=abc';
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    initialLocation: `http://127.0.0.1:49152/downlink-dnr/123e4567-e89b-12d3-a456-426614174000/#${targetUrl}`,
+    sendMessage: async () => ({ ok: false, bypass: true, resumeUrl: targetUrl }),
+  });
+
+  await flushAsyncHandlers();
+
+  assert.equal(runtime.locationHref, targetUrl);
+  assert.equal(runtime.historyBackCount, 0);
+});
+
+test('Safari local DNR bridge does not go back when background closes a download tab', async () => {
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    initialLocation: 'http://127.0.0.1:49152/downlink-dnr/123e4567-e89b-12d3-a456-426614174000/#https://files.example/release.zip',
+    sendMessage: async () => ({ ok: true, pending: true, closeBridgeTab: true }),
+  });
+
+  await flushAsyncHandlers();
+
+  assert.equal(runtime.historyBackCount, 0);
+  assert.equal(runtime.windowCloseCount, 1);
+});
+
+test('Safari local DNR bridge does not replay redirect history when background restores the same tab', async () => {
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    initialLocation: 'http://127.0.0.1:49152/downlink-dnr/123e4567-e89b-12d3-a456-426614174000/#https://files.example/release.zip',
+    sendMessage: async () => ({
+      ok: true,
+      pending: true,
+      bridgeHandled: true,
+      closeBridgeTab: false,
+      recoveryMode: 'replace',
+    }),
+  });
+
+  await flushAsyncHandlers();
+
+  assert.equal(runtime.historyBackCount, 0);
+  assert.equal(runtime.windowCloseCount, 0);
+});
 
 test('direct file clicks are left to browser download creation', async () => {
   const messages = [];
@@ -194,7 +293,7 @@ test('direct file clicks are left to browser download creation', async () => {
   const event = await runtime.dispatchClick(link);
 
   assert.equal(event.defaultPrevented, false);
-  assert.deepEqual(messages, []);
+  assert.deepEqual(actionableMessages(messages), []);
   assert.equal(runtime.locationHref, 'https://page.example/current');
 });
 
@@ -211,7 +310,7 @@ test('download attribute links are left to browser download creation', async () 
   const event = await runtime.dispatchClick(link);
 
   assert.equal(event.defaultPrevented, false);
-  assert.deepEqual(messages, []);
+  assert.deepEqual(actionableMessages(messages), []);
   assert.equal(runtime.locationHref, 'https://page.example/current');
 });
 
@@ -230,7 +329,7 @@ test('Safari captures direct file clicks before browser navigation', async () =>
 
   assert.equal(event.defaultPrevented, true);
   assert.equal(runtime.locationHref, 'https://page.example/current');
-  assert.deepEqual(JSON.parse(JSON.stringify(messages)), [{
+  assert.deepEqual(JSON.parse(JSON.stringify(actionableMessages(messages))), [{
     type: 'CAPTURE_LINK_DOWNLOAD',
     url: 'https://files.example/file.zip',
     filename: 'file.zip',
@@ -270,7 +369,7 @@ test('Safari restores navigation when background capture never responds', async 
   assert.equal(runtime.locationHref, 'https://files.example/file.zip');
 });
 
-test('Safari tracks opaque link navigations so redirected downloads can be taken over', async () => {
+test('Safari does not track opaque export endpoints from path or label guesses', async () => {
   const messages = [];
   const runtime = loadContentScript({
     runtimeUrl: 'safari-web-extension://test/',
@@ -287,13 +386,10 @@ test('Safari tracks opaque link navigations so redirected downloads can be taken
   const event = await runtime.dispatchPointerdown(link);
 
   assert.equal(event.defaultPrevented, false);
-  assert.deepEqual(JSON.parse(JSON.stringify(messages)), [{
-    type: 'TRACK_DOWNLOAD_CLICK',
-    url: 'https://files.example/export?id=42',
-  }]);
+  assert.deepEqual(actionableMessages(messages), []);
 });
 
-test('Safari prevents browser navigation when an opaque download endpoint is clicked', async () => {
+test('Safari leaves opaque download endpoints to browser navigation', async () => {
   const messages = [];
   const runtime = loadContentScript({
     runtimeUrl: 'safari-web-extension://test/',
@@ -309,14 +405,9 @@ test('Safari prevents browser navigation when an opaque download endpoint is cli
 
   const event = await runtime.dispatchClick(link);
 
-  assert.equal(event.defaultPrevented, true);
+  assert.equal(event.defaultPrevented, false);
   assert.equal(runtime.locationHref, 'https://page.example/current');
-  assert.deepEqual(JSON.parse(JSON.stringify(messages)), [{
-    type: 'CAPTURE_LINK_DOWNLOAD',
-    url: 'https://files.example/download?id=42',
-    referrer: 'https://page.example/current',
-    redirectCandidate: true,
-  }]);
+  assert.deepEqual(actionableMessages(messages), []);
 });
 
 test('Safari leaves root file verification pages available to run their JavaScript challenge', async () => {
@@ -336,10 +427,10 @@ test('Safari leaves root file verification pages available to run their JavaScri
   const event = await runtime.dispatchClick(link);
 
   assert.equal(event.defaultPrevented, false);
-  assert.deepEqual(JSON.parse(JSON.stringify(messages)), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(actionableMessages(messages))), []);
 });
 
-test('Safari intercepts the final dynamically generated immediate-download link', async () => {
+test('Safari does not infer an immediate-download link from its label alone', async () => {
   const messages = [];
   const runtime = loadContentScript({
     runtimeUrl: 'safari-web-extension://test/',
@@ -355,13 +446,8 @@ test('Safari intercepts the final dynamically generated immediate-download link'
 
   const event = await runtime.dispatchClick(link);
 
-  assert.equal(event.defaultPrevented, true);
-  assert.deepEqual(JSON.parse(JSON.stringify(messages)), [{
-    type: 'CAPTURE_LINK_DOWNLOAD',
-    url: 'https://cdn.example.com/signed-resource?id=42',
-    referrer: 'https://page.example/current',
-    redirectCandidate: true,
-  }]);
+  assert.equal(event.defaultPrevented, false);
+  assert.deepEqual(actionableMessages(messages), []);
 });
 
 test('non-Safari browsers do not track ordinary link navigations', async () => {
@@ -376,7 +462,7 @@ test('non-Safari browsers do not track ordinary link navigations', async () => {
 
   await runtime.dispatchPointerdown(link);
 
-  assert.deepEqual(messages, []);
+  assert.deepEqual(actionableMessages(messages), []);
 });
 
 test('Safari does not intercept ordinary pages whose label only mentions download', async () => {
@@ -396,7 +482,7 @@ test('Safari does not intercept ordinary pages whose label only mentions downloa
   const event = await runtime.dispatchClick(link);
 
   assert.equal(event.defaultPrevented, false);
-  assert.deepEqual(messages, []);
+  assert.deepEqual(actionableMessages(messages), []);
 });
 
 test('suspicious download links are left to browser navigation and download creation', async () => {
@@ -485,6 +571,7 @@ test('new-window links use stored capture extensions for click intent tracking',
       return { ok: true };
     },
   });
+  await flushAsyncHandlers();
   const link = createElement({ href: 'https://files.example/package.custom', target: '_blank' });
 
   const event = await runtime.dispatchClick(link);
@@ -497,6 +584,61 @@ test('new-window links use stored capture extensions for click intent tracking',
     filename: 'package.custom',
   }]);
   assert.equal(runtime.locationHref, 'https://files.example/package.custom');
+});
+
+test('content script honors the background local storage fallback marker', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    config: { captureExtensions: 'zip' },
+    localConfig: {
+      __downlinkConfigStorageArea: 'local',
+      captureExtensions: 'custom',
+    },
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+  await flushAsyncHandlers();
+  await flushAsyncHandlers();
+
+  const link = createElement({ href: 'https://files.example/package.custom', target: '_blank' });
+  const event = await runtime.dispatchClick(link);
+  await flushAsyncHandlers();
+
+  assert.equal(event.defaultPrevented, true);
+  assert.deepEqual(messages.map(message => ({ ...message })), [{
+    type: 'TRACK_DOWNLOAD_CLICK',
+    url: 'https://files.example/package.custom',
+    filename: 'package.custom',
+  }]);
+});
+
+test('sync-backed local cache keeps listening for sync recovery', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    syncGetError: true,
+    localConfig: {
+      __downlinkConfigStorageArea: 'sync',
+      captureExtensions: 'custom',
+    },
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true };
+    },
+  });
+  await flushAsyncHandlers();
+  await flushAsyncHandlers();
+
+  runtime.dispatchStorageChange({
+    captureExtensions: { oldValue: 'custom', newValue: 'recovered' },
+  }, 'sync');
+  const link = createElement({ href: 'https://files.example/package.recovered', target: '_blank' });
+  const event = await runtime.dispatchClick(link);
+  await flushAsyncHandlers();
+
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(messages[0]?.url, 'https://files.example/package.recovered');
 });
 
 test('capture extension storage changes update new-window click intent tracking', async () => {

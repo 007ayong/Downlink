@@ -8,6 +8,7 @@
     "cookies",
     "declarativeNetRequestWithHostAccess",
     "downloads",
+    "nativeMessaging",
     "scripting",
     "storage",
     "tabs",

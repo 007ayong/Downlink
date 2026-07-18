@@ -11,7 +11,7 @@ import WebKit
 
 let extensionBundleIdentifier = "cc.winapps.downlink.DownlinkSafariTest.Extension"
 
-class ViewController: NSViewController, WKNavigationDelegate, WKScriptMessageHandler {
+class ViewController: NSViewController, NSWindowDelegate, WKNavigationDelegate, WKScriptMessageHandler {
 
     @IBOutlet var webView: WKWebView!
 
@@ -23,6 +23,23 @@ class ViewController: NSViewController, WKNavigationDelegate, WKScriptMessageHan
         self.webView.configuration.userContentController.add(self, name: "controller")
 
         self.webView.loadFileURL(Bundle.main.url(forResource: "Main", withExtension: "html")!, allowingReadAccessTo: Bundle.main.resourceURL!)
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        view.window?.delegate = self
+    }
+
+    private func hideSetupWindow() {
+        view.window?.orderOut(nil)
+        _ = NSApp.setActivationPolicy(.accessory)
+    }
+
+    // The red close button hides only the setup UI. Returning false prevents
+    // AppKit from closing the host window and ending the bridge lifecycle.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        hideSetupWindow()
+        return false
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -47,9 +64,12 @@ class ViewController: NSViewController, WKNavigationDelegate, WKScriptMessageHan
             return;
         }
 
-        SFSafariApplication.showPreferencesForExtension(withIdentifier: extensionBundleIdentifier) { error in
+        SFSafariApplication.showPreferencesForExtension(withIdentifier: extensionBundleIdentifier) { [weak self] error in
             DispatchQueue.main.async {
-                NSApplication.shared.terminate(nil)
+                // The containing app owns the persistent loopback bridge.
+                // Hide the setup window after opening Safari settings, but keep
+                // the app and its 127.0.0.1 listener alive in the background.
+                self?.hideSetupWindow()
             }
         }
     }
