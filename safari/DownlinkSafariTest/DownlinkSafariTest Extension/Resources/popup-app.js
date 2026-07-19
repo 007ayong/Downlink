@@ -119,10 +119,10 @@ function openMediaHoverPreview(item, card) {
   const tagName = item.kind === 'audio' ? 'audio' : 'video';
   const mediaEl = document.createElement(tagName);
   mediaEl.controls = true;
-  mediaEl.autoplay = tagName === 'video';
+  mediaEl.autoplay = true;
   mediaEl.preload = 'auto';
   if (tagName === 'video') {
-    mediaEl.muted = true;
+    mediaEl.muted = false;
     mediaEl.playsInline = true;
   }
   const failPreview = () => {
@@ -169,7 +169,7 @@ function openMediaHoverPreview(item, card) {
       mediaEl.src = sourceUrl;
       const playResult = mediaEl.play?.();
       playResult?.catch?.((error) => {
-        if (tagName === 'video' && error?.name !== 'AbortError') failPreview();
+        if (error?.name !== 'AbortError') failPreview();
       });
     };
     startPlayback(item.resourceUrl);

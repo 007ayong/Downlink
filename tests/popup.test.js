@@ -802,7 +802,7 @@ test('media icon hover opens floating playback preview and cleans metadata rule'
   });
   const preview = popup.document.body.children.find((child) => child.classList.contains('media-hover-preview'));
   assert.ok(preview);
-  assert.equal(preview.querySelector('video').muted, true);
+  assert.equal(preview.querySelector('video').muted, false);
 
   iconWrap._listeners.mouseleave[0]();
   await new Promise((resolve) => setTimeout(resolve, 400));
