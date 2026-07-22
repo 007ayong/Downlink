@@ -14,6 +14,7 @@ import {
 } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { syncVersions } from './sync-versions.mjs';
 
 function fail(message) {
   console.error(message);
@@ -33,6 +34,7 @@ function runZip(args, cwd = repoRoot) {
 }
 
 const repoRoot = process.cwd();
+syncVersions({ quiet: true });
 const manifestPath = resolve(repoRoot, 'manifest.json');
 if (!existsSync(manifestPath)) fail('manifest.json not found');
 

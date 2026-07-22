@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Sync shared runtime files from repo root into the Safari Xcode extension Resources.
 // Safari-specific overrides (background.js, manifest.json and popup.js) are
-// intentionally NOT overwritten.
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+// intentionally not overwritten wholesale. Version metadata is synced separately.
+import { cpSync, existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { syncVersions } from './sync-versions.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const resources = resolve(root, 'safari/DownlinkSafariTest/DownlinkSafariTest Extension/Resources');
@@ -75,7 +76,8 @@ function verifySafariOnly() {
 
 console.log('=== Safari resources sync ===');
 verifySafariOnly();
+syncVersions();
 for (const f of rootFiles) copyFile(resolve(root, f), resolve(resources, f));
 for (const f of libFiles) copyFile(resolve(root, 'lib', f), resolve(resources, 'lib', f));
 for (const d of sharedDirs) syncDir(d);
-console.log('=== sync done (Safari-specific files preserved) ===');
+console.log('=== sync done (Safari-specific overrides preserved; version synchronized) ===');
