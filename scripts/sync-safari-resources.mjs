@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Sync shared runtime files from repo root into the Safari Xcode extension Resources.
-// Safari-specific overrides (background.js, manifest.json, probe.* and the probe
-// handler prefix in popup.js) are intentionally NOT overwritten.
+// Safari-specific overrides (background.js, manifest.json and popup.js) are
+// intentionally NOT overwritten.
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,9 +44,7 @@ const libFiles = [
 const safariOnly = new Set([
   'background.js',     // Safari 专用后台逻辑
   'manifest.json',     // Safari 专用 manifest（含 downloads 权限）
-  'popup.js',          // 真实 popup.js + 开头 probe handler 前缀
-  'probe.html',        // 诊断页
-  'probe.js',          // 诊断页脚本
+  'popup.js',          // Safari 专用 popup 逻辑
 ]);
 
 // Directories synced wholesale from root (icons, _locales, assets)

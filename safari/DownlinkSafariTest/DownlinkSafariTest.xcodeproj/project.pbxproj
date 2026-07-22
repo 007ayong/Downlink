@@ -37,8 +37,6 @@
 		DD443B533009DC32007F0E9E /* lib in Resources */ = {isa = PBXBuildFile; fileRef = DD443B413009DC32007F0E9E /* lib */; };
 		DD443B543009DC32007F0E9E /* content-script.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B423009DC32007F0E9E /* content-script.js */; };
 		DD443B553009DC32007F0E9E /* _locales in Resources */ = {isa = PBXBuildFile; fileRef = DD443B433009DC32007F0E9E /* _locales */; };
-		7D4B44E7EAFF4AC9B4441583 /* probe.html in Resources */ = {isa = PBXBuildFile; fileRef = 1C169BE45BEF488E8E9C459D /* probe.html */; };
-		9098912F5AAD432FB8BDF971 /* probe.js in Resources */ = {isa = PBXBuildFile; fileRef = 646170817FBC4C46BA3EC79C /* probe.js */; };
 		DD443B563009DC32007F0E9E /* assets in Resources */ = {isa = PBXBuildFile; fileRef = DD443B443009DC32007F0E9E /* assets */; };
 		A1D000000000000000000001 /* dnr-capture.html in Resources */ = {isa = PBXBuildFile; fileRef = A1D000000000000000000003 /* dnr-capture.html */; };
 		A1D000000000000000000002 /* dnr-capture.js in Resources */ = {isa = PBXBuildFile; fileRef = A1D000000000000000000004 /* dnr-capture.js */; };
@@ -120,8 +118,6 @@
 		DD443B403009DC32007F0E9E /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = Resources/manifest.json; sourceTree = "<group>"; };
 		DD443B413009DC32007F0E9E /* lib */ = {isa = PBXFileReference; lastKnownFileType = folder; name = lib; path = Resources/lib; sourceTree = "<group>"; };
 		DD443B423009DC32007F0E9E /* content-script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "content-script.js"; path = "Resources/content-script.js"; sourceTree = "<group>"; };
-		1C169BE45BEF488E8E9C459D /* probe.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "probe.html"; path = "Resources/probe.html"; sourceTree = "<group>"; };
-		646170817FBC4C46BA3EC79C /* probe.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "probe.js"; path = "Resources/probe.js"; sourceTree = "<group>"; };
 		DD443B433009DC32007F0E9E /* _locales */ = {isa = PBXFileReference; lastKnownFileType = folder; name = _locales; path = Resources/_locales; sourceTree = "<group>"; };
 		DD443B443009DC32007F0E9E /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; name = assets; path = Resources/assets; sourceTree = "<group>"; };
 		A1D000000000000000000003 /* dnr-capture.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "dnr-capture.html"; path = "Resources/dnr-capture.html"; sourceTree = "<group>"; };
@@ -257,8 +253,6 @@
 				DD443B423009DC32007F0E9E /* content-script.js */,
 				DD443B433009DC32007F0E9E /* _locales */,
 				DD443B443009DC32007F0E9E /* assets */,
-				1C169BE45BEF488E8E9C459D /* probe.html */,
-				646170817FBC4C46BA3EC79C /* probe.js */,
 				A1D000000000000000000003 /* dnr-capture.html */,
 				A1D000000000000000000004 /* dnr-capture.js */,
 			);
@@ -441,8 +435,6 @@
 				DD443B453009DC32007F0E9E /* preview.html in Resources */,
 				DD443B503009DC32007F0E9E /* preview.js in Resources */,
 				DD443B543009DC32007F0E9E /* content-script.js in Resources */,
-				7D4B44E7EAFF4AC9B4441583 /* probe.html in Resources */,
-				9098912F5AAD432FB8BDF971 /* probe.js in Resources */,
 				DD443B523009DC32007F0E9E /* manifest.json in Resources */,
 				DD443B4D3009DC32007F0E9E /* gopeed-open.html in Resources */,
 				DD443B4A3009DC32007F0E9E /* motrix-open.html in Resources */,

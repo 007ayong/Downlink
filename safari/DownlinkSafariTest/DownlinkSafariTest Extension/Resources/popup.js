@@ -1,23 +1,3 @@
-// Safari probe page link (diagnostic) — keep at top to survive main logic errors
-(function () {
-  try {
-    var link = document.getElementById('openProbeLink');
-    if (!link) {
-      link = document.createElement('a');
-      link.id = 'openProbeLink';
-      link.href = '#';
-      link.textContent = '诊断页';
-      link.style.cssText = 'display:block;margin:6px 4px 0;font-size:10px;color:#9ca3af;text-align:right;';
-      (document.body || document.documentElement).appendChild(link);
-    }
-    link.addEventListener('click', function (e) {
-      e.preventDefault();
-      try { chrome.tabs.create({ url: chrome.runtime.getURL('probe.html') }); }
-      catch (err) { link.textContent = '诊断页(失败)'; console.warn('[Downlink] open probe page failed', err); }
-    });
-  } catch (err) { console.warn('[Downlink] probe link init failed', err); }
-})();
-
 // popup.js — Downlink UI core helpers
 
 const popupUi = globalThis.PopupUI || {};
