@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>媒体预览</title>
+  <style>
+    :root {
+      --bg: #f5f4f0;
+      --bg2: #ffffff;
+      --bg3: #eeede9;
+      --bg4: #e6e5e1;
+      --border: #dddcda;
+      --text: #1c1b19;
+      --text-2: #5a5955;
+      --muted: #9b9a97;
+      --accent: #e05c2a;
+      --accent-bg: #fdf0eb;
+      --accent-bd: #f5c8b4;
+      --success: #2a9d5c;
+      --success-bg: #edf7f2;
+      --success-bd: #a8dfc0;
+      --red: #dc2626;
+      --red-bg: #fff1f1;
+      --radius: 9px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+    }
+    .page {
+      width: min(980px, calc(100vw - 32px));
+      margin: 24px auto 40px;
+    }
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 18px;
+      padding: 14px 16px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .title {
+      font-size: 18px;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+      margin-bottom: 5px;
+      max-width: 620px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .title-input {
+      width: min(620px, 58vw);
+      max-width: 100%;
+      height: 30px;
+      padding: 4px 8px;
+      border: 1px solid var(--accent-bd);
+      border-radius: 7px;
+      background: var(--bg);
+      color: var(--text);
+      font: inherit;
+      font-size: 18px;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(224, 92, 42, 0.10);
+    }
+    .title-edit-btn {
+      width: 28px;
+      height: 28px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-2);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .title-edit-btn:hover {
+      background: transparent;
+      color: var(--text);
+    }
+    .title-edit-btn svg {
+      width: 14px;
+      height: 14px;
+      display: block;
+    }
+    [hidden] {
+      display: none !important;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .source-title {
+      margin-top: 5px;
+      color: var(--text-2);
+      font-size: 12px;
+      line-height: 1.45;
+      max-width: 620px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .source-title::before {
+      content: attr(data-label);
+      color: var(--muted);
+      margin-right: 4px;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .top-alert {
+      display: none;
+      margin: 0 0 18px;
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      border: 1px solid #f3b7b7;
+      background: var(--red-bg);
+      color: var(--red);
+      font-size: 12px;
+      line-height: 1.5;
+      box-shadow: var(--shadow);
+    }
+    .top-alert.show {
+      display: block;
+    }
+    .top-alert.shake {
+      animation: alert-shake 0.42s ease-in-out;
+    }
+    .toast {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      width: 108px;
+      height: 108px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transform: translate(-50%, -50%) scale(0.94);
+      border-radius: 26px;
+      border: 1px solid rgba(255, 255, 255, 0.42);
+      background: rgba(232, 232, 232, 0.72);
+      color: #2f2f2f;
+      font-size: 46px;
+      font-weight: 650;
+      line-height: 1;
+      text-align: center;
+      box-shadow:
+        0 22px 60px rgba(28, 27, 25, 0.20),
+        inset 0 1px 0 rgba(255, 255, 255, 0.62);
+      backdrop-filter: blur(24px) saturate(1.55);
+      -webkit-backdrop-filter: blur(24px) saturate(1.55);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.16s ease, transform 0.16s ease;
+      z-index: 20;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    .toast.ok {
+      color: #2f2f2f;
+    }
+    .toast.fail {
+      color: #c92a2a;
+    }
+    .btn {
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-2);
+      border-radius: 7px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .btn:hover {
+      background: var(--bg3);
+      border-color: var(--muted);
+      color: var(--text);
+    }
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+    .btn:disabled:hover {
+      background: var(--bg);
+      border-color: var(--border);
+      color: var(--text-2);
+    }
+    .btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .btn.primary:hover {
+      background: #c94e23;
+      border-color: #c94e23;
+    }
+    .btn.primary:disabled:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .layout {
+      display: block;
+    }
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .player-wrap {
+      padding: 12px;
+    }
+    video {
+      width: 100%;
+      display: block;
+      background: #000;
+      border-radius: 8px;
+      max-height: 70vh;
+    }
+    audio {
+      width: 100%;
+      display: block;
+    }
+    .audio-panel {
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.88), rgba(238,237,233,0.70)),
+        var(--bg);
+    }
+    .audio-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+      min-width: 0;
+    }
+    .audio-icon {
+      width: 40px;
+      height: 40px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      background: var(--accent-bg);
+      color: var(--accent);
+      border: 1px solid var(--accent-bd);
+    }
+    .audio-icon svg {
+      width: 20px;
+      height: 20px;
+      display: block;
+    }
+    .audio-copy {
+      min-width: 0;
+      flex: 1;
+    }
+    .audio-title {
+      font-size: 13px;
+      font-weight: 650;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.4;
+    }
+    .audio-sub {
+      margin-top: 2px;
+      font-size: 11.5px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .audio-panel audio {
+      background: transparent;
+      border-radius: 0;
+    }
+    .meta {
+      padding: 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      background: var(--bg2);
+    }
+    .chip {
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text-2);
+    }
+    .chip.kind {
+      color: var(--accent);
+      background: var(--accent-bg);
+      border-color: var(--accent-bd);
+    }
+    .status {
+      padding: 0 16px 14px;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .status.ok { color: var(--success); }
+    .status.fail { color: var(--red); }
+    .toolbox {
+      margin-top: 14px;
+      padding: 16px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .toolbox-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .toolbox-title {
+      font-size: 14px;
+      font-weight: 650;
+      color: var(--text);
+      line-height: 1.35;
+    }
+    .toolbox-sub {
+      margin-top: 3px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .command-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .command-card {
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+    }
+    .command-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .command-title {
+      min-width: 0;
+      font-size: 12px;
+      font-weight: 650;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .copy-command {
+      width: 26px;
+      height: 26px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-2);
+      cursor: pointer;
+      transition: color 0.15s, background 0.15s;
+    }
+    .copy-command:hover {
+      background: var(--bg3);
+      color: var(--text);
+    }
+    .copy-command svg {
+      width: 14px;
+      height: 14px;
+      display: block;
+    }
+    .command-code {
+      display: block;
+      margin: 0;
+      padding: 9px 10px;
+      overflow: auto;
+      border-radius: 7px;
+      background: rgba(255,255,255,0.66);
+      border: 1px solid rgba(221, 220, 218, 0.8);
+      color: #343330;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11.5px;
+      line-height: 1.45;
+      white-space: pre;
+    }
+    .preview-footer {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+      text-align: center;
+    }
+    .footer-links {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .preview-footer a {
+      color: var(--text-2);
+      text-decoration: none;
+    }
+    .preview-footer a:hover {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+    .footer-dot {
+      color: var(--border);
+    }
+    .footer-copy {
+      color: var(--muted);
+    }
+    @keyframes alert-shake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-8px); }
+      40% { transform: translateX(7px); }
+      60% { transform: translateX(-5px); }
+      80% { transform: translateX(4px); }
+    }
+    @media (max-width: 860px) {
+      .hero {
+        flex-direction: column;
+      }
+      .actions {
+        justify-content: flex-start;
+      }
+      .toolbox-head {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="hero">
+      <div>
+        <div class="title-row">
+          <div class="title" id="title">媒体预览</div>
+          <input class="title-input" id="titleInput" type="text" autocomplete="off" spellcheck="false" hidden/>
+          <button class="title-edit-btn" id="editFilenameBtn" type="button" title="编辑文件名" aria-label="编辑文件名" data-i18n-title="editFileName">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path d="M10.9 2.4a1.6 1.6 0 0 1 2.3 2.3l-7.1 7.1-3 .7.7-3 7.1-7.1Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+              <path d="M9.8 3.5l2.7 2.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="subtitle" id="subtitle">正在加载媒体信息…</div>
+        <div class="source-title" id="sourceTitle" data-label="来源：" hidden></div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="copyBtn" data-i18n="copyLink">复制链接</button>
+        <button class="btn primary" id="sendBtn" data-i18n="sendToDownloaderGeneric">发送到下载器</button>
+      </div>
+    </div>
+    <div class="top-alert" id="topAlert"></div>
+    <div class="toast" id="toast"></div>
+
+    <div class="layout">
+      <div class="card">
+        <div class="player-wrap" id="playerWrap"></div>
+        <div class="meta" id="metaChips"></div>
+        <div class="status" id="status"></div>
+      </div>
+    </div>
+
+    <section class="toolbox" aria-labelledby="mediaToolboxTitle">
+      <div class="toolbox-head">
+        <div>
+          <div class="toolbox-title" id="mediaToolboxTitle" data-i18n="mediaToolboxTitle">实用工具提示</div>
+          <div class="toolbox-sub" data-i18n="mediaToolboxSub">下载后遇到音画分离、格式不兼容时，可以用这些 FFmpeg 命令处理。</div>
+        </div>
+      </div>
+      <div class="command-grid">
+        <article class="command-card">
+          <div class="command-head">
+            <div class="command-title" data-i18n="ffmpegMergeTitle">合并音频和视频</div>
+            <button class="copy-command" type="button" data-copy-command="ffmpeg -i video.mp4 -i audio.m4a -c copy output.mp4" title="复制命令" aria-label="复制命令" data-i18n-title="copyCommand">
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="M5.5 3.5h6a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                <path d="M3.5 10.5h-.4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+          <code class="command-code">ffmpeg -i video.mp4 -i audio.m4a -c copy output.mp4</code>
+        </article>
+        <article class="command-card">
+          <div class="command-head">
+            <div class="command-title" data-i18n="ffmpegConvertTitle">转为通用 MP4</div>
+            <button class="copy-command" type="button" data-copy-command="ffmpeg -i input.mkv -c:v copy -c:a aac output.mp4" title="复制命令" aria-label="复制命令" data-i18n-title="copyCommand">
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="M5.5 3.5h6a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                <path d="M3.5 10.5h-.4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+          <code class="command-code">ffmpeg -i input.mkv -c:v copy -c:a aac output.mp4</code>
+        </article>
+        <article class="command-card">
+          <div class="command-head">
+            <div class="command-title" data-i18n="ffmpegExtractTitle">提取音频</div>
+            <button class="copy-command" type="button" data-copy-command="ffmpeg -i input.mp4 -vn -c:a copy audio.m4a" title="复制命令" aria-label="复制命令" data-i18n-title="copyCommand">
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="M5.5 3.5h6a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                <path d="M3.5 10.5h-.4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+          <code class="command-code">ffmpeg -i input.mp4 -vn -c:a copy audio.m4a</code>
+        </article>
+      </div>
+      <footer class="preview-footer" aria-label="Downlink">
+        <div class="footer-links">
+          <a href="https://www.winapps.cc" target="_blank" rel="noopener noreferrer">winapps.cc</a>
+          <span class="footer-dot">•</span>
+          <a href="https://github.com/007ayong/downlink" target="_blank" rel="noopener noreferrer">GitHub 007ayong/downlink</a>
+        </div>
+        <div class="footer-copy" data-i18n="previewFooterCopyright">© 2026 Downlink. Open source under GPL-3.0.</div>
+      </footer>
+    </section>
+  </div>
+  <script src="lib/i18n.js"></script>
+  <script src="preview.js"></script>
+</body>
+</html>

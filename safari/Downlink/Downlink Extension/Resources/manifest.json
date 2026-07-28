@@ -1,0 +1,80 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extensionName__",
+  "version": "1.3.8",
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "zh_CN",
+  "permissions": [
+    "cookies",
+    "declarativeNetRequestWithHostAccess",
+    "downloads",
+    "nativeMessaging",
+    "scripting",
+    "storage",
+    "tabs",
+    "webNavigation",
+    "webRequest",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "dnr-capture.html",
+        "dnr-capture.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "scripts": [
+      "filename-logic.js",
+      "lib/config-defaults.js",
+      "lib/i18n.js",
+      "lib/background-shared.js",
+      "lib/background-downloaders.js",
+      "lib/background-media.js",
+      "background.js"
+    ],
+    "persistent": false
+  },
+  "commands": {
+    "toggle-auto-capture": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+D",
+        "mac": "MacCtrl+Shift+D"
+      },
+      "description": "__MSG_commandToggleAutoCapture__"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "lib/config-defaults.js",
+        "content-script.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
