@@ -8,8 +8,8 @@ const safariBackgroundPath = path.join(
   __dirname,
   '..',
   'safari',
-  'DownlinkSafariTest',
-  'DownlinkSafariTest Extension',
+  'Downlink',
+  'Downlink Extension',
   'Resources',
   'background.js'
 );
@@ -17,24 +17,24 @@ const safariViewControllerPath = path.join(
   __dirname,
   '..',
   'safari',
-  'DownlinkSafariTest',
-  'DownlinkSafariTest',
+  'Downlink',
+  'Downlink',
   'ViewController.swift'
 );
 const safariAppDelegatePath = path.join(
   __dirname,
   '..',
   'safari',
-  'DownlinkSafariTest',
-  'DownlinkSafariTest',
+  'Downlink',
+  'Downlink',
   'AppDelegate.swift'
 );
 const safariHostMainHtmlPath = path.join(
   __dirname,
   '..',
   'safari',
-  'DownlinkSafariTest',
-  'DownlinkSafariTest',
+  'Downlink',
+  'Downlink',
   'Resources',
   'Base.lproj',
   'Main.html'
@@ -43,8 +43,8 @@ const safariHostScriptPath = path.join(
   __dirname,
   '..',
   'safari',
-  'DownlinkSafariTest',
-  'DownlinkSafariTest',
+  'Downlink',
+  'Downlink',
   'Resources',
   'Script.js'
 );
