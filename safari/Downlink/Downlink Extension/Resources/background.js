@@ -170,7 +170,7 @@ const safariDnrBypassRules = new Map();
 const SAFARI_DOWNLOAD_REDIRECT_RULE_IDS = Array.from({ length: 100 }, (_, index) => 80000001 + index);
 const SAFARI_DOWNLOAD_BYPASS_RULE_ID_BASE = 81000000;
 const SAFARI_DOWNLOAD_ENDPOINT_REDIRECT_PATTERNS = [];
-const SAFARI_NATIVE_APP_ID = 'cc.winapps.downlink.DownlinkSafariTest';
+const SAFARI_NATIVE_APP_ID = 'cc.winapps.downlink';
 const SAFARI_LOCAL_BRIDGE_KEEPALIVE_MS = 5000;
 const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
 let safariLocalBridgeUrl = '';

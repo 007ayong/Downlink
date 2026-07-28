@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const rootManifestPath = resolve(root, 'manifest.json');
 const packageJsonPath = resolve(root, 'package.json');
-const safariManifestPath = resolve(root, 'safari/DownlinkSafariTest/DownlinkSafariTest Extension/Resources/manifest.json');
-const xcodeProjectPath = resolve(root, 'safari/DownlinkSafariTest/DownlinkSafariTest.xcodeproj/project.pbxproj');
+const safariManifestPath = resolve(root, 'safari/Downlink/Downlink Extension/Resources/manifest.json');
+const xcodeProjectPath = resolve(root, 'safari/Downlink/Downlink.xcodeproj/project.pbxproj');
 
 function readJson(path, label) {
   if (!existsSync(path)) throw new Error(`[version-sync] ${label} not found: ${path}`);

@@ -1,13 +1,13 @@
 //
-//  DownlinkSafariTestUITestsLaunchTests.swift
-//  DownlinkSafariTestUITests
+//  DownlinkUITestsLaunchTests.swift
+//  DownlinkUITests
 //
 //  Created by ayong on 2026/7/17.
 //
 
 import XCTest
 
-final class DownlinkSafariTestUITestsLaunchTests: XCTestCase {
+final class DownlinkUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

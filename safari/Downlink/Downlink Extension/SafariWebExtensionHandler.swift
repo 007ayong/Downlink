@@ -1,6 +1,6 @@
 //
 //  SafariWebExtensionHandler.swift
-//  DownlinkSafariTest Extension
+//  Downlink Extension
 //
 //  Created by ayong on 2026/7/17.
 //

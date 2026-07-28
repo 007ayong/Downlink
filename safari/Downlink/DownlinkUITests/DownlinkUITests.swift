@@ -1,13 +1,13 @@
 //
-//  DownlinkSafariTestUITests.swift
-//  DownlinkSafariTestUITests
+//  DownlinkUITests.swift
+//  DownlinkUITests
 //
 //  Created by ayong on 2026/7/17.
 //
 
 import XCTest
 
-final class DownlinkSafariTestUITests: XCTestCase {
+final class DownlinkUITests: XCTestCase {
 
     override func setUpWithError() throws {
         // Put setup code here. This method is called before the invocation of each test method in the class.

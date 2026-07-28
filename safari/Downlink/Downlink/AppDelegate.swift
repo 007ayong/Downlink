@@ -1,6 +1,6 @@
 //
 //  AppDelegate.swift
-//  DownlinkSafariTest
+//  Downlink
 //
 //  Created by ayong on 2026/7/17.
 //

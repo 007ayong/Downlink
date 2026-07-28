@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { syncVersions } from './sync-versions.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const resources = resolve(root, 'safari/DownlinkSafariTest/DownlinkSafariTest Extension/Resources');
+const resources = resolve(root, 'safari/Downlink/Downlink Extension/Resources');
 
 if (!existsSync(resources)) {
   console.error(`[safari-sync] Resources dir not found: ${resources}`);

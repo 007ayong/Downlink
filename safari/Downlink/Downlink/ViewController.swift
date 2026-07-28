@@ -1,6 +1,6 @@
 //
 //  ViewController.swift
-//  DownlinkSafariTest
+//  Downlink
 //
 //  Created by ayong on 2026/7/17.
 //
@@ -9,7 +9,7 @@ import Cocoa
 import SafariServices
 import WebKit
 
-let extensionBundleIdentifier = "cc.winapps.downlink.DownlinkSafariTest.Extension"
+let extensionBundleIdentifier = "cc.winapps.downlink.extension"
 
 class ViewController: NSViewController, NSWindowDelegate, WKNavigationDelegate, WKScriptMessageHandler {
 
