@@ -8,6 +8,7 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
+      color-scheme: light dark;
       --bg:        #f5f4f0;
       --bg2:       #ffffff;
       --bg3:       #eeede9;
@@ -31,6 +32,34 @@
       --yellow-bg: #fffbeb;
       --radius:    9px;
       --shadow:    0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:        #292b31;
+        --bg2:       rgba(58, 60, 68, 0.72);
+        --bg3:       rgba(255, 255, 255, 0.09);
+        --bg4:       rgba(255, 255, 255, 0.15);
+        --border:    rgba(255, 255, 255, 0.16);
+        --text:      #f5f4f2;
+        --text-2:    #d5d3ce;
+        --text-3:    #aaa8a2;
+        --accent:    #ff8a5c;
+        --accent-bg: #42271e;
+        --accent-bd: #75402d;
+        --green:     #5bd58d;
+        --green-bg:  #1c3929;
+        --green-bd:  #356e4d;
+        --blue:      #7ca8ff;
+        --blue-bg:   #202f50;
+        --blue-bd:   #405d99;
+        --red:       #ff8e8e;
+        --red-bg:    #442426;
+        --yellow:    #f5bd58;
+        --yellow-bg: #423719;
+        --shadow:    0 10px 28px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.10);
+      }
+
     }
 
     body {
@@ -1286,6 +1315,102 @@
       color: var(--text-3);
     }
     .footer span { color: var(--text-2); }
+
+    @media (prefers-color-scheme: dark) {
+      body {
+        background: var(--bg);
+      }
+      .header,
+      .tabs,
+      .footer,
+      .pending-card,
+      .task-card,
+      .media-card,
+      .settings-group,
+      .pending-save-location-menu {
+        backdrop-filter: blur(18px) saturate(1.2);
+        -webkit-backdrop-filter: blur(18px) saturate(1.2);
+        box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.12);
+      }
+      .task-alert { border-color: #71383a; }
+      .pending-filename-row input:focus,
+      .pending-save-location-trigger:hover,
+      .pending-option:hover { background: var(--bg3); }
+      .btn-primary:hover,
+      .settings-test-button:hover { background: #df6b43; border-color: #df6b43; }
+      .btn-danger,
+      .state-error { border-color: #8a4141; }
+      .btn-danger:hover { background: #58292b; }
+      .state-paused { border-color: #7c612a; }
+      .progress-fill.active { background: linear-gradient(90deg, var(--blue), #9abbff); }
+      .progress-fill.complete { background: linear-gradient(90deg, var(--green), #7be0a3); }
+      .media-card-video {
+        background:
+          linear-gradient(90deg, rgba(37, 37, 35, 0.97) 0%, rgba(49, 37, 32, 0.82) 48%, rgba(112, 57, 34, 0.30) 100%),
+          linear-gradient(135deg, rgba(255, 138, 92, 0.20), rgba(255, 138, 92, 0.04) 44%, rgba(255, 138, 92, 0.12) 100%),
+          url('assets/media-card-video.png');
+        border-color: rgba(255, 138, 92, 0.42);
+      }
+      .media-card-audio {
+        background:
+          linear-gradient(90deg, rgba(37, 37, 35, 0.97) 0%, rgba(31, 46, 37, 0.82) 47%, rgba(49, 104, 74, 0.30) 100%),
+          linear-gradient(135deg, rgba(91, 213, 141, 0.20), rgba(91, 213, 141, 0.04) 44%, rgba(91, 213, 141, 0.12) 100%),
+          url('assets/media-card-audio.png');
+        border-color: rgba(91, 213, 141, 0.42);
+      }
+      .media-hover-preview {
+        border-color: rgba(255,255,255,0.14);
+        background: rgba(58,60,68,0.82);
+        box-shadow: 0 12px 32px rgba(0,0,0,0.42);
+        backdrop-filter: blur(18px) saturate(1.2);
+        -webkit-backdrop-filter: blur(18px) saturate(1.2);
+      }
+      .save-location-row {
+        background: linear-gradient(90deg, var(--save-location-bg, var(--bg)) 0%, rgba(255,255,255,0.08) 100%), var(--save-location-bg, var(--bg));
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+      }
+      .save-location-fields .settings-input {
+        background: rgba(255,255,255,0.10);
+        border-color: rgba(255,255,255,0.18);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 1px 2px rgba(0,0,0,0.18);
+      }
+      .save-location-fields .settings-input:focus { background: rgba(255,255,255,0.16); }
+      .save-location-swatch { border-color: rgba(255,255,255,0.24); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.22); }
+      .save-settings-btn:hover { background: #d8d5ce; }
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #edf0f5;
+        --bg2: rgba(255,255,255,0.72);
+        --bg3: rgba(255,255,255,0.52);
+        --bg4: rgba(100,108,120,0.18);
+        --border: rgba(113,123,139,0.20);
+        --shadow: 0 10px 28px rgba(56,67,86,0.10), inset 0 1px 0 rgba(255,255,255,0.78);
+      }
+      body {
+        background: var(--bg);
+      }
+      .header,
+      .tabs,
+      .footer,
+      .pending-card,
+      .task-card,
+      .media-card,
+      .settings-group,
+      .pending-save-location-menu {
+        backdrop-filter: blur(16px) saturate(1.15);
+        -webkit-backdrop-filter: blur(16px) saturate(1.15);
+        box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.78);
+      }
+      .save-settings-btn { color: #fff; }
+      .media-hover-preview {
+        background: rgba(255,255,255,0.82);
+        border-color: rgba(113,123,139,0.20);
+        backdrop-filter: blur(16px) saturate(1.15);
+        -webkit-backdrop-filter: blur(16px) saturate(1.15);
+      }
+    }
   </style>
 </head>
 <body>

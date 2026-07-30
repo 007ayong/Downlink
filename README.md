@@ -152,6 +152,22 @@ Downlink 会监听页面中的音频和视频请求，并在媒体面板中展�
 
 这些权限主要用于下载接管、请求识别、媒体捕获、状态展示和右键菜单操作。
 
+## Safari / macOS 构建
+
+本地构建 Safari Web Extension 宿主 App：
+
+```bash
+npm run safari:build
+```
+
+该命令会先同步共享扩展资源，再使用 Xcode 构建 Release 版本。需要可用的 Apple 签名配置；如只需验证工程能否编译，可禁用代码签名：
+
+```bash
+CODE_SIGNING_ALLOWED=NO npm run safari:build
+```
+
+Safari 工程位于 `safari/Downlink/Downlink.xcodeproj`，构建产物目录为 `dist/safari/DerivedData`。
+
 ## 项目结构
 
 - `manifest.json`：扩展清单

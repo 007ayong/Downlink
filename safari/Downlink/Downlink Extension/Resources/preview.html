@@ -6,6 +6,7 @@
   <title>媒体预览</title>
   <style>
     :root {
+      color-scheme: light dark;
       --bg: #f5f4f0;
       --bg2: #ffffff;
       --bg3: #eeede9;
@@ -24,6 +25,28 @@
       --red-bg: #fff1f1;
       --radius: 9px;
       --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #292b31;
+        --bg2: rgba(58, 60, 68, 0.72);
+        --bg3: rgba(255, 255, 255, 0.09);
+        --bg4: rgba(255, 255, 255, 0.15);
+        --border: rgba(255, 255, 255, 0.16);
+        --text: #f5f4f2;
+        --text-2: #d5d3ce;
+        --muted: #aaa8a2;
+        --accent: #ff8a5c;
+        --accent-bg: #42271e;
+        --accent-bd: #75402d;
+        --success: #5bd58d;
+        --success-bg: #1c3929;
+        --success-bd: #356e4d;
+        --red: #ff8e8e;
+        --red-bg: #442426;
+        --shadow: 0 10px 28px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.10);
+      }
+
     }
     * { box-sizing: border-box; }
     body {
@@ -480,6 +503,53 @@
         align-items: flex-start;
         flex-direction: column;
       }
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body {
+        background: var(--bg);
+      }
+      .hero,
+      .card,
+      .toolbox {
+        backdrop-filter: blur(18px) saturate(1.2);
+        -webkit-backdrop-filter: blur(18px) saturate(1.2);
+        box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.12);
+      }
+      .top-alert { border-color: #71383a; }
+      .toast {
+        border-color: rgba(255,255,255,0.16);
+        background: rgba(55,55,52,0.78);
+        color: var(--text);
+        box-shadow: 0 22px 60px rgba(0,0,0,0.46), inset 0 1px 0 rgba(255,255,255,0.10);
+      }
+      .toast.ok { color: var(--text); }
+      .toast.fail { color: var(--red); }
+      .btn.primary:hover { background: #df6b43; border-color: #df6b43; }
+      .audio-panel { background: linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02)), var(--bg); }
+      .command-code { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.14); color: var(--text); }
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #edf0f5;
+        --bg2: rgba(255,255,255,0.72);
+        --bg3: rgba(255,255,255,0.52);
+        --bg4: rgba(100,108,120,0.18);
+        --border: rgba(113,123,139,0.20);
+        --shadow: 0 10px 28px rgba(56,67,86,0.10), inset 0 1px 0 rgba(255,255,255,0.78);
+      }
+      body {
+        background: var(--bg);
+      }
+      .hero,
+      .card,
+      .toolbox {
+        backdrop-filter: blur(16px) saturate(1.15);
+        -webkit-backdrop-filter: blur(16px) saturate(1.15);
+        box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.78);
+      }
+      .command-code { background: rgba(255,255,255,0.52); border-color: rgba(113,123,139,0.18); }
     }
   </style>
 </head>
