@@ -13,6 +13,7 @@
     "package:chromium": "node scripts/package-extension.mjs chromium",
     "package:firefox": "node scripts/package-extension.mjs firefox",
     "safari:sync": "node scripts/sync-safari-resources.mjs",
-    "safari:build": "node scripts/sync-safari-resources.mjs && xcodebuild -project safari/Downlink/Downlink.xcodeproj -scheme Downlink -configuration Release -destination 'generic/platform=macOS' -derivedDataPath dist/safari/DerivedData -allowProvisioningUpdates LM_FILTER_WARNINGS=YES build"
+    "safari:check": "node scripts/sync-safari-resources.mjs --check",
+    "safari:build": "npm run safari:check && xcodebuild -project safari/Downlink/Downlink.xcodeproj -scheme Downlink -configuration Release -destination 'generic/platform=macOS' -derivedDataPath dist/safari/DerivedData -allowProvisioningUpdates LM_FILTER_WARNINGS=YES build"
   }
 }
