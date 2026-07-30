@@ -180,8 +180,8 @@ function loadPopupRuntime(options = {}) {
     querySelector() {
       return createElementStub();
     },
-    querySelectorAll() {
-      return [];
+    querySelectorAll(selector) {
+      return options.querySelectorAll?.(selector) || [];
     },
     createElement(tagName) {
       return createElementStub(tagName);
@@ -710,6 +710,31 @@ test('customize shortcut button falls back to Firefox add-ons manager when API i
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(popup.chrome._createdTabs.at(-1)?.url, 'about:addons');
+});
+
+test('Safari hides shortcut customization because it has no shortcut settings entry point', async () => {
+  const popup = loadPopupRuntime({ runtimeUrl: 'safari-web-extension://test/' });
+  const shortcutRow = createElementStub();
+  popup.document.querySelectorAll = (selector) => (
+    selector === '.shortcut-settings-row' ? [shortcutRow] : []
+  );
+
+  popup.updateSettingsVisibility('aria2');
+  popup.document.getElementById('customizeShortcutBtn').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(shortcutRow.classList.contains('settings-hidden'), true);
+  assert.equal(popup.chrome._createdTabs.length, 0);
+});
+
+test('Safari applies shortcut customization visibility before the deferred state refresh', () => {
+  const shortcutRow = createElementStub();
+  loadPopupRuntime({
+    runtimeUrl: 'safari-web-extension://test/',
+    querySelectorAll: (selector) => (selector === '.shortcut-settings-row' ? [shortcutRow] : []),
+  });
+
+  assert.equal(shortcutRow.classList.contains('settings-hidden'), true);
 });
 
 test('popup display filename decoder handles Chinese encoded words', () => {

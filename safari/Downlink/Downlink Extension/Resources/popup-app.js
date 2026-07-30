@@ -830,6 +830,11 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
   document.querySelectorAll('.motrixnext-only').forEach((el) => el.classList.toggle('settings-hidden', !isMotrixNext));
   document.querySelectorAll('.gopeed-only').forEach((el) => el.classList.toggle('settings-hidden', !isGopeed));
   document.querySelectorAll('.neatdm-only').forEach((el) => el.classList.toggle('settings-hidden', !isNeatdm));
+  // Safari exposes no shortcut-management page or WebExtension API equivalent.
+  // Do not offer a control that would otherwise fall back to Chromium's internal URL.
+  document.querySelectorAll('.shortcut-settings-row').forEach((el) => {
+    el.classList.toggle('settings-hidden', isSafariPopupRuntime());
+  });
   document.querySelectorAll('.downloader-config-group').forEach((el) => {
     el.classList.toggle('settings-hidden', !(isAria2 || isAbDownload));
   });
@@ -1653,6 +1658,8 @@ document.getElementById('cfgDownloaderType').addEventListener('change', (event) 
 });
 
 async function openShortcutSettings() {
+  if (isSafariPopupRuntime()) return;
+
   try {
     const commandsApi = globalThis.browser?.commands || chrome.commands;
     if (typeof commandsApi?.openShortcutSettings === 'function') {
@@ -1827,6 +1834,9 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'TASKS_UPDATE') renderState(msg);
 });
 
+// Apply runtime-specific visibility before the deferred state refresh so Safari
+// never briefly renders controls it cannot support.
+updateSettingsVisibility(currentConfig.downloaderType);
 applyLocaleFromConfig(currentConfig);
 syncPopupGlobals();
 // Defer heavy initialization to next animation frame so popup can paint quickly.
