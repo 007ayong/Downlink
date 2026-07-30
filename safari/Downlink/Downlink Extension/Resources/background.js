@@ -110,8 +110,6 @@ const DEFAULT_CONFIG = {
   downloadInterceptionBlacklist: DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST,
   captureExtensions: DEFAULT_CAPTURE_EXTENSIONS,
   captureMime: true,
-  skipSmallDownloads: false,
-  smallDownloadThresholdBytes: 1048576,
 };
 const MACOS_TAG_COLORS = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#007aff', '#af52de', '#8e8e93'];
 const i18n = globalThis.Localization || {};
@@ -863,6 +861,8 @@ function normalizeConfig(nextConfig = {}) {
     captureExtensions: normalizeCaptureExtensionsConfig(nextConfig.captureExtensions),
   };
   delete normalized.mediaSniffing;
+  delete normalized.skipSmallDownloads;
+  delete normalized.smallDownloadThresholdBytes;
   return normalized;
 }
 
@@ -1289,18 +1289,6 @@ function parseResponseSize(headers = []) {
   return Number.parseInt(getResponseHeaderValue(headers, 'content-length'), 10) || 0;
 }
 
-function getSmallDownloadThresholdBytes(cfg = config) {
-  const raw = Number(cfg.smallDownloadThresholdBytes);
-  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_CONFIG.smallDownloadThresholdBytes;
-}
-
-function shouldSkipSmallDownloadSize(totalBytes, cfg = config) {
-  if (!cfg.skipSmallDownloads) return false;
-  const size = Number(totalBytes);
-  if (!Number.isFinite(size) || size <= 0) return false;
-  return size < getSmallDownloadThresholdBytes(cfg);
-}
-
 function firstKnownSize(...values) {
   for (const value of values) {
     const size = Number(value);
@@ -1356,14 +1344,6 @@ async function captureBrowserDownloadItem(item = {}, reason = 'browser-download:
     source: 'browser-download',
   });
   if (!marked && !classification.shouldCapture) return false;
-  if (shouldSkipSmallDownloadSize(firstKnownSize(item.totalBytes, marked?.size, cachedResponse.totalBytes), config)) {
-    if (marked) {
-      markedUrls.delete(url);
-      markedUrls.delete(item.url);
-    }
-    return false;
-  }
-
   if (allowFilenameDefer && shouldDeferBrowserDownloadCaptureForFilename(item, {
     headerPreferredFilename,
     markedPreferredFilename,

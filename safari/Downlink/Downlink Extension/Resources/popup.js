@@ -35,8 +35,6 @@ const POPUP_DEFAULT_CONFIG = {
   mediaSniffingBlacklist: POPUP_DEFAULT_MEDIA_SNIFFING_BLACKLIST,
   downloadInterceptionBlacklist: POPUP_DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST,
   captureExtensions: POPUP_DEFAULT_CAPTURE_EXTENSIONS,
-  skipSmallDownloads: false,
-  smallDownloadThresholdBytes: 1048576,
 };
 
 const MACOS_TAG_COLORS = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#007aff', '#af52de', '#8e8e93'];
@@ -46,6 +44,8 @@ function normalizePopupConfig(cfg = {}) {
   next.aria2CustomSaveEnabled = !!next.aria2CustomSaveEnabled;
   next.aria2SaveLocations = normalizeAria2SaveLocations(next.aria2SaveLocations);
   next.externalLauncherHost = 'localhost';
+  delete next.skipSmallDownloads;
+  delete next.smallDownloadThresholdBytes;
   return next;
 }
 

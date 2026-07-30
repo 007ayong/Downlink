@@ -313,7 +313,7 @@ function loadPopupRuntime(options = {}) {
   return context;
 }
 
-function loadPopupSettingsRuntime() {
+function loadPopupSettingsRuntime(options = {}) {
   const listenersById = new Map();
   const elements = new Map();
   const sentMessages = [];
@@ -340,6 +340,11 @@ function loadPopupSettingsRuntime() {
     document: {
       getElementById(id) {
         return getElement(id);
+      },
+      querySelectorAll(selector) {
+        return selector === '[data-small-download-setting]'
+          ? (options.smallDownloadSettingElements || [])
+          : [];
       },
       createElement(tagName) {
         return createElementStub(tagName);
@@ -1415,6 +1420,48 @@ test('settings controller collects every visible config field from the form', ()
     skipSmallDownloads: true,
     smallDownloadThresholdBytes: 2.5 * 1024 * 1024,
   });
+});
+
+test('Safari removes small-download settings and does not persist their legacy values', async () => {
+  const smallSettingRows = [
+    { removed: false, remove() { this.removed = true; } },
+    { removed: false, remove() { this.removed = true; } },
+  ];
+  const { context, sentMessages } = loadPopupSettingsRuntime({ smallDownloadSettingElements: smallSettingRows });
+  let currentConfig = {
+    downloaderType: 'aria2',
+    skipSmallDownloads: true,
+    smallDownloadThresholdBytes: 2.5 * 1024 * 1024,
+  };
+  const controller = context.PopupSettings.createSettingsController({
+    hideSmallDownloadSettings: true,
+    getCurrentConfig: () => currentConfig,
+    setCurrentConfig(next) { currentConfig = next; },
+    getSavedConfig: () => currentConfig,
+    setSavedConfig(next) { currentConfig = next; },
+    getCurrentState: () => ({ tasks: {}, pending: {} }),
+    getLoading: () => false,
+    setLoading() {},
+    getAutoSaveTimer: () => null,
+    setAutoSaveTimer() {},
+    getSaveFeedbackTimer: () => null,
+    setSaveFeedbackTimer() {},
+    syncGlobals() {},
+    updateSettingsVisibility() {},
+    updateDynamicLabels() {},
+    renderTasks() {},
+    requestAutoConnectionCheck() {},
+  });
+
+  controller.loadSettings(currentConfig);
+  assert.deepEqual(smallSettingRows.map((row) => row.removed), [true, true]);
+  assert.equal(Object.hasOwn(currentConfig, 'skipSmallDownloads'), false);
+  assert.equal(Object.hasOwn(currentConfig, 'smallDownloadThresholdBytes'), false);
+
+  controller.scheduleAutoSave(0);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(Object.hasOwn(sentMessages.at(-1).config, 'skipSmallDownloads'), false);
+  assert.equal(Object.hasOwn(sentMessages.at(-1).config, 'smallDownloadThresholdBytes'), false);
 });
 
 test('settings controller collects custom aria2 save locations in display order', () => {
