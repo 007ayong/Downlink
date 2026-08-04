@@ -543,8 +543,10 @@ function createTaskCard(task, { name, stateKey, pct, showProgress, eta, canViewI
   actions.className = 'task-actions';
   if (canViewInMotrix) actions.appendChild(createTaskButton(popupAppT('motrixView', undefined, 'MotrixNext中查看'), 'motrix-view'));
   if (canViewInGopeed) actions.appendChild(createTaskButton(popupAppT('gopeedView', undefined, 'Gopeed中查看'), 'gopeed-view'));
-  if (stateKey === 'active') actions.appendChild(createTaskButton(popupAppT('pauseTask', undefined, '暂停'), 'pause', { gid: task.gid }));
-  if (stateKey === 'paused') actions.appendChild(createTaskButton(popupAppT('resumeTask', undefined, '继续'), 'resume', { gid: task.gid }));
+  // 只有 Aria2 任务支持扩展侧暂停/继续，Gopeed 等其他下载器不显示这两个按钮。
+  const canPause = !task.provider || task.provider === 'aria2';
+  if (stateKey === 'active' && canPause) actions.appendChild(createTaskButton(popupAppT('pauseTask', undefined, '暂停'), 'pause', { gid: task.gid }));
+  if (stateKey === 'paused' && canPause) actions.appendChild(createTaskButton(popupAppT('resumeTask', undefined, '继续'), 'resume', { gid: task.gid }));
   if (stateKey === 'complete') actions.appendChild(createTaskButton(popupAppT('clearTask', undefined, '清除'), 'remove', { gid: task.gid }));
   if (['active', 'paused', 'waiting'].includes(stateKey)) actions.appendChild(createTaskButton(popupAppT('cancelTask', undefined, '取消'), 'remove', { gid: task.gid, danger: true }));
   if (stateKey === 'sent') actions.appendChild(createTaskButton(popupAppT('clearTask', undefined, '清除'), 'remove', { gid: task.gid }));
