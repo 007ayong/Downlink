@@ -646,7 +646,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = "Downlink Extension/Downlink_Extension.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = 62XL762G8S;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -659,7 +659,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
-				MARKETING_VERSION = 1.3.9;
+				MARKETING_VERSION = 1.3.10;
 				OTHER_LDFLAGS = (
 					"-framework",
 					SafariServices,
@@ -677,7 +677,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = "Downlink Extension/Downlink_Extension.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = 62XL762G8S;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -690,7 +690,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
-				MARKETING_VERSION = 1.3.9;
+				MARKETING_VERSION = 1.3.10;
 				OTHER_LDFLAGS = (
 					"-framework",
 					SafariServices,
@@ -711,7 +711,7 @@
 				CODE_SIGN_ENTITLEMENTS = Downlink/Downlink.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = 62XL762G8S;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -725,7 +725,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
-				MARKETING_VERSION = 1.3.9;
+				MARKETING_VERSION = 1.3.10;
 				OTHER_LDFLAGS = (
 					"-framework",
 					SafariServices,
@@ -748,7 +748,7 @@
 				CODE_SIGN_ENTITLEMENTS = Downlink/Downlink.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = 62XL762G8S;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -762,7 +762,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
-				MARKETING_VERSION = 1.3.9;
+				MARKETING_VERSION = 1.3.10;
 				OTHER_LDFLAGS = (
 					"-framework",
 					SafariServices,
@@ -782,10 +782,10 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
-				MARKETING_VERSION = 1.3.9;
+				MARKETING_VERSION = 1.3.10;
 				PRODUCT_BUNDLE_IDENTIFIER = cc.winapps.downlink.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -799,10 +799,10 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
-				MARKETING_VERSION = 1.3.9;
+				MARKETING_VERSION = 1.3.10;
 				PRODUCT_BUNDLE_IDENTIFIER = cc.winapps.downlink.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -815,9 +815,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.3.9;
+				MARKETING_VERSION = 1.3.10;
 				PRODUCT_BUNDLE_IDENTIFIER = cc.winapps.downlink.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -830,9 +830,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.3.9;
+				MARKETING_VERSION = 1.3.10;
 				PRODUCT_BUNDLE_IDENTIFIER = cc.winapps.downlink.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
