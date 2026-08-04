@@ -1,4 +1,4 @@
-// popup-app.js — Downlink popup wiring and rendering
+﻿// popup-app.js — Downlink popup wiring and rendering
 
 const popupSettings = globalThis.PopupSettings;
 const popupAppI18n = globalThis.Localization || {};

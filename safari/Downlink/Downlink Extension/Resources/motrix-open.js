@@ -1,4 +1,4 @@
-(function initMotrixOpenPage() {
+﻿(function initMotrixOpenPage() {
   const AUTO_CLOSE_DELAY_MS = 800;
   const deepLink = 'motrixnext://';
 

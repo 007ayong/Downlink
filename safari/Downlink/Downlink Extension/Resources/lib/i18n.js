@@ -1,4 +1,4 @@
-(function initLocalization(global) {
+﻿(function initLocalization(global) {
   const MESSAGES = {
     'zh-CN': {
       extensionName: 'Downlink',

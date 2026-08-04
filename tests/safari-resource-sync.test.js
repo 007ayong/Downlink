@@ -5,11 +5,16 @@ const os = require('node:os');
 const path = require('node:path');
 
 const rootDir = path.resolve(__dirname, '..');
+const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 
 function write(root, file, contents) {
   const target = path.resolve(root, file);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, contents);
+}
+
+function safariJs(contents) {
+  return Buffer.concat([UTF8_BOM, Buffer.from(contents)]);
 }
 
 function createFixture(t) {
@@ -29,10 +34,10 @@ function createFixture(t) {
   );
   write(fixture, 'safari/Downlink/Downlink Extension/Resources/manifest.json', '{"version":"1.2.3"}\n');
   write(fixture, 'shared.js', 'same\n');
-  write(fixture, 'safari/Downlink/Downlink Extension/Resources/shared.js', 'same\n');
+  write(fixture, 'safari/Downlink/Downlink Extension/Resources/shared.js', safariJs('same\n'));
   write(fixture, 'shared-dir/nested.txt', 'same nested\n');
   write(fixture, 'safari/Downlink/Downlink Extension/Resources/shared-dir/nested.txt', 'same nested\n');
-  write(fixture, 'safari/Downlink/Downlink Extension/Resources/safari-only.js', 'Safari implementation\n');
+  write(fixture, 'safari/Downlink/Downlink Extension/Resources/safari-only.js', safariJs('Safari implementation\n'));
 
   return {
     rootDir: fixture,
@@ -168,6 +173,70 @@ test('Safari sync does not copy Finder metadata', async (t) => {
   syncSafariResources(fixture);
 
   assert.equal(fs.existsSync(safariMetadataPath), false);
+});
+
+test('Safari preflight requires a UTF-8 BOM on every JavaScript file', async (t) => {
+  const { checkSafariResources } = await import(
+    path.join(rootDir, 'scripts/sync-safari-resources.mjs')
+  );
+  const fixture = createFixture(t);
+  write(fixture.resourcesDir, 'shared.js', 'same\n');
+  write(fixture.resourcesDir, 'safari-only.js', 'Safari implementation\n');
+
+  assert.throws(
+    () => checkSafariResources(fixture),
+    (error) => {
+      assert.match(error.message, /shared resource differs: shared\.js/);
+      assert.match(error.message, /Safari JavaScript file missing UTF-8 BOM: shared\.js/);
+      assert.match(error.message, /Safari JavaScript file missing UTF-8 BOM: safari-only\.js/);
+      return true;
+    },
+  );
+});
+
+test('Safari sync prepends a UTF-8 BOM to shared JavaScript files', async (t) => {
+  const { checkSafariResources, syncSafariResources } = await import(
+    path.join(rootDir, 'scripts/sync-safari-resources.mjs')
+  );
+  const fixture = createFixture(t);
+  write(fixture.resourcesDir, 'shared.js', 'stale\n');
+
+  syncSafariResources(fixture);
+
+  assert.deepEqual(
+    fs.readFileSync(path.resolve(fixture.resourcesDir, 'shared.js')),
+    safariJs('same\n'),
+  );
+  assert.doesNotThrow(() => checkSafariResources(fixture));
+});
+
+test('Safari sync leaves non-JavaScript files byte-identical and is idempotent', async (t) => {
+  const { syncSafariResources } = await import(
+    path.join(rootDir, 'scripts/sync-safari-resources.mjs')
+  );
+  const fixture = createFixture(t);
+  const nestedPath = path.resolve(fixture.resourcesDir, 'shared-dir/nested.txt');
+  const nestedBefore = fs.readFileSync(nestedPath);
+
+  syncSafariResources(fixture);
+  assert.deepEqual(fs.readFileSync(nestedPath), nestedBefore);
+  assert.doesNotThrow(() => syncSafariResources(fixture));
+});
+
+test('Safari sync restores a missing UTF-8 BOM on Safari-only JavaScript files', async (t) => {
+  const { checkSafariResources, syncSafariResources } = await import(
+    path.join(rootDir, 'scripts/sync-safari-resources.mjs')
+  );
+  const fixture = createFixture(t);
+  write(fixture.resourcesDir, 'safari-only.js', 'Safari implementation\n');
+
+  syncSafariResources(fixture);
+
+  assert.deepEqual(
+    fs.readFileSync(path.resolve(fixture.resourcesDir, 'safari-only.js')),
+    safariJs('Safari implementation\n'),
+  );
+  assert.doesNotThrow(() => checkSafariResources(fixture));
 });
 
 test('safari:build runs the read-only preflight before xcodebuild', () => {

@@ -1,4 +1,4 @@
-(function initGopeedOpenPage() {
+﻿(function initGopeedOpenPage() {
   const AUTO_CLOSE_DELAY_MS = 800;
   const AUTO_CLOSE_STORAGE_KEY = 'gopeedBridgeAutoClose';
   const deepLink = 'gopeed://';

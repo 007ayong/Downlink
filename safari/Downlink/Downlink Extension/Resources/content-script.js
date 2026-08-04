@@ -1,4 +1,4 @@
-(function initDownloadClickTracking() {
+﻿(function initDownloadClickTracking() {
   const defaultCaptureExtensions = globalThis.ConfigDefaults?.DEFAULT_CAPTURE_EXTENSIONS || '';
   const legacyDefaultCaptureExtensions = globalThis.ConfigDefaults?.LEGACY_DEFAULT_CAPTURE_EXTENSIONS || '';
   const configStorageAreaKey = '__downlinkConfigStorageArea';

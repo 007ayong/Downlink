@@ -9,6 +9,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +18,11 @@ import { checkVersions, syncVersions } from './sync-versions.mjs';
 const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultResources = resolve(defaultRoot, 'safari/Downlink/Downlink Extension/Resources');
 
-// Copied byte-for-byte from the repository root.
+// Copied from the repository root. JavaScript files additionally get a UTF-8
+// BOM prepended: Safari misdecodes extension JavaScript source files that do
+// not start with a BOM (WebKit treats them as Western Latin-1), which garbles
+// Chinese string literals in background/content scripts (Safari feedback
+// FB23657149). Non-JavaScript files are kept byte-identical.
 export const SHARED_FILES = Object.freeze([
   'filename-logic.js',
   'content-script.js',
@@ -47,7 +52,9 @@ export const SHARED_DIRECTORIES = Object.freeze([
   'assets',
 ]);
 
-// Owned by Safari. Sync never copies or overwrites these files.
+// Owned by Safari. Sync never copies their content; it only prepends the
+// UTF-8 BOM when a JavaScript file is missing it (same encoding invariant as
+// shared JavaScript files).
 export const SAFARI_ONLY_FILES = Object.freeze([
   'background.js',
   'dnr-capture.html',
@@ -60,6 +67,19 @@ export const SAFARI_ONLY_FILES = Object.freeze([
 export const IGNORED_SHARED_RESOURCE_NAMES = Object.freeze([
   '.DS_Store',
 ]);
+
+const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
+
+function isJavaScriptFile(filePath) {
+  return /\.js$/i.test(filePath);
+}
+
+function withSafariUtf8Bom(sourceBytes) {
+  if (sourceBytes.length >= 3 && sourceBytes.subarray(0, 3).equals(UTF8_BOM)) {
+    return sourceBytes;
+  }
+  return Buffer.concat([UTF8_BOM, sourceBytes]);
+}
 
 function displayPath(rootDir, path) {
   return relative(rootDir, path) || '.';
@@ -110,7 +130,9 @@ function compareFile(src, dst, label, issues) {
     issues.push(`Safari shared resource is not a file: ${label}`);
     return;
   }
-  if (!readFileSync(src).equals(readFileSync(dst))) {
+  const sourceBytes = readFileSync(src);
+  const expected = isJavaScriptFile(dst) ? withSafariUtf8Bom(sourceBytes) : sourceBytes;
+  if (!expected.equals(readFileSync(dst))) {
     issues.push(`shared resource differs: ${label}`);
   }
 }
@@ -138,11 +160,14 @@ function compareDirectory(src, dst, label, issues) {
       issues.push(`Safari shared resource missing: ${resourcePath}`);
     } else if (sourceEntry.type !== safariEntry.type) {
       issues.push(`shared resource type differs: ${resourcePath}`);
-    } else if (
-      sourceEntry.type === 'file'
-      && !readFileSync(sourceEntry.path).equals(readFileSync(safariEntry.path))
-    ) {
-      issues.push(`shared resource differs: ${resourcePath}`);
+    } else if (sourceEntry.type === 'file') {
+      const sourceBytes = readFileSync(sourceEntry.path);
+      const expected = isJavaScriptFile(entryName)
+        ? withSafariUtf8Bom(sourceBytes)
+        : sourceBytes;
+      if (!expected.equals(readFileSync(safariEntry.path))) {
+        issues.push(`shared resource differs: ${resourcePath}`);
+      }
     }
   }
 }
@@ -156,6 +181,31 @@ function safariOnlyIssues(resourcesDir, safariOnlyFiles) {
     }
   }
   return issues;
+}
+
+function safariJavaScriptBomIssues(resourcesDir) {
+  const issues = [];
+  const entries = collectDirectoryEntries(resourcesDir);
+  for (const [entryPath, entry] of entries) {
+    if (entry.type !== 'file' || !isJavaScriptFile(entryPath)) continue;
+    const bytes = readFileSync(entry.path);
+    const hasBom = bytes.length >= 3 && bytes.subarray(0, 3).equals(UTF8_BOM);
+    if (!hasBom) issues.push(`Safari JavaScript file missing UTF-8 BOM: ${entryPath}`);
+  }
+  return issues;
+}
+
+function normalizeSafariJavaScriptBoms(resourcesDir) {
+  const entries = collectDirectoryEntries(resourcesDir);
+  for (const [entryPath, entry] of entries) {
+    if (entry.type !== 'file' || !isJavaScriptFile(entryPath)) continue;
+    const bytes = readFileSync(entry.path);
+    const normalized = withSafariUtf8Bom(bytes);
+    if (!normalized.equals(bytes)) {
+      writeFileSync(entry.path, normalized);
+      console.log(`[safari-sync] UTF-8 BOM added: ${entryPath}`);
+    }
+  }
 }
 
 function syncInputIssues(rootDir, resourcesDir, sharedFiles, sharedDirectories, safariOnlyFiles) {
@@ -184,6 +234,7 @@ export function getSafariResourceDrift({
 } = {}) {
   requireResourcesDirectory(resourcesDir);
   const issues = safariOnlyIssues(resourcesDir, safariOnlyFiles);
+  issues.push(...safariJavaScriptBomIssues(resourcesDir));
 
   for (const file of sharedFiles) {
     compareFile(resolve(rootDir, file), resolve(resourcesDir, file), file, issues);
@@ -231,7 +282,12 @@ function copyFile(rootDir, resourcesDir, file) {
     throw new Error(`[safari-sync] shared source missing: ${displayPath(rootDir, src)}`);
   }
   mkdirSync(dirname(dst), { recursive: true });
-  cpSync(src, dst);
+  const sourceBytes = readFileSync(src);
+  if (isJavaScriptFile(file)) {
+    writeFileSync(dst, withSafariUtf8Bom(sourceBytes));
+  } else {
+    cpSync(src, dst);
+  }
   console.log(`[safari-sync] ${file} → ${displayPath(rootDir, dst)}`);
 }
 
@@ -272,7 +328,8 @@ export function syncSafariResources({
   syncVersions({ rootDir });
   for (const file of sharedFiles) copyFile(rootDir, resourcesDir, file);
   for (const directory of sharedDirectories) syncDirectory(rootDir, resourcesDir, directory);
-  console.log('=== sync done (Safari-specific resources preserved; version synchronized) ===');
+  normalizeSafariJavaScriptBoms(resourcesDir);
+  console.log('=== sync done (Safari-specific resources preserved; version synchronized; UTF-8 BOM enforced on JavaScript files) ===');
 }
 
 function printResourceOwnership() {

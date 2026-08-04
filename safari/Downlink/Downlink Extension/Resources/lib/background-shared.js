@@ -1,4 +1,4 @@
-(function initBackgroundShared(global) {
+﻿(function initBackgroundShared(global) {
   const FilenameLogic = global.FilenameLogic || null;
   const CAPTURE_MIME_PREFIXES = [
     'application/octet-stream', 'application/zip', 'application/x-rar',

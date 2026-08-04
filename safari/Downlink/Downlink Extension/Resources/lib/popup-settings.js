@@ -1,4 +1,4 @@
-(function initPopupSettings(global) {
+﻿(function initPopupSettings(global) {
     const t = global.Localization?.t || ((key, substitutions, fallback = key) => {
       if (fallback && substitutions !== undefined) {
         const values = Array.isArray(substitutions) ? substitutions : [substitutions];

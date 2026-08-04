@@ -1,4 +1,4 @@
-(function initDnrCapturePage() {
+﻿(function initDnrCapturePage() {
   const titleEl = document.getElementById('title');
   const statusEl = document.getElementById('status');
   const urlEl = document.getElementById('url');

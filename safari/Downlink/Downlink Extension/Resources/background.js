@@ -1,4 +1,4 @@
-// background.js — Downlink Service Worker
+﻿// background.js — Downlink Service Worker
 // 拆分为：基础工具 / 下载器适配 / 事件注册
 
 const PROBE_LOG_KEY = 'downlinkSafariProbeLogs';

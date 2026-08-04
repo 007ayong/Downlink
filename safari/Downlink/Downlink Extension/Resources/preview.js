@@ -1,4 +1,4 @@
-const i18n = globalThis.Localization || {};
+﻿const i18n = globalThis.Localization || {};
 const SEND_CLICK_LOCK_MS = 900;
 const SAFARI_PREVIEW_CHUNK_SIZE = 2 * 1024 * 1024;
 const SAFARI_PREVIEW_BUFFER_AHEAD_SECONDS = 45;

@@ -1,4 +1,4 @@
-// popup.js — Downlink UI core helpers
+﻿// popup.js — Downlink UI core helpers
 
 const popupUi = globalThis.PopupUI || {};
 const i18n = globalThis.Localization || {};
