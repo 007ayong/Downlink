@@ -312,7 +312,9 @@
       setCurrentConfig({ ...normalizedCfg });
       setSavedConfig({ ...normalizedCfg });
       document.getElementById('cfgDownloaderType').value = normalizedCfg.downloaderType || 'aria2';
+      global.syncDownloaderPicker?.(normalizedCfg.downloaderType || 'aria2');
       document.getElementById('cfgLanguage').value = normalizedCfg.language || 'auto';
+      global.syncLanguagePicker?.(normalizedCfg.language || 'auto');
       document.getElementById('cfgRpc').value = normalizedCfg.aria2Rpc || '';
       document.getElementById('cfgSecret').value = normalizedCfg.aria2Secret || '';
       document.getElementById('cfgAria2Silent').checked = !!normalizedCfg.aria2Silent;

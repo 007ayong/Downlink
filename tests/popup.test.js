@@ -304,6 +304,8 @@ function loadPopupRuntime(options = {}) {
   vm.runInNewContext(configDefaultsScript, context, { filename: 'lib/config-defaults.js' });
   const popupUiScript = fs.readFileSync(path.join(__dirname, '..', 'lib', 'popup-ui.js'), 'utf8');
   vm.runInNewContext(popupUiScript, context, { filename: 'lib/popup-ui.js' });
+  const downloaderPickerScript = fs.readFileSync(path.join(__dirname, '..', 'lib', 'downloader-picker.js'), 'utf8');
+  vm.runInNewContext(downloaderPickerScript, context, { filename: 'lib/downloader-picker.js' });
   const script = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
   vm.runInNewContext(script, context, { filename: 'popup.js' });
   const popupSettingsScript = fs.readFileSync(path.join(__dirname, '..', 'lib', 'popup-settings.js'), 'utf8');

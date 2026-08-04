@@ -34,6 +34,7 @@ export const SHARED_FILES = Object.freeze([
   'lib/background-downloaders.js',
   'lib/background-media.js',
   'lib/config-defaults.js',
+  'lib/downloader-picker.js',
   'lib/i18n.js',
   'lib/popup-ui.js',
   'lib/popup-settings.js',

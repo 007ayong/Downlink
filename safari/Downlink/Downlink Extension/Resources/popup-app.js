@@ -1645,6 +1645,7 @@ document.getElementById('cfgLanguage').addEventListener('change', () => {
   const nextCfg = normalizePopupConfig(collectSettingsFromForm());
   currentConfig = { ...currentConfig, ...nextCfg };
   applyLocaleFromConfig(currentConfig);
+  globalThis.syncLanguagePicker?.();
   updateDynamicLabels(currentConfig);
   renderTasks(currentState.tasks, currentState.pending);
   renderMedia(currentState.media, currentState.pausedTabs, currentState.mediaBlacklistBlockedTabs);
@@ -1838,6 +1839,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 // never briefly renders controls it cannot support.
 updateSettingsVisibility(currentConfig.downloaderType);
 applyLocaleFromConfig(currentConfig);
+globalThis.syncLanguagePicker?.();
 syncPopupGlobals();
 // Defer heavy initialization to next animation frame so popup can paint quickly.
 // In test (Node) environments `requestAnimationFrame` may be undefined —

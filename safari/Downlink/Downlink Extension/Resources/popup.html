@@ -87,12 +87,8 @@
     }
     .logo {
       width: 26px; height: 26px;
-      background: var(--accent-bg);
-      border-radius: 7px;
       display: flex; align-items: center; justify-content: center;
       flex-shrink: 0;
-      box-shadow: 0 2px 6px rgba(28,27,25,0.08);
-      overflow: hidden;
     }
     .logo img {
       width: 100%;
@@ -414,10 +410,11 @@
     }
     .pending-filename-row input {
       width: 100%;
+      height: 32px;
       font-size: 12.5px;
       font-weight: 400;
       font-family: 'JetBrains Mono', monospace;
-      padding: 8px 9px;
+      padding: 0 9px;
       border: 1px solid var(--border);
       border-radius: 6px;
       background: var(--bg);
@@ -458,10 +455,10 @@
     .pending-save-location-trigger {
       display: flex; align-items: center; gap: 5px;
       width: 100%;
-      min-height: 28px;
+      min-height: 32px;
       font-size: 11.5px;
       font-weight: 500;
-      padding: 4px 8px;
+      padding: 0 8px;
       border: 1px solid var(--border);
       border-radius: 6px;
       background: var(--bg);
@@ -1077,9 +1074,10 @@
     }
     .settings-input {
       width: 160px;
+      height: 32px;
       font-size: 11.5px;
       font-family: 'JetBrains Mono', monospace;
-      padding: 5px 8px;
+      padding: 0 8px;
       border: 1px solid var(--border);
       border-radius: 6px;
       background: var(--bg);
@@ -1098,6 +1096,125 @@
     .settings-input-action .settings-input.wide { margin-top: 0; }
     .settings-input-action .btn { flex: 0 0 auto; padding: 6px 12px; }
     .settings-row.col { flex-direction: column; align-items: stretch; }
+    .settings-row .btn.btn-ghost { height: 32px; }
+    .downloader-picker {
+      position: relative;
+      width: 100%;
+      margin-top: 4px;
+    }
+    .downloader-picker__native {
+      display: none;
+    }
+    .downloader-picker__control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      height: 32px;
+      font-size: 11.5px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 0 10px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+      text-align: left;
+    }
+    .downloader-picker__control:hover { background: var(--bg3); }
+    .downloader-picker__control:focus-visible {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(224, 92, 42, 0.10);
+    }
+    .downloader-picker.open .downloader-picker__control {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(224, 92, 42, 0.10);
+    }
+    .downloader-picker__icon {
+      width: 20px;
+      height: 20px;
+      object-fit: contain;
+      flex: 0 0 20px;
+    }
+    .downloader-picker__label {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .downloader-picker__caret {
+      flex: 0 0 auto;
+      width: 0;
+      height: 0;
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+      border-top: 5px solid var(--text-3);
+      transition: transform 0.15s;
+    }
+    .downloader-picker.open .downloader-picker__caret {
+      transform: rotate(180deg);
+    }
+    .downloader-picker__menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: #ffffff;
+      border: 1px solid rgba(113, 123, 139, 0.28);
+      border-radius: 8px;
+      box-shadow: 0 10px 28px rgba(56, 67, 86, 0.16), 0 2px 8px rgba(56, 67, 86, 0.08);
+      z-index: 1000;
+      max-height: 240px;
+      overflow-y: auto;
+      padding: 5px;
+    }
+    .downloader-picker__menu.open {
+      display: block;
+      position: fixed;
+      left: var(--downloader-picker-menu-left);
+      top: var(--downloader-picker-menu-top);
+      right: auto;
+      width: var(--downloader-picker-menu-width);
+    }
+    .downloader-picker__option {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      width: 100%;
+      padding: 8px 9px;
+      font-size: 11.5px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text);
+      background: transparent;
+      border: 0;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.1s, color 0.1s;
+    }
+    .downloader-picker__option:hover { background: var(--bg3); }
+    .downloader-picker__option.active { background: var(--bg4); }
+    .downloader-picker__option.selected {
+      color: var(--accent);
+      background: var(--accent-bg);
+    }
+    .downloader-picker__option.selected:hover { background: var(--accent-bg); }
+    .downloader-picker__option.selected.active { background: var(--accent-bg); }
+    .downloader-picker__option .downloader-picker__icon { width: 18px; height: 18px; flex-basis: 18px; }
+    .downloader-picker__option-check {
+      flex: 0 0 auto;
+      width: 14px;
+      text-align: center;
+      color: var(--accent);
+      visibility: hidden;
+    }
+    .downloader-picker__option.selected .downloader-picker__option-check {
+      visibility: visible;
+    }
     .settings-test-row {
       align-items: stretch;
       gap: 8px;
@@ -1107,7 +1224,8 @@
     }
     .settings-test-button {
       width: 100%;
-      padding: 8px 0;
+      height: 32px;
+      padding: 0 12px;
       flex: 0 0 auto;
       background: var(--accent);
       border-color: var(--accent);
@@ -1225,7 +1343,8 @@
     .add-save-location-btn {
       width: 100%;
       margin-top: 8px;
-      padding: 7px 0;
+      height: 32px;
+      padding: 0 12px;
       border: 1px dashed var(--accent-bd);
       border-radius: 7px;
       background: var(--accent-bg);
@@ -1289,7 +1408,8 @@
     /* Save settings btn */
     .save-settings-btn {
       width: 100%;
-      padding: 9px 0;
+      height: 32px;
+      padding: 0 12px;
       background: var(--text);
       border: none;
       border-radius: 7px;
@@ -1377,6 +1497,13 @@
       .save-location-fields .settings-input:focus { background: rgba(255,255,255,0.16); }
       .save-location-swatch { border-color: rgba(255,255,255,0.24); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.22); }
       .save-settings-btn:hover { background: #d8d5ce; }
+      .downloader-picker__menu {
+        background: #35373f;
+        border-color: rgba(255, 255, 255, 0.18);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.50), 0 2px 8px rgba(0, 0, 0, 0.35);
+      }
+      .downloader-picker__option:hover { background: rgba(255, 255, 255, 0.10); }
+      .downloader-picker__option.active { background: rgba(255, 255, 255, 0.16); }
     }
 
     @media (prefers-color-scheme: light) {
@@ -1504,7 +1631,17 @@
     <div class="settings-group-title" data-i18n="settingsDownloaderGroup">下载器</div>
     <div class="settings-row col">
       <label><span data-i18n="settingsTargetDownloader">目标下载器</span> <span class="settings-sub" data-i18n="settingsTargetDownloaderSub">按设置切换到不同下载器适配器</span></label>
-      <select class="settings-input wide" id="cfgDownloaderType">
+      <div class="downloader-picker" id="downloaderPicker">
+        <button type="button" class="downloader-picker__control" id="downloaderPickerButton"
+                aria-haspopup="listbox" aria-expanded="false" aria-labelledby="downloaderPickerLabel">
+          <img class="downloader-picker__icon" id="downloaderPickerIcon" src="icons/icon48.png" alt="" aria-hidden="true"/>
+          <span class="downloader-picker__label" id="downloaderPickerLabel">Aria2 RPC</span>
+          <span class="downloader-picker__caret" aria-hidden="true"></span>
+        </button>
+        <div class="downloader-picker__menu" id="downloaderPickerMenu" role="listbox" aria-label="目标下载器" hidden></div>
+      </div>
+      <!-- 原生 select 保留为值载体，供表单读取与自动化/测试使用 -->
+      <select class="settings-input wide downloader-picker__native" id="cfgDownloaderType" tabindex="-1" aria-hidden="true">
         <option value="aria2">Aria2 RPC</option>
         <option value="motrixnext">MotrixNext</option>
         <option value="gopeed">Gopeed</option>
@@ -1514,7 +1651,16 @@
     </div>
     <div class="settings-row col">
       <label><span data-i18n="settingsLanguage">界面语言</span> <span class="settings-sub" data-i18n="settingsLanguageSub">默认跟随浏览器语言，也可手动覆盖</span></label>
-      <select class="settings-input wide" id="cfgLanguage">
+      <div class="downloader-picker" id="languagePicker">
+        <button type="button" class="downloader-picker__control" id="languagePickerButton"
+                aria-haspopup="listbox" aria-expanded="false" aria-labelledby="languagePickerLabel">
+          <span class="downloader-picker__label" id="languagePickerLabel">跟随浏览器</span>
+          <span class="downloader-picker__caret" aria-hidden="true"></span>
+        </button>
+        <div class="downloader-picker__menu" id="languagePickerMenu" role="listbox" aria-label="界面语言" hidden></div>
+      </div>
+      <!-- 原生 select 保留为值载体，供表单读取与自动化/测试使用 -->
+      <select class="settings-input wide downloader-picker__native" id="cfgLanguage" tabindex="-1" aria-hidden="true">
         <option value="auto" data-i18n="languageAuto">跟随浏览器</option>
         <option value="zh-CN" data-i18n="languageZhCN">简体中文</option>
         <option value="en" data-i18n="languageEn">English</option>
@@ -1654,6 +1800,7 @@
   <script src="lib/i18n.js"></script>
   <script src="lib/popup-ui.js"></script>
   <script src="lib/popup-settings.js"></script>
+  <script src="lib/downloader-picker.js"></script>
   <script src="popup.js"></script>
   <script src="popup-app.js"></script>
   <div id="toast" class="toast"></div>
