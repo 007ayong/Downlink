@@ -3237,6 +3237,60 @@ test('Gopeed intercepted downloads use pending confirmation and do not pass save
   assert.equal(nextState.tasks['gopeed-task-1']?.status, 'sent');
 });
 
+test('Gopeed silent mode sends intercepted downloads without confirmation', async () => {
+  let requestUrl = '';
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'gopeed',
+      gopeedApi: 'http://127.0.0.1:9999',
+      gopeedSilent: true,
+      autoCapture: true,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async (url, options) => {
+        requestUrl = url;
+        requestBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            return { code: 0, data: { id: 'gopeed-task-1' } };
+          },
+        };
+      },
+    }
+  );
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+
+  assert.equal(requestUrl, 'http://127.0.0.1:9999/api/v1/tasks');
+  assert.deepEqual(requestBody, {
+    req: {
+      url: 'https://example.com/file.zip',
+      extra: {
+        header: {
+          'accept-encoding': 'identity',
+        },
+      },
+    },
+    opts: {
+      name: 'file.zip',
+    },
+  });
+  assert.equal(state.tasks['gopeed-task-1']?.provider, 'gopeed');
+  assert.equal(state.tasks['gopeed-task-1']?.status, 'sent');
+});
+
 test('Gopeed single-thread confirmation passes connections only when requested', async () => {
   let requestBody = null;
   const background = loadBackgroundRuntime(
@@ -3869,10 +3923,8 @@ test('user-triggered send failure only exposes task alert', async () => {
 test('pending confirmation send failure does not open a new task surface', async () => {
   const background = loadBackgroundRuntime(
     {
-      downloaderType: 'abdownload',
-      externalLauncherHost: 'localhost',
-      externalLauncherPort: '15151',
-      externalLauncherPath: '/start-headless-download',
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://127.0.0.1:6800/jsonrpc',
     },
     {
       fetch: async () => {
@@ -3907,17 +3959,214 @@ test('pending confirmation send failure does not open a new task surface', async
 
   const nextState = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(Object.values(nextState.pending || {}).length, 1);
-  assert.equal(nextState.uiAlert?.message, '与 AB DM 连接失败，检查 AB DM 是否正在运行');
+  assert.equal(nextState.uiAlert?.message, '与 Aria2 连接失败，检查 Aria2 是否正在运行');
 });
 
-test('context menu download enters popup pending queue instead of sending immediately', async () => {
-  let fetchCalled = false;
+test('context menu sends to NeatDM directly without confirmation', async () => {
+  const sockets = [];
+  class MockWebSocket {
+    constructor(url, protocol) {
+      this.url = url;
+      this.protocol = protocol;
+      this.sent = [];
+      this.closed = false;
+      sockets.push(this);
+      setTimeout(() => {
+        this.onopen?.();
+      }, 0);
+    }
+
+    send(message) {
+      this.sent.push(message);
+    }
+
+    close() {
+      this.closed = true;
+    }
+  }
+
+  const background = loadBackgroundRuntime(
+    { downloaderType: 'neatdm' },
+    { WebSocket: MockWebSocket }
+  );
+
+  await invokeContextMenuClick(background, {
+    menuItemId: 'send-to-aria2',
+    linkUrl: 'https://example.com/file.zip',
+  }, {
+    id: 1,
+    url: 'https://example.com/page',
+  });
+
+  assert.equal(sockets.length, 1);
+  assert.equal(sockets[0].url, 'ws://127.0.0.1:10007/download');
+  assert.match(sockets[0].sent[0], /^1:GET\r\n2:https:\/\/example\.com\/file\.zip\r\n6:normal\r\n4:file\.zip\r\n/);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('context menu sends to AB DM directly with /add when not silent', async () => {
+  let requestedUrl = '';
+  let requestBody = null;
   const background = loadBackgroundRuntime(
     {
       downloaderType: 'abdownload',
       externalLauncherHost: 'localhost',
       externalLauncherPort: '15151',
-      externalLauncherPath: '/start-headless-download',
+      abDownloadSilent: false,
+    },
+    {
+      fetch: async (url, options) => {
+        requestedUrl = url;
+        requestBody = JSON.parse(options.body);
+        return { ok: true, status: 200 };
+      },
+    }
+  );
+
+  await invokeContextMenuClick(background, {
+    menuItemId: 'send-to-aria2',
+    linkUrl: 'https://example.com/file.zip',
+  }, {
+    id: 1,
+    url: 'https://example.com/page',
+  });
+
+  assert.equal(requestedUrl, 'http://localhost:15151/add');
+  assert.deepEqual(requestBody, [{
+    link: 'https://example.com/file.zip',
+    downloadPage: 'https://example.com/page',
+  }]);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('context menu sends to AB DM directly with headless endpoint when silent', async () => {
+  let requestedUrl = '';
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+      abDownloadSilent: true,
+    },
+    {
+      fetch: async (url, options) => {
+        requestedUrl = url;
+        requestBody = JSON.parse(options.body);
+        return { ok: true, status: 200 };
+      },
+    }
+  );
+
+  await invokeContextMenuClick(background, {
+    menuItemId: 'send-to-aria2',
+    linkUrl: 'https://example.com/file.zip',
+  }, {
+    id: 1,
+    url: 'https://example.com/page',
+  });
+
+  assert.equal(requestedUrl, 'http://localhost:15151/start-headless-download');
+  assert.deepEqual(requestBody.downloadSource, {
+    link: 'https://example.com/file.zip',
+    downloadPage: 'https://example.com/page',
+  });
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+});
+
+test('context menu respects aria2 silent downloads and sends immediately', async () => {
+  let requestUrl = '';
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://127.0.0.1:6800/jsonrpc',
+      aria2Silent: true,
+    },
+    {
+      fetch: async (url, options) => {
+        requestUrl = url;
+        requestBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            return { result: 'aria2-gid-1' };
+          },
+        };
+      },
+    }
+  );
+
+  await invokeContextMenuClick(background, {
+    menuItemId: 'send-to-aria2',
+    linkUrl: 'https://example.com/file.zip',
+  }, {
+    id: 1,
+    url: 'https://example.com/page',
+  });
+
+  assert.equal(requestUrl, 'http://127.0.0.1:6800/jsonrpc');
+  assert.equal(requestBody.method, 'aria2.addUri');
+  assert.deepEqual(requestBody.params[0], ['https://example.com/file.zip']);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+  assert.equal(state.tasks['aria2-gid-1']?.provider, 'aria2');
+  assert.equal(state.tasks['aria2-gid-1']?.status, 'active');
+});
+
+test('context menu respects gopeed silent downloads and sends immediately', async () => {
+  let requestUrl = '';
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'gopeed',
+      gopeedApi: 'http://127.0.0.1:9999',
+      gopeedSilent: true,
+    },
+    {
+      fetch: async (url, options) => {
+        requestUrl = url;
+        requestBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            return { code: 0, data: { id: 'gopeed-task-1' } };
+          },
+        };
+      },
+    }
+  );
+
+  await invokeContextMenuClick(background, {
+    menuItemId: 'send-to-aria2',
+    linkUrl: 'https://example.com/file.zip',
+  }, {
+    id: 1,
+    url: 'https://example.com/page',
+  });
+
+  assert.equal(requestUrl, 'http://127.0.0.1:9999/api/v1/tasks');
+  assert.equal(requestBody.req.url, 'https://example.com/file.zip');
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(Object.keys(state.pending || {}).length, 0);
+  assert.equal(state.tasks['gopeed-task-1']?.provider, 'gopeed');
+  assert.equal(state.tasks['gopeed-task-1']?.status, 'sent');
+});
+
+test('context menu enters pending queue for gopeed by default', async () => {
+  let fetchCalled = false;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'gopeed',
+      gopeedApi: 'http://127.0.0.1:9999',
     },
     {
       fetch: async () => {
@@ -3936,13 +4185,11 @@ test('context menu download enters popup pending queue instead of sending immedi
   });
 
   assert.equal(fetchCalled, false);
-  assert.equal(background.chrome._actionCalls.openPopup, 1);
 
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   const pending = Object.values(state.pending || {});
   assert.equal(pending.length, 1);
   assert.equal(pending[0].url, 'https://example.com/file.zip');
-  assert.equal(pending[0].filename, 'file.zip');
 });
 
 test('media send failure keeps current page and only exposes alert state', async () => {

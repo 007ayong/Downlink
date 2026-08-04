@@ -836,7 +836,7 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
     el.classList.toggle('settings-hidden', isSafariPopupRuntime());
   });
   document.querySelectorAll('.downloader-config-group').forEach((el) => {
-    el.classList.toggle('settings-hidden', !(isAria2 || isAbDownload));
+    el.classList.toggle('settings-hidden', !(isAria2 || isAbDownload || isGopeed));
   });
 }
 

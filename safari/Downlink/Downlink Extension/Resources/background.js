@@ -100,6 +100,7 @@ const DEFAULT_CONFIG = {
   motrixNextSecret: '',
   gopeedApi: 'http://127.0.0.1:9999',
   gopeedToken: '',
+  gopeedSilent: false,
   externalLauncherName: 'AB DM',
   externalLauncherHost: 'localhost',
   externalLauncherPort: '15151',
@@ -945,7 +946,10 @@ function buildConnectionFailureText(label) {
 }
 
 function shouldConfirmBeforeSend() {
-  return (config.downloaderType === 'aria2' && !config.aria2Silent) || config.downloaderType === 'gopeed';
+  return (
+    (config.downloaderType === 'aria2' && !config.aria2Silent) ||
+    (config.downloaderType === 'gopeed' && !config.gopeedSilent)
+  );
 }
 
 function normalizeIntentUrl(url) {
@@ -3203,11 +3207,13 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     sourceWindowId: tab?.windowId,
     addedAt: Date.now(),
   };
-  if (config.downloaderType === 'motrixnext') {
-    await sendTask(taskInfo, {}, { openPopupOnFailure: true });
-    return;
+  if (config.downloaderType === 'aria2' || config.downloaderType === 'gopeed') {
+    if (shouldConfirmBeforeSend()) {
+      await enqueuePendingDownload(taskInfo);
+      return;
+    }
   }
-  await enqueuePendingDownload(taskInfo);
+  await sendTask(taskInfo, {}, { openPopupOnFailure: true });
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {

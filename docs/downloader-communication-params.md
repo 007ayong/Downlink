@@ -150,6 +150,7 @@ GET http://localhost:<motrixNextPort>/stat
 | `downloaderType` | `gopeed` | 选择 Gopeed 适配器 |
 | `gopeedApi` | `http://127.0.0.1:9999` | Gopeed HTTP API 根地址，末尾斜杠会被移除 |
 | `gopeedToken` | 空 | API Token，可不填 |
+| `gopeedSilent` | `false` | 自动捕获普通下载时是否跳过确认面板直接发送 |
 
 ### 请求格式
 
@@ -244,6 +245,8 @@ Gopeed 返回体需要满足 `code === 0`，实际数据读取自 `data`。
 | 媒体任务 | `/start-headless-download` |
 | 显式指定 `abDownloadMode: "add"` | `/add` |
 | 显式指定 `abDownloadMode: "headless"` | `/start-headless-download` |
+
+浏览器拦截和右键菜单发送都不会进入扩展的确认面板，普通任务按上述模式选择端点，媒体任务固定使用 headless 端点。
 
 完整地址格式：
 
@@ -415,6 +418,6 @@ Content-Disposition: attachment; filename="file.zip"
 | --- | --- | --- | --- |
 | Aria2 | 支持 | 默认进入；开启 `aria2Silent` 后直接发送 | 发送到 Aria2，可带文件名和请求头 |
 | MotrixNext | 支持 | 不进入，直接发送 | 直接 `POST /add` |
-| Gopeed | 支持 | 进入确认面板 | 直接发送到 Gopeed，补齐媒体请求头 |
-| AB DM | 支持 | 普通任务按模式；媒体任务直接 headless | 媒体任务固定 `/start-headless-download` |
-| NeatDM | 支持 | 下载取消后发送 WebSocket 消息 | 根据资源类型推断 `media` 或 `hls` |
+| Gopeed | 支持 | 默认进入；开启 `gopeedSilent` 后直接发送 | 直接发送到 Gopeed，补齐媒体请求头 |
+| AB DM | 支持 | 不进入扩展确认面板；普通任务按模式选择端点 | 媒体任务固定 `/start-headless-download` |
+| NeatDM | 支持 | 不进入扩展确认面板，直接发送 WebSocket 消息 | 根据资源类型推断 `media` 或 `hls` |

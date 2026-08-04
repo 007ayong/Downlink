@@ -113,7 +113,7 @@ Downlink 会直接向本机 MotrixNext HTTP 接收服务发送 `POST /add`，请
 - API 地址，默认 `http://127.0.0.1:9999`
 - Token，可留空
 
-Downlink 会通过 Gopeed HTTP API 发送 `POST /api/v1/tasks`。浏览器拦截到的普通下载会先进入确认面板；只有在确认面板勾选“单线程不分片下载”时才会传递 `opts.extra.connections = 1`，否则不传递连接数参数。扩展不会向 Gopeed 指定保存路径，由 Gopeed 端控制下载位置。
+Downlink 会通过 Gopeed HTTP API 发送 `POST /api/v1/tasks`。浏览器拦截到的普通下载默认会先进入确认面板；如需自动开始下载，可在设置中开启“普通任务静默下载”。只有在确认面板勾选“单线程不分片下载”时才会传递 `opts.extra.connections = 1`，否则不传递连接数参数。扩展不会向 Gopeed 指定保存路径，由 Gopeed 端控制下载位置。
 
 ### AB DM
 
@@ -123,7 +123,7 @@ Downlink 会通过 Gopeed HTTP API 发送 `POST /api/v1/tasks`。浏览器拦截
 - 端口号
 
 一般情况下，需要核实软件本体和该扩展中的端口号是否一致。
-普通任务默认通过 `/add` 添加；如需普通任务静默开始下载，可在设置中开启对应选项。媒体资源会固定使用 `/start-headless-download`，以保证视频文件名正确。
+普通任务默认通过 `/add` 添加；如需普通任务静默开始下载，可在设置中开启对应选项。媒体资源会固定使用 `/start-headless-download`，以保证视频文件名正确。浏览器拦截和右键菜单都会直接发送到 AB DM，不经过扩展的确认面板。
 
 ### NeatDM
 
@@ -132,6 +132,7 @@ Downlink 会通过 Gopeed HTTP API 发送 `POST /api/v1/tasks`。浏览器拦截
 - `ws://127.0.0.1:10007/download`
 
 适合本地已运行 NeatDM 接收服务的场景。Neat DM 不开放端口配置。
+浏览器拦截和右键菜单都会直接发送到 NeatDM，不经过扩展的确认面板。
 
 ## 媒体捕获
 

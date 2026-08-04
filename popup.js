@@ -27,6 +27,7 @@ const POPUP_DEFAULT_CONFIG = {
   motrixNextSecret: '',
   gopeedApi: 'http://127.0.0.1:9999',
   gopeedToken: '',
+  gopeedSilent: false,
   externalLauncherName: 'AB DM',
   externalLauncherHost: 'localhost',
   externalLauncherPort: '15151',

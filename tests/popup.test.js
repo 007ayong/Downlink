@@ -1180,6 +1180,7 @@ test('aria2 test connection sends the current form config', () => {
     motrixNextSecret: '',
     gopeedApi: 'http://127.0.0.1:9999',
     gopeedToken: '',
+    gopeedSilent: false,
     externalLauncherName: 'AB DM',
     externalLauncherHost: 'localhost',
     externalLauncherPort: '15151',
@@ -1220,6 +1221,7 @@ test('AB DM test connection sends the current form config', () => {
     motrixNextSecret: '',
     gopeedApi: 'http://127.0.0.1:9999',
     gopeedToken: '',
+    gopeedSilent: false,
     externalLauncherName: 'AB DM',
     externalLauncherHost: 'localhost',
     externalLauncherPort: '17000',
@@ -1412,6 +1414,7 @@ test('settings controller collects every visible config field from the form', ()
   context.document.getElementById('cfgUseMotrixNext').checked = true;
   context.document.getElementById('cfgMotrixNextPort').value = '16888';
   context.document.getElementById('cfgMotrixNextSecret').value = 'motrix-secret';
+  context.document.getElementById('cfgGopeedSilent').checked = true;
   context.document.getElementById('cfgLauncherPort').value = '17000';
   context.document.getElementById('cfgAbDownloadSilent').checked = true;
   context.document.getElementById('cfgAutoCapture').checked = true;
@@ -1434,6 +1437,7 @@ test('settings controller collects every visible config field from the form', ()
     motrixNextSecret: 'motrix-secret',
     gopeedApi: 'http://127.0.0.1:9999',
     gopeedToken: '',
+    gopeedSilent: true,
     externalLauncherName: 'AB DM',
     externalLauncherHost: 'localhost',
     externalLauncherPort: '17000',
@@ -1698,6 +1702,7 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgAria2CustomSaveEnabled', true, 'checked')).config.aria2CustomSaveEnabled, true);
   assert.equal((await applyChange('cfgMotrixNextPort', '16888')).config.motrixNextPort, '16888');
   assert.equal((await applyChange('cfgMotrixNextSecret', 'motrix-secret')).config.motrixNextSecret, 'motrix-secret');
+  assert.equal((await applyChange('cfgGopeedSilent', true, 'checked')).config.gopeedSilent, true);
   assert.equal((await applyChange('cfgLauncherPort', '17000')).config.externalLauncherPort, '17000');
   assert.equal((await applyChange('cfgExts', 'zip,mp4')).config.captureExtensions, 'zip,mp4');
   assert.equal((await applyChange('cfgSmallDownloadThresholdMb', '2')).config.smallDownloadThresholdBytes, 2 * 1024 * 1024);

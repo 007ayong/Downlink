@@ -113,7 +113,7 @@ Required fields:
 - API URL, default `http://127.0.0.1:9999`
 - Token, optional
 
-Downlink sends tasks through the Gopeed HTTP API with `POST /api/v1/tasks`. Intercepted normal downloads enter the confirmation panel first. `opts.extra.connections = 1` is sent only when "Single thread, no splitting" is checked in the confirmation panel; otherwise connection options are omitted. The extension does not pass a save path to Gopeed, so the downloader controls the download location.
+Downlink sends tasks through the Gopeed HTTP API with `POST /api/v1/tasks`. Intercepted normal downloads enter the confirmation panel by default; enable "Silent normal downloads" in settings to start them automatically. `opts.extra.connections = 1` is sent only when "Single thread, no splitting" is checked in the confirmation panel; otherwise connection options are omitted. The extension does not pass a save path to Gopeed, so the downloader controls the download location.
 
 ### AB DM
 
@@ -124,6 +124,7 @@ Required fields:
 
 In most cases, you should verify that the port configured in the extension matches the actual port used by the application.
 Normal tasks use `/add` by default. Enable silent normal downloads in settings to use `/start-headless-download` for normal tasks. Media resources always use `/start-headless-download` so video filenames stay correct.
+Both browser interception and the right-click menu send directly to AB DM without the extension's confirmation panel.
 
 ### NeatDM
 
@@ -132,6 +133,7 @@ The extension currently connects through the default WebSocket endpoint:
 - `ws://127.0.0.1:10007/download`
 
 This is intended for local setups where the NeatDM receiver is already running. Neat Download Manager does not expose a configurable port here.
+Both browser interception and the right-click menu send directly to NeatDM without the extension's confirmation panel.
 
 ## Media Capture
 
