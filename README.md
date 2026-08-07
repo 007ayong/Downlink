@@ -1,10 +1,30 @@
-# Downlink
+<p align="center">
+  <img src="./icons/icon300.png" width="96" alt="Downlink Logo"/>
+</p>
 
-GitHub 仓库：[Downlink](https://github.com/007ayong/Downlink)
+<h1 align="center">Downlink</h1>
 
-Downlink 是一个浏览器扩展，用来在浏览器确认下载响应后接管任务，并发送到你选择的外部下载器。
+<p align="center">
+  简体中文 · <a href="./README.en.md">English</a>
+</p>
 
-该扩展支持接入多种下载器，拥有高度的灵活性，可根据你使用的下载器，在设置中自行切换保存。只需一个浏览器插件，即可完成下载接管、网页媒体捕获和基础状态查看。
+<p align="center">
+  <a href="https://github.com/007ayong/Downlink/stargazers">
+    <img src="https://img.shields.io/github/stars/007ayong/Downlink?style=for-the-badge&logo=github&label=Stars" alt="GitHub Stars"/>
+  </a>
+  <a href="https://github.com/007ayong/Downlink/releases">
+    <img src="https://img.shields.io/github/v/release/007ayong/Downlink?style=for-the-badge&label=Release" alt="GitHub Release"/>
+  </a>
+  <a href="./LICENSE">
+    <img src="https://img.shields.io/badge/License-GPL--3.0--only-blue?style=for-the-badge" alt="License"/>
+  </a>
+</p>
+
+
+Downlink 是一个用于对接多线程下载器的浏览器扩展，在浏览器确认下载响应后接管任务，并发送到你选择的外部下载器。
+
+它支持接入多种下载器，并可在设置中随时切换，无需安装多个扩展。一个插件即可完成下载接管、网页媒体捕获、任务状态查看、媒体预览和右键快捷发送，兼容 Chromium 内核浏览器（Chrome / Edge）、Firefox 与 Safari。
+
 
 ## 截图
 
@@ -23,46 +43,130 @@ Downlink 是一个浏览器扩展，用来在浏览器确认下载响应后接�
 
 ## 主要功能
 
-- 在浏览器确认下载响应后接管任务，并转交给当前配置的下载器
-- 支持按扩展名和响应类型识别常见文件下载
-- 可选择让已知大小低于阈值的小文件保留浏览器下载，减少下载器任务噪音
-- 支持根据响应类型捕获音频、视频等媒体资源
-- 支持在弹窗中查看任务列表和待确认任务
-- 支持预览已捕获的媒体资源，并发送到下载器
-- 支持透传关键请求头，改善需要 Cookie、Referer 或鉴权头的下载场景
-- 支持错误提醒和基础连接测试
+- **下载接管**：在浏览器确认下载响应后接管任务，转交给当前配置的下载器；也支持通过弹窗或右键菜单手动发送
+- **多下载器切换**：内置 Aria2、Motrix、MotrixNext、Gopeed、AB DM、NeatDM 适配器，设置中一键切换
+- **智能识别**：按扩展名和响应类型识别常见文件下载；可配置低于大小阈值的小文件保留给浏览器下载，减少下载器任务噪音
+- **媒体捕获**：监听页面中的音频、视频请求，在媒体面板中展示、预览并发送到下载器
+- **请求头透传**：透传 Cookie、Referer、鉴权头等关键请求头，改善需要登录态或防盗链校验的下载场景
+- **任务管理**：弹窗中查看任务列表和待确认任务；Aria2 支持独立任务管理页，可查看进度、暂停/继续、限速
+- **错误提醒与连接测试**：发送失败时通过通知提醒，并提供基础连接检测
+- **快捷键**：默认 `Ctrl+Shift+D`（macOS 为 `MacCtrl+Shift+D`）快速切换自动拦截
 
 ## 安装方式
 
-打开 Chromium 内核浏览器的扩展管理页面，开启“开发者模式”，然后选择“加载已解压的扩展程序”，指定当前项目目录即可。
-
-## 商店地址
+### 商店安装
 
 [![Chrome Web Store:](./assets/chrome-support.png)](https://chromewebstore.google.com/detail/eepjgbffnmmhpinlmlncdfnhjccpigcg)
 [![Edge Web Store:](./assets/edge-support.png)](https://microsoftedge.microsoft.com/addons/detail/klkhmcdcnnhggpiipgedlafhpobojpgl)
 [![Firefox Add-ons:](./assets/firefox-support.png)](https://addons.mozilla.org/zh-CN/firefox/addon/downlink/)
 
+各商店已发布版本：
+
+| 商店 | 版本 |
+| --- | --- |
+| [Chrome Web Store](https://chromewebstore.google.com/detail/eepjgbffnmmhpinlmlncdfnhjccpigcg) | ![Chrome 版本](https://img.shields.io/chrome-web-store/v/eepjgbffnmmhpinlmlncdfnhjccpigcg?style=for-the-badge&logo=googlechrome&logoColor=white&label=Chrome) |
+| [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/klkhmcdcnnhggpiipgedlafhpobojpgl) | ![Edge 版本](https://img.shields.io/badge/dynamic/json?label=Edge&prefix=v&query=%24.version&url=https%3A%2F%2Fmicrosoftedge.microsoft.com%2Faddons%2Fgetproductdetailsbycrxid%2Fklkhmcdcnnhggpiipgedlafhpobojpgl&style=for-the-badge) |
+| [Firefox Add-ons](https://addons.mozilla.org/zh-CN/firefox/addon/downlink/) | ![Firefox 版本](https://img.shields.io/amo/v/downlink?style=for-the-badge&logo=firefoxbrowser&logoColor=white&label=Firefox) |
+
+### 本地加载（开发模式）
+
+Chromium 内核浏览器（Chrome / Edge）：
+
+1. 打开扩展管理页面（`chrome://extensions` 或 `edge://extensions`）
+2. 开启“开发者模式”
+3. 点击“加载已解压的扩展程序”，选择 `dist/chromium` 目录（或项目根目录）
+
+Firefox：
+
+1. 打开 `about:debugging#/runtime/this-firefox`
+2. 点击“临时载入附加组件”
+3. 选择 `dist/firefox/manifest.json`
+
+## 构建
+
+构建需要 Node.js 20+ 和 `zip` 命令行工具；项目没有第三方 npm 依赖，无需执行 `npm install`。
+
+### 打包命令
+
+```bash
+npm run package:chromium   # 产物：dist/downlink-vX.Y.Z-chromium.zip
+npm run package:firefox    # 产物：dist/downlink-vX.Y.Z-firefox.zip
+npm run package:all        # 同时构建 Chromium 与 Firefox
+```
+
+开发模式使用 watch 构建，改动后自动重新生成，不产出 zip：
+
+```bash
+npm run dev                # 同时监听 Chromium 与 Firefox
+npm run dev:chromium       # 仅 Chromium，输出到 dist/chromium
+npm run dev:firefox        # 仅 Firefox，输出到 dist/firefox
+```
+
+### Firefox 附加组件 ID
+
+Firefox 打包默认使用自托管 ID `downlink@winapps.cc`。如需打包 AMO 商店版，指定另一个 ID 以避免冲突：
+
+```bash
+FIREFOX_ADDON_ID="downlink-amo@winapps.cc" npm run package:firefox
+```
+
+Firefox 构建版会自动添加 `webRequestBlocking` 权限，并将主机权限收窄到 http/https 与本地回环地址（详见“权限说明”）。
+
+### Safari / macOS 构建
+
+本地构建 Safari Web Extension 宿主 App：
+
+```bash
+npm run safari:build
+```
+
+该命令会先执行 `safari:check` 校验共享资源与版本一致性，再使用 Xcode 构建 Release 版本。需要可用的 Apple 签名配置；如只需验证工程能否编译，可禁用代码签名：
+
+```bash
+CODE_SIGNING_ALLOWED=NO npm run safari:build
+```
+
+Safari 工程位于 `safari/Downlink/Downlink.xcodeproj`，构建产物目录为 `dist/safari/DerivedData`。
+
+## 脚本
+
+### npm 脚本
+
+| 命令 | 说明 |
+| --- | --- |
+| `npm test` | 运行测试（`node --test`） |
+| `npm run dev` | 同时监听构建 Chromium 与 Firefox（不生成 zip） |
+| `npm run dev:chromium` | 仅监听构建 Chromium，输出 `dist/chromium` |
+| `npm run dev:firefox` | 仅监听构建 Firefox，输出 `dist/firefox` |
+| `npm run package:release` / `package:all` | 同时打包 Chromium 与 Firefox 的 zip |
+| `npm run package:chromium` | 打包 Chromium zip |
+| `npm run package:firefox` | 打包 Firefox zip |
+| `npm run safari:sync` | 将共享扩展资源同步到 Safari 工程，并同步各端版本号 |
+| `npm run safari:check` | 只读预检：检查 Safari 资源与版本是否漂移 |
+| `npm run safari:build` | 预检通过后执行 Xcode Release 构建 |
+
+### 同步脚本
+
+- `npm run safari:sync`：把根目录的共享资源（脚本、页面、图标、语言包等）复制到 `safari/Downlink/Downlink Extension/Resources`，同步 `manifest.json`、`package.json`、Safari manifest 与 Xcode 工程中的版本号，并确保 Safari 的 JavaScript 文件带 UTF-8 BOM。Safari 专属文件不会被覆盖。
+- `npm run safari:check`：只读检查以上内容是否一致，供 CI 或发布前使用；有漂移时提示运行 `npm run safari:sync` 修复。
+- `node scripts/sync-versions.mjs --check`：单独检查各端版本号是否与根 `manifest.json` 一致。
+- `node scripts/generate-firefox-update-manifest.mjs <xpi路径> <输出路径>`：为 Firefox 自托管生成 `updates.json` 更新清单（含 SHA-256 哈希），由 GitHub Release 工作流调用。
+
 ## 自动发布
 
-仓库现在拆成了 4 个独立工作流：
+仓库拆分为 4 个独立工作流：
 
-- `GitHub Release`：推送 `v*` 格式的 tag 时自动生成压缩包并上传 Release
-- `Publish to Edge Add-ons`：推送 `v*` 格式的 tag 时自动提交到 Edge
-- `Publish to Chrome Web Store`：手动触发，使用你指定的 tag 或 commit
-- `Publish to Firefox Add-ons`：手动触发，使用你指定的 tag 或 commit，并提交 AMO 公开上架版本
+| 工作流 | 触发方式 | 说明 |
+| --- | --- | --- |
+| GitHub Release | 推送 `v*` tag | 运行测试并打包上传 Chromium 包到 Release，随后签名 Firefox 自托管 XPI 并一并上传 |
+| Publish to Chrome Web Store | 手动触发（输入 tag 或 commit） | 按指定 ref 打包并提交 Chrome Web Store |
+| Publish to Edge Add-ons | 手动触发（输入 tag） | 按指定 tag 打包并提交 Edge Add-ons |
+| Publish to Firefox Add-ons | 手动触发（输入 tag 或 commit，可附审核备注） | 按指定 ref 打包并以 AMO 公开上架（listed）渠道提交 |
 
-`GitHub Release` 会额外上传 Firefox 自托管更新文件：
+`GitHub Release` 除 Chromium 包外，还会上传 Firefox 自托管更新文件：
 
 - `downlink-vX.Y.Z-firefox.xpi`
 - `downlink-firefox-updates.json`
-
-Firefox 自托管版本默认使用附加组件 ID `downlink@winapps.cc`。如果要手动打包 AMO 公开商店版，避免和自托管提交的 ID 冲突，需要指定另一个 ID：
-
-```bash
-FIREFOX_ADDON_ID="downlink-amo@winapps.cc" node scripts/package-extension.mjs firefox
-```
-
-`Publish to Firefox Add-ons` workflow 默认使用 `downlink-amo@winapps.cc`，也可以通过 GitHub Variables 的 `FIREFOX_LISTED_ADDON_ID` 覆盖。
 
 发布前需要在 GitHub Secrets 中配置：
 
@@ -75,7 +179,9 @@ FIREFOX_ADDON_ID="downlink-amo@winapps.cc" node scripts/package-extension.mjs fi
 - `AMO_JWT_ISSUER`
 - `AMO_JWT_SECRET`
 
-tag 版本需要和 `manifest.json` 里的 `version` 保持一致，例如 `v1.0.3` 对应 `manifest.json` 中的 `1.0.3`。
+可通过 GitHub Variables 配置 `FIREFOX_LISTED_ADDON_ID` 覆盖 Firefox 商店版的附加组件 ID，默认值为 `downlink-amo@winapps.cc`。
+
+tag 版本必须与 `manifest.json` 中的 `version` 一致，例如 tag `v1.3.10` 对应 `manifest.json` 中的 `1.3.10`。
 
 ## 基本使用
 
@@ -131,7 +237,7 @@ Downlink 会通过 Gopeed HTTP API 发送 `POST /api/v1/tasks`。浏览器拦截
 
 - `ws://127.0.0.1:10007/download`
 
-适合本地已运行 NeatDM 接收服务的场景。Neat DM 不开放端口配置。
+适合本地已运行 NeatDM 接收服务的场景。Neat Download Manager 不开放端口配置。
 浏览器拦截和右键菜单都会直接发送到 NeatDM，不经过扩展的确认面板。
 
 ## 媒体捕获
@@ -140,41 +246,35 @@ Downlink 会监听页面中的音频和视频请求，并在媒体面板中展�
 
 ## 权限说明
 
-扩展当前使用的权限包括：
+Chromium 构建（Chrome / Edge）当前使用的权限来自根目录 `manifest.json`：
 
-- `downloads`
-- `storage`
-- `notifications`
-- `tabs`
-- `webRequest`
-- `contextMenus`
-- `declarativeNetRequest`
-- `<all_urls>` 主机权限
+- `downloads`：接管浏览器确认的下载任务，处理文件名与下载事件
+- `storage`：保存扩展设置（同步/本地存储）
+- `notifications`：下载或连接失败时弹出提醒
+- `tabs`：获取来源标签页、打开下载器管理页面、跟踪任务状态
+- `webRequest`：识别下载响应、捕获 Cookie / Referer / 鉴权头等关键请求头
+- `contextMenus`：右键菜单“用当前下载器下载”
+- `declarativeNetRequest`：为媒体预览与元数据探测请求临时补头（会话级规则，不持久化）
+- 主机权限 `<all_urls>`：匹配任意站点的请求，用于下载识别与媒体捕获
 
-这些权限主要用于下载接管、请求识别、媒体捕获、状态展示和右键菜单操作。
+Firefox 构建版由打包脚本自动调整：
 
-## Safari / macOS 构建
+- 额外添加 `webRequestBlocking`，用于在 Firefox 中拦截和取消请求
+- 主机权限收窄为 `http://*/*`、`https://*/*`、`*://127.0.0.1/*`、`*://localhost/*` 及对应的 `ws://` 地址
 
-本地构建 Safari Web Extension 宿主 App：
-
-```bash
-npm run safari:build
-```
-
-该命令会先同步共享扩展资源，再使用 Xcode 构建 Release 版本。需要可用的 Apple 签名配置；如只需验证工程能否编译，可禁用代码签名：
-
-```bash
-CODE_SIGNING_ALLOWED=NO npm run safari:build
-```
-
-Safari 工程位于 `safari/Downlink/Downlink.xcodeproj`，构建产物目录为 `dist/safari/DerivedData`。
+Safari 工程使用独立的清单 `safari/Downlink/Downlink Extension/Resources/manifest.json`，权限集合与 Chromium 版略有差异（包含 `nativeMessaging`、`scripting`、`cookies`、`webNavigation` 等 Safari 所需权限），以该文件为准。
 
 ## 项目结构
 
-- `manifest.json`：扩展清单
+- `manifest.json`：扩展清单（Chromium / Firefox 共用，打包时按目标调整）
 - `background.js`：后台逻辑、下载转发、请求捕获
-- `popup.html` / `popup.js`：扩展弹窗 UI
+- `content-script.js`：页面注入脚本
+- `popup.html` / `popup.js` / `popup-app.js`：扩展弹窗 UI
 - `preview.html` / `preview.js`：媒体预览页面
+- `aria2-tasks.html` / `aria2-tasks.js`：Aria2 任务管理页
+- `lib/`：配置默认值、下载器适配、媒体捕获、i18n 等共享模块
+- `scripts/`：打包、同步、版本校验与发布脚本
+- `safari/`：Safari Web Extension 宿主工程
 - `icons/`：扩展图标
 
 ## 许可证
