@@ -44,6 +44,9 @@ const MACOS_TAG_COLORS = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#007aff',
 
 function normalizePopupConfig(cfg = {}) {
   const next = { ...POPUP_DEFAULT_CONFIG, ...(cfg || {}) };
+  next.aria2Rpc = globalThis.Aria2Rpc?.normalizeRpcEndpoint
+    ? globalThis.Aria2Rpc.normalizeRpcEndpoint(next.aria2Rpc)
+    : String(next.aria2Rpc || POPUP_DEFAULT_CONFIG.aria2Rpc).trim() || POPUP_DEFAULT_CONFIG.aria2Rpc;
   next.aria2CustomSaveEnabled = !!next.aria2CustomSaveEnabled;
   next.aria2SaveLocations = normalizeAria2SaveLocations(next.aria2SaveLocations);
   next.externalLauncherHost = 'localhost';

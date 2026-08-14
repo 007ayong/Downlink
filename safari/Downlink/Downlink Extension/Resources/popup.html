@@ -254,6 +254,35 @@
     .empty-title { font-size: 12px; font-weight: 500; color: var(--text-3); }
     .empty-sub { font-size: 11px; }
 
+    /* ── Tasks toolbar ───────────────────────── */
+    .tasks-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding: 2px 0 8px;
+    }
+    .tasks-toolbar .btn {
+      font-size: 12px;
+      padding: 4px 10px;
+      border: 1px solid var(--border);
+      background: var(--bg3);
+      color: var(--text-2);
+      border-radius: 7px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+    .tasks-toolbar .btn:hover {
+      background: var(--bg4);
+      color: var(--text);
+    }
+    .tasks-toolbar .btn svg {
+      width: 13px;
+      height: 13px;
+    }
+
     .task-alert {
       display: none;
       margin-bottom: 8px;
@@ -1585,6 +1614,14 @@
 
 <!-- Panel: Tasks -->
 <div class="panel active" id="panel-tasks">
+  <div class="tasks-toolbar">
+    <button type="button" class="btn" id="openAria2TasksBtn" title="打开 Aria2 任务管理页" data-i18n-title="openAria2TasksTitle">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path fill="currentColor" d="M1 2.75C1 1.78 1.78 1 2.75 1h10.5c.97 0 1.75.78 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75Zm7.25.75v9h2.5v-9h-2.5ZM5.75 6.5v6h2.5v-6h-2.5Z"/>
+      </svg>
+      <span data-i18n="openAria2Tasks">任务管理</span>
+    </button>
+  </div>
   <div class="task-alert" id="taskAlert"></div>
   <div class="empty" id="tasksEmpty">
     <div class="empty-icon">
@@ -1797,6 +1834,7 @@
 
   <script src="filename-logic.js"></script>
   <script src="lib/config-defaults.js"></script>
+  <script src="lib/aria2-rpc.js"></script>
   <script src="lib/i18n.js"></script>
   <script src="lib/popup-ui.js"></script>
   <script src="lib/popup-settings.js"></script>

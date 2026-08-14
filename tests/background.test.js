@@ -2983,6 +2983,45 @@ test('Aria2 silent intercepted downloads send immediately', async () => {
   assert.equal(state.tasks['gid-1']?.filename, 'file.zip');
 });
 
+test('Aria2 silent downloads omit dir when custom save locations are disabled', async () => {
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://localhost:6800/jsonrpc',
+      autoCapture: true,
+      aria2Silent: true,
+      aria2CustomSaveEnabled: false,
+      aria2SaveLocations: [
+        { name: '旧位置', path: '/downloads/old-custom', color: '#ff9500' },
+      ],
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async (_url, options) => {
+        requestBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            return { result: 'gid-default-dir' };
+          },
+        };
+      },
+    }
+  );
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/file.zip',
+    filename: 'file.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.equal(requestBody.method, 'aria2.addUri');
+  assert.equal(Object.hasOwn(requestBody.params[1], 'dir'), false);
+});
+
 test('Aria2 pending confirmation forwards single threaded override options', async () => {
   let requestBody = null;
   const background = loadBackgroundRuntime(
@@ -4337,6 +4376,89 @@ test('AB DM connection test uses localhost host and incoming port override', asy
   assert.equal(result.ok, false);
   assert.equal(result.mode, 'abdownload');
   assert.equal(result.error, '与 AB DM 连接失败，检查 AB DM 是否正在运行');
+});
+
+test('ARIA2_RPC proxy forwards whitelisted methods and rejects others', async () => {
+  let lastRpcBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://localhost:6800/jsonrpc',
+      aria2Secret: '',
+    },
+    {
+      fetch: async (_url, options) => {
+        lastRpcBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            if (lastRpcBody.method === 'aria2.tellActive') {
+              return {
+                result: [
+                  {
+                    gid: 'mgr-active-1',
+                    status: 'active',
+                    totalLength: '1000',
+                    completedLength: '500',
+                    downloadSpeed: '1024',
+                    files: [{ path: '/dl/movie.mp4', uris: [{ uri: 'https://example.com/movie.mp4' }] }],
+                  },
+                ],
+              };
+            }
+            if (lastRpcBody.method === 'aria2.getGlobalStat') {
+              return { result: { numActive: '1', numWaiting: '2', numStopped: '3', downloadSpeed: '1024' } };
+            }
+            if (lastRpcBody.method === 'aria2.addUri') {
+              return { result: 'new-gid-1' };
+            }
+            if (lastRpcBody.method === 'aria2.getOption') {
+              return { result: { 'max-overall-download-limit': '5242880' } };
+            }
+            if (lastRpcBody.method === 'aria2.changeGlobalOption') {
+              return { result: 'OK' };
+            }
+            throw new Error(`unexpected rpc method ${lastRpcBody.method}`);
+          },
+        };
+      },
+    }
+  );
+
+  const active = await invokeBackgroundMessage(background, { type: 'ARIA2_RPC', method: 'tellActive' });
+  assert.equal(active.ok, true);
+  assert.equal(active.result[0].gid, 'mgr-active-1');
+  assert.equal(active.result[0].status, 'active');
+  assert.equal(lastRpcBody.method, 'aria2.tellActive');
+
+  const stat = await invokeBackgroundMessage(background, { type: 'ARIA2_RPC', method: 'getGlobalStat', params: [] });
+  assert.equal(stat.ok, true);
+  assert.equal(stat.result.numActive, '1');
+  assert.equal(stat.result.numWaiting, '2');
+
+  const redownload = await invokeBackgroundMessage(background, {
+    type: 'ARIA2_RPC',
+    method: 'addUri',
+    params: [['https://example.com/movie.mp4'], {}],
+  });
+  assert.equal(redownload.ok, true);
+  assert.equal(redownload.result, 'new-gid-1');
+  assert.deepEqual(lastRpcBody.params, [['https://example.com/movie.mp4'], {}]);
+
+  const speedLimit = await invokeBackgroundMessage(background, {
+    type: 'ARIA2_RPC',
+    method: 'changeGlobalOption',
+    params: [{ 'max-overall-download-limit': '5242880' }],
+  });
+  assert.equal(speedLimit.ok, true);
+
+  const options = await invokeBackgroundMessage(background, { type: 'ARIA2_RPC', method: 'getOption' });
+  assert.equal(options.ok, true);
+  assert.equal(options.result['max-overall-download-limit'], '5242880');
+
+  const blocked = await invokeBackgroundMessage(background, { type: 'ARIA2_RPC', method: 'system.listMethods' });
+  assert.equal(blocked.ok, false);
+  assert.match(blocked.error, /Unsupported aria2 method/);
 });
 
 test('MotrixNext connection test validates the incoming secret through stat endpoint', async () => {

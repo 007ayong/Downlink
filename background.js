@@ -1142,6 +1142,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     syncMediaSniffingStateForActiveTabs().then(() => {
       broadcastUpdate();
     }).catch(() => {});
+  } else if (changes.aria2CustomSaveEnabled || changes.aria2SaveLocations) {
+    broadcastUpdate();
   }
 });
 
@@ -1207,6 +1209,25 @@ async function openGopeedView() {
 }
 
 const BROADCAST_UPDATE_DELAY_MS = 60;
+const ARIA2_MANAGER_METHODS = new Set([
+  'getGlobalStat',
+  'tellActive',
+  'tellWaiting',
+  'tellStopped',
+  'tellStatus',
+  'pause',
+  'pauseAll',
+  'unpause',
+  'unpauseAll',
+  'remove',
+  'forceRemove',
+  'purgeDownloadResult',
+  'removeDownloadResult',
+  'changeGlobalOption',
+  'getGlobalOption',
+  'addUri',
+  'getOption',
+]);
 let broadcastUpdateTimer = null;
 const pendingMediaBroadcastTabs = new Set();
 
@@ -2076,6 +2097,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       case 'OPEN_GOPEED_VIEW':
         sendResponse(await openGopeedView());
+        break;
+      case 'ARIA2_RPC':
+        {
+          const method = String(msg.method || '');
+          if (!ARIA2_MANAGER_METHODS.has(method)) {
+            sendResponse({ ok: false, error: `Unsupported aria2 method: ${method}` });
+            break;
+          }
+          try {
+            const result = await aria2Call(method, Array.isArray(msg.params) ? msg.params : [], msg.config);
+            sendResponse({ ok: true, result });
+          } catch (error) {
+            sendResponse({ ok: false, error: error?.message || String(error) });
+          }
+        }
         break;
     }
   })();

@@ -821,6 +821,7 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
   const isGopeed = type === 'gopeed';
   const isNeatdm = type === 'neatdm';
   const showAria2SaveLocations = isAria2 && !!currentConfig.aria2CustomSaveEnabled;
+  document.querySelectorAll('.tasks-toolbar').forEach((el) => el.classList.toggle('settings-hidden', !isAria2));
   document.querySelectorAll('.aria2-only').forEach((el) => el.classList.toggle('settings-hidden', !isAria2));
   document.querySelectorAll('.aria2-custom-save-control').forEach((el) => {
     const toggle = el.querySelector('#cfgAria2CustomSaveEnabled');
@@ -1791,6 +1792,15 @@ document.getElementById('clearMediaBtn').addEventListener('click', () => {
     lastAutoSwitchedMediaCount = 0;
     syncPopupGlobals();
     showToast(popupAppT('clearedCurrentPageMedia', undefined, '已清空当前页面媒体列表'));
+  });
+});
+
+document.getElementById('openAria2TasksBtn').addEventListener('click', () => {
+  const url = chrome.runtime.getURL('aria2-tasks.html');
+  chrome.tabs.create({ url }, () => {
+    if (chrome.runtime.lastError) {
+      showToast(chrome.runtime.lastError.message || popupAppT('openFailed', [popupAppT('openAria2Tasks', undefined, '任务管理')], `打开失败：${popupAppT('openAria2Tasks', undefined, '任务管理')}`));
+    }
   });
 });
 
