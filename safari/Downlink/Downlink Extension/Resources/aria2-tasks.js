@@ -969,7 +969,16 @@
     if (!task) {
       $('detailTitle').textContent = T.selectTaskHint;
       panel.classList.remove('open');
+      // Move focus out before hiding: aria-hidden on an ancestor of the
+      // focused element breaks the accessibility tree and is blocked by the
+      // browser ("Blocked aria-hidden on an element because its descendant
+      // retained focus"). The panel stays visible during its close transition,
+      // so the close button can still hold focus here; send it somewhere safe.
+      if (panel.contains(document.activeElement)) {
+        $('searchInput')?.focus();
+      }
       panel.setAttribute('aria-hidden', 'true');
+      panel.inert = true; // belt-and-suspenders: also prevents focus from entering the hidden panel
       workspace.classList.remove('has-detail');
       return;
     }
@@ -977,6 +986,7 @@
     workspace.classList.add('has-detail');
     panel.classList.add('open');
     panel.setAttribute('aria-hidden', 'false');
+    panel.inert = false;
     $('detailTitle').textContent = task.name;
 
     const section = (label) => {
