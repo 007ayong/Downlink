@@ -333,11 +333,6 @@
       min-width: 0;
     }
     .task-row:hover { background: var(--bg3); }
-    .task-row.selected {
-      background: var(--accent-bg);
-      border-color: var(--accent-bd);
-    }
-    .task-row.checked { border-color: var(--accent-bd); }
     .task-select {
       position: relative;
       width: 18px;
@@ -1021,16 +1016,30 @@
     .settings-view { display: none; flex: 1 1 0; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); contain: layout paint; }
     .settings-frame { width: 100%; height: 100%; min-height: 0; display: block; border: 0; background: var(--bg); }
     body.settings-mode .workspace > .toolbar,
+    body.settings-mode .workspace > .task-actions-bar,
     body.settings-mode .workspace > .alert,
     body.settings-mode .workspace > .main,
     body.settings-mode > .footer { display: none; }
     body.settings-mode #settingsView { display: block; }
     body.create-task-mode .workspace > .toolbar,
+    body.create-task-mode .workspace > .task-actions-bar,
     body.create-task-mode .workspace > .alert,
     body.create-task-mode .workspace > .main,
     body.create-task-mode > .footer { display: none; }
     body.create-task-mode #createTaskView { display: block; }
     .workspace .alert { margin: 10px 18px 0; }
+    .task-actions-bar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 64px;
+      padding: 0 20px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+    }
+    .task-actions-title { color: var(--text); font-size: 16px; font-weight: 700; }
+    .task-actions-bar .queue-actions { margin-left: auto; margin-right: 0; }
     .toolbar { height: 76px; padding: 0 22px; background: var(--bg); border-bottom: 1px solid var(--border); }
     .toolbar::before { content: '任务队列'; color: var(--text); font-size: 16px; font-weight: 700; }
     .toolbar .search { display: none; }
@@ -1055,15 +1064,6 @@
     .task-table { gap: 10px; }
     .task-row { min-height: 98px; gap: 14px; padding: 14px; background: var(--bg2); border-color: var(--border); border-radius: 12px; transform: none !important; }
     .task-row:hover { background: var(--bg2); border-color: var(--accent-bd); }
-    .task-row.selected,
-    .task-row.selected:hover {
-      background: var(--accent-bg);
-      border-color: var(--accent-bd);
-    }
-    .task-row.selected .task-icon {
-      background: var(--bg2);
-      border: 1px solid var(--accent-bd);
-    }
     .task-icon { width: 52px; height: 52px; border-radius: 12px; background: var(--accent-bg); border: 0; }
     .task-icon img { width: 32px; height: 32px; }
     .task-info { align-self: stretch; justify-content: center; gap: 7px; }
@@ -1148,7 +1148,19 @@
 
     /* Reference queue layout: compact filter strip and balanced task cards. */
     .main { padding: 12px 20px 18px; }
-    .list-panel { min-width: 0; overflow-y: auto; }
+    .list-panel {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      gap: 0;
+      padding: 0 18px 18px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+    }
     .queue-header {
       display: flex;
       align-items: center;
@@ -1164,58 +1176,102 @@
     .queue-actions .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
     .queue-actions .btn.danger { color: var(--red); background: transparent; border-color: transparent; }
     .list-meta { padding: 0 2px 8px; }
-    .task-table { gap: 8px; }
+    .task-table {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+      gap: 0;
+    }
+    .task-table-header {
+      position: relative;
+      top: auto;
+      flex: 0 0 auto;
+      z-index: 4;
+      display: grid;
+      grid-template-columns: 18px 52px minmax(190px, 1fr) minmax(190px, 280px) minmax(88px, 104px) 62px 16px 96px;
+      align-items: center;
+      column-gap: 12px;
+      min-height: 44px;
+      padding: 9px 15px 10px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg2);
+      box-shadow: none;
+      color: var(--text-2);
+      font-size: 12.5px;
+      font-weight: 650;
+      letter-spacing: 0;
+      line-height: 1.35;
+      white-space: nowrap;
+    }
+    .task-header-name { grid-column: 3; }
+    .task-header-progress { grid-column: 4; }
+    .task-header-speed { grid-column: 5; justify-self: center; text-align: center; }
+    .task-header-status { grid-column: 6; justify-self: center; text-align: center; }
+    .task-header-actions { grid-column: 8; justify-self: center; text-align: center; }
     .task-row {
       display: grid;
-      grid-template-columns: 18px 52px minmax(190px, 1fr) minmax(100px, 120px) 62px auto;
+      grid-template-columns: 18px 52px minmax(190px, 1fr) minmax(190px, 280px) minmax(88px, 104px) 62px 16px 96px;
       align-items: center;
       column-gap: 12px;
       min-height: 88px;
       padding: 13px 15px;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: var(--bg2);
+      border: 0;
+      border-bottom: 1px solid var(--border);
+      border-radius: 0;
+      background: transparent;
       box-shadow: none;
       transform: none !important;
     }
-    .task-row:hover { background: var(--bg2); border-color: var(--accent-bd); }
+    .task-row:last-child { border-bottom: 0; }
+    .task-row:hover { background: var(--bg3); border-color: transparent; }
     .task-row.selected,
-    .task-row.selected:hover { background: var(--accent-bg); border-color: var(--accent-bd); }
-    .task-row.checked { border-color: var(--accent-bd); }
-    .task-row .task-icon,
-    .task-row.selected .task-icon { width: 48px; height: 48px; border-radius: 12px; background: transparent; border: 0; box-shadow: none; }
+    .task-row.selected:hover {
+      background: var(--accent-bg);
+      border-color: transparent;
+      border-bottom-color: var(--border);
+    }
+    .task-row .task-icon { width: 48px; height: 48px; border-radius: 12px; background: transparent; border: 0; box-shadow: none; }
     .task-icon img { width: 100%; height: 100%; object-fit: contain; }
     .task-info { align-self: stretch; justify-content: center; gap: 6px; }
     .task-name { font-size: 13.5px; }
     .task-sub { font-size: 11.5px; }
     .task-sub:empty { display: none; }
-    .task-progress { width: 100%; max-width: 300px; min-width: 0; gap: 7px; margin-top: 2px; }
+    .task-progress { width: 100%; max-width: none; min-width: 0; gap: 7px; margin-top: 0; }
     .progress-track { height: 6px; background: var(--bg3); }
     .progress-meta { font-size: 11.5px; }
     .progress-meta .eta { color: var(--text-2); white-space: nowrap; }
-    .task-traffic { display: flex; flex-direction: column; gap: 7px; min-width: 0; font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .task-traffic { display: flex; flex-direction: column; align-items: center; justify-self: center; gap: 7px; min-width: 0; font-size: 11.5px; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
     .traffic-down { color: var(--blue); }
     .traffic-up { color: var(--green); }
-    .status-badge { width: auto; min-width: 58px; padding: 5px 7px; border-radius: 8px; }
-    .task-actions { display: inline-flex; gap: 4px; justify-content: flex-end; }
+    .status-badge { justify-self: center; width: 62px; min-width: 62px; padding: 5px 0; border-radius: 8px; text-align: center; }
+    .task-actions { grid-column: 8; display: inline-flex; gap: 4px; justify-content: center; justify-self: center; }
     .icon-btn { width: 28px; height: 28px; background: transparent; }
     .icon-btn:hover { background: var(--bg3); }
 
     @media (max-width: 1280px) {
       .queue-header { align-items: flex-start; flex-direction: column; }
-      .queue-actions { width: 100%; }
-      .queue-actions { justify-content: flex-start; }
-      .task-row { grid-template-columns: 18px 48px minmax(180px, 1fr) 92px 58px auto; column-gap: 10px; }
+      .queue-header .queue-actions { width: 100%; justify-content: flex-start; }
+      .task-table-header { grid-template-columns: 18px 48px minmax(150px, 1fr) minmax(170px, 220px) 84px 58px 14px 96px; column-gap: 10px; }
+      .task-row { grid-template-columns: 18px 48px minmax(150px, 1fr) minmax(170px, 220px) 84px 58px 14px 96px; column-gap: 10px; }
+      .status-badge { width: 58px; min-width: 58px; }
     }
     @media (max-width: 860px) {
+      .task-actions-bar { min-height: 54px; padding: 10px 12px; overflow-x: auto; }
+      .task-actions-title { display: none; }
+      .task-actions-bar .queue-actions { width: max-content; flex-shrink: 0; }
       .queue-header { gap: 9px; padding-bottom: 10px; }
       .queue-actions { justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; }
+      .list-panel { min-height: auto; overflow: visible; padding: 0 12px 12px; border-radius: 12px; }
+      .task-table { flex: 0 0 auto; overflow: visible; scrollbar-gutter: auto; }
+      .task-table-header { display: none; }
       .task-row { grid-template-columns: 18px 44px minmax(0, 1fr) auto; row-gap: 9px; column-gap: 10px; min-height: 0; padding: 12px; }
       .task-info, .task-progress { grid-column: 3 / 5; }
       .task-progress { max-width: none; }
       .task-traffic { grid-column: 3 / 4; }
       .status-badge { grid-column: 4; justify-self: end; }
-      .task-actions { grid-column: 1 / 5; justify-content: flex-end; }
+      .task-actions { grid-column: 1 / 5; justify-self: stretch; justify-content: flex-end; }
     }
 
     /* Keep the live RPC connection state in the sidebar. */
@@ -1324,7 +1380,7 @@
         </div>
       </div>
       <label class="search">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.5 1a5.5 5.5 0 0 1 4.38 8.82l3.65 3.65a.75.75 0 1 1-1.06 1.06l-3.65-3.65A5.5 5.5 0 1 1 6.5 1Zm0 1.5a4 4 0 1 0 0 8 4 4 0 0 1 0-8Z"/></svg>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M6.5 1a5.5 5.5 0 0 1 4.38 8.82l3.65 3.65a.75.75 0 1 1-1.06 1.06l-3.65-3.65A5.5 5.5 0 1 1 6.5 1Zm0 1.5a4 4 0 1 0 0 8a4 4 0 0 0 0-8Z"/></svg>
         <input id="searchInput" type="search" placeholder="搜索文件名 / GID / 路径…" data-l10n-placeholder="searchPlaceholder"/>
       </label>
     </div>
@@ -1343,7 +1399,7 @@
       <div class="sidebar-utility">
       <button class="sidebar-link sidebar-connection" id="rpcConnectionLink" type="button" aria-controls="settingsView" aria-label="RPC 连接状态">
         <span class="connection-title">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.2 9.8 4.7 11.3a2.12 2.12 0 0 1-3-3l1.5-1.5a2.12 2.12 0 0 1 3 0 .75.75 0 0 1-1.06 1.06.62.62 0 0 0-.88 0l-1.5 1.5a.62.62 0 0 0 .88.88l1.5-1.5a.75.75 0 1 1 1.06 1.06Zm3.6-3.6 1.5-1.5a.62.62 0 0 0-.88-.88l-1.5 1.5a.75.75 0 1 1-1.06-1.06l1.5-1.5a2.12 2.12 0 0 1 3 3l-1.5 1.5a.75.75 0 1 1-1.06-1.06Zm-4.03 3.03a.75.75 0 0 1 0-1.06l4.12-4.12a.75.75 0 0 1 1.06 1.06L6.83 9.23a.75.75 0 0 1-1.06 0Z"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
           <span data-l10n="rpcConnection">RPC 连接</span>
         </span>
         <span class="connection-state">
@@ -1351,7 +1407,7 @@
           <span class="connection-label" id="statusText">检测中…</span>
         </span>
       </button>
-      <button class="sidebar-link" id="globalSettingsBtn"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.83 1.62a1.25 1.25 0 0 1 2.34 0l.22.67c.1.29.38.48.69.48h.7a1.25 1.25 0 0 1 1.17 1.62l-.22.67a.73.73 0 0 0 .25.82l.57.41a1.25 1.25 0 0 1 0 2.02l-.57.41a.73.73 0 0 0-.25.82l.22.67a1.25 1.25 0 0 1-1.17 1.62h-.7c-.31 0-.59.19-.69.48l-.22.67a1.25 1.25 0 0 1-2.34 0l-.22-.67a.73.73 0 0 0-.69-.48h-.7a1.25 1.25 0 0 1-1.17-1.62l.22-.67a.73.73 0 0 0-.25-.82l-.57-.41a1.25 1.25 0 0 1 0-2.02l.57-.41a.73.73 0 0 0 .25-.82l-.22-.67a1.25 1.25 0 0 1 1.17-1.62h.7c.31 0 .59-.19.69-.48l.22-.67ZM8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5 2.5 2.5 0 0 0 0-5Zm0 1.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"/></svg><span data-l10n="globalSettings">全局设置</span></button>
+      <button class="sidebar-link" id="globalSettingsBtn" type="button" aria-controls="settingsView"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg><span data-l10n="globalSettings">全局设置</span></button>
       </div>
       <div class="sidebar-bottom">
         <button class="collapse-hint" id="sidebarToggleBtn" type="button" aria-expanded="true" title="收起侧边栏">
@@ -1369,22 +1425,23 @@
   </section>
   <div class="alert" id="alert"></div>
 
+  <div class="task-actions-bar">
+    <span class="task-actions-title" data-l10n="queueTitle">任务队列</span>
+    <div class="queue-actions">
+      <button class="btn" id="pauseAllBtn" data-l10n="pauseAll">全部暂停</button>
+      <button class="btn" id="resumeAllBtn" data-l10n="resumeAll">全部继续</button>
+      <button class="btn danger" id="purgeBtn" data-l10n="purgeAll">清除已完成</button>
+      <button class="btn primary" id="refreshBtn" data-l10n="refresh">刷新</button>
+    </div>
+  </div>
   <main class="main" id="taskWorkspace">
     <section class="list-panel">
-      <div class="queue-header">
-        <div class="queue-actions">
-          <button class="btn" id="pauseAllBtn" data-l10n="pauseAll">全部暂停</button>
-          <button class="btn" id="resumeAllBtn" data-l10n="resumeAll">全部继续</button>
-          <button class="btn danger" id="purgeBtn" data-l10n="purgeAll">清除已完成</button>
-          <button class="btn primary" id="refreshBtn" data-l10n="refresh">刷新</button>
-        </div>
-      </div>
-      <div class="list-meta">
-        <div class="list-meta-primary">
-          <span id="listCount"></span>
-          <span class="selection-summary" id="selectionSummary" aria-live="polite"></span>
-        </div>
-        <span class="muted" id="lastUpdated"></span>
+      <div class="task-table-header" aria-hidden="true">
+        <span class="task-header-name" data-l10n="fileNameColumn">文件名</span>
+        <span class="task-header-progress" data-l10n="progressColumn">下载进度</span>
+        <span class="task-header-speed" data-l10n="speedColumn">速度</span>
+        <span class="task-header-status" data-l10n="stateColumn">状态</span>
+        <span class="task-header-actions" data-l10n="actionsColumn">操作</span>
       </div>
       <div class="task-table" id="taskList"></div>
     </section>

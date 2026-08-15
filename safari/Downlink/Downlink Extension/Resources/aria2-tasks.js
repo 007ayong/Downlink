@@ -26,12 +26,17 @@
       filterPaused: '已暂停',
       filterStopped: '已完成',
       searchPlaceholder: '搜索文件名 / GID / 路径…',
+      queueTitle: '任务队列',
+      fileNameColumn: '文件名',
+      progressColumn: '下载进度',
+      speedColumn: '速度',
+      stateColumn: '状态',
+      actionsColumn: '操作',
       purgeAll: '清除已完成',
       pauseAll: '全部暂停',
       resumeAll: '全部继续',
       bulkPause: '批量暂停',
       bulkResume: '批量启用',
-      selectedCount: '已选 $1 项',
       bulkDone: '已处理 $1 个任务',
       noEligibleSelected: '所选任务没有可执行此操作的项目',
       refresh: '刷新',
@@ -63,9 +68,6 @@
       close: '关闭',
       selectTaskHint: '选择一个任务查看详情',
       selectTask: '选择任务',
-      listCount: '共 $1 个任务',
-      listCountEmpty: '没有符合条件的任务',
-      lastUpdated: '更新于 $1',
       emptyTitle: '暂无任务',
       emptySub: '任务会实时显示在这里',
       loadFailed: '无法连接 Aria2 RPC：$1',
@@ -144,12 +146,17 @@
       filterPaused: 'Paused',
       filterStopped: 'Stopped',
       searchPlaceholder: 'Search name / GID / path…',
+      queueTitle: 'Task queue',
+      fileNameColumn: 'File name',
+      progressColumn: 'Progress',
+      speedColumn: 'Speed',
+      stateColumn: 'Status',
+      actionsColumn: 'Actions',
       purgeAll: 'Clear stopped',
       pauseAll: 'Pause all',
       resumeAll: 'Resume all',
       bulkPause: 'Pause selected',
       bulkResume: 'Resume selected',
-      selectedCount: '$1 selected',
       bulkDone: '$1 task(s) processed',
       noEligibleSelected: 'No selected tasks can perform this action',
       refresh: 'Refresh',
@@ -181,9 +188,6 @@
       close: 'Close',
       selectTaskHint: 'Select a task to view details',
       selectTask: 'Select task',
-      listCount: '$1 task(s)',
-      listCountEmpty: 'No matching tasks',
-      lastUpdated: 'Updated $1',
       emptyTitle: 'No tasks',
       emptySub: 'Tasks will appear here in real time',
       loadFailed: 'Cannot reach Aria2 RPC: $1',
@@ -273,7 +277,6 @@
     selectedGids: new Set(),
     loaded: false,
     loading: false,
-    lastUpdated: 0,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -572,7 +575,6 @@
       });
       if (state.detailGid && !validGids.has(state.detailGid)) state.detailGid = '';
       state.loaded = true;
-      state.lastUpdated = Date.now();
       setStatus(true);
       setRpcEndpoint(state.config?.aria2Rpc || DEFAULT_RPC);
       render();
@@ -644,8 +646,6 @@
     const count = selectedTasks().length;
     const pauseBtn = $('pauseAllBtn');
     const resumeBtn = $('resumeAllBtn');
-    const summary = $('selectionSummary');
-    if (summary) summary.textContent = count ? T.selectedCount.replace('$1', String(count)) : '';
     pauseBtn.textContent = count ? `${T.bulkPause} (${count})` : T.pauseAll;
     resumeBtn.textContent = count ? `${T.bulkResume} (${count})` : T.resumeAll;
     pauseBtn.title = count ? T.bulkPause : T.pauseAll;
@@ -656,7 +656,6 @@
     if (checked) state.selectedGids.add(gid);
     else state.selectedGids.delete(gid);
     const row = Array.from(document.querySelectorAll('.task-row')).find((item) => item.dataset.gid === gid);
-    row?.classList.toggle('checked', checked);
     updateBulkControls();
   }
 
@@ -670,7 +669,7 @@
     const row = document.createElement('div');
     const isDetailSelected = task.gid === state.detailGid;
     const isChecked = state.selectedGids.has(task.gid);
-    row.className = `task-row${isDetailSelected ? ' selected' : ''}${isChecked ? ' checked' : ''}`;
+    row.className = `task-row${isDetailSelected ? ' selected' : ''}`;
     row.dataset.gid = task.gid;
 
     const selectLabel = document.createElement('label');
@@ -745,7 +744,7 @@
     }
     meta.append(left, right);
     progress.append(track, meta);
-    info.append(name, progress, sub);
+    info.append(name, sub);
 
     const traffic = document.createElement('div');
     traffic.className = 'task-traffic';
@@ -773,7 +772,7 @@
       actions.appendChild(iconBtn('removeResult', ICONS.trash, T.actionRemoveResult, 'danger'));
     }
 
-    row.append(selectLabel, icon, info, traffic, badge, actions);
+    row.append(selectLabel, icon, info, progress, traffic, badge, actions);
     row.addEventListener('click', (event) => {
       if (event.target.closest?.('.icon-btn, .task-select')) return;
       selectTask(task.gid);
@@ -865,15 +864,7 @@
       items.forEach((task) => list.appendChild(createTaskRow(task)));
     }
 
-    $('listCount').textContent = items.length
-      ? T.listCount.replace('$1', String(items.length))
-      : T.listCountEmpty;
     updateBulkControls();
-    if (state.lastUpdated) {
-      const date = new Date(state.lastUpdated);
-      const pad = (n) => String(n).padStart(2, '0');
-      $('lastUpdated').textContent = T.lastUpdated.replace('$1', `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`);
-    }
   }
 
   function detailRow(dt, dd) {
@@ -1118,7 +1109,7 @@
     linksHeading.className = 'detail-section-heading';
     const linksTitle = section(T.linksLabel);
     linksHeading.appendChild(linksTitle);
-    if (uriEntries.length) {
+    if (uriEntries.length > 1) {
       linksHeading.appendChild(createCopyButton(
         uriEntries.map((entry) => entry.uri).join('\n'),
         T.copiedLinks,
