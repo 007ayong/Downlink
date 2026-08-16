@@ -100,3 +100,34 @@ test('Aria2 task details use the original URI from the normalized raw task', () 
     filePath: '/downloads/movie.mp4',
   }]);
 });
+
+test('Aria2 task creation time falls back to extension metadata when RPC omits it', () => {
+  const runtime = loadAria2TasksRuntime();
+  const addedAt = 1760000000000;
+  const task = runtime.__aria2TasksTestHooks.normalizeTask({
+    gid: 'metadata-gid',
+    status: 'active',
+    files: [],
+  }, {
+    'metadata-gid': { addedAt },
+  });
+
+  assert.equal(task.addedTime, Math.floor(addedAt / 1000));
+});
+
+test('Aria2 task creation time falls back to the first page observation', () => {
+  const runtime = loadAria2TasksRuntime();
+  const first = runtime.__aria2TasksTestHooks.normalizeTask({
+    gid: 'observed-gid',
+    status: 'active',
+    files: [],
+  });
+  const second = runtime.__aria2TasksTestHooks.normalizeTask({
+    gid: 'observed-gid',
+    status: 'active',
+    files: [],
+  });
+
+  assert.ok(first.addedTime > 0);
+  assert.equal(second.addedTime, first.addedTime);
+});

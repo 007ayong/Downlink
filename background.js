@@ -148,10 +148,15 @@ function storageSet(area, values) {
 
 const ARIA2_ORIGINAL_URI_STORAGE_KEY = 'aria2OriginalUris';
 const MAX_ARIA2_ORIGINAL_URI_RECORDS = 2000;
+const ARIA2_TASK_META_STORAGE_KEY = 'aria2TaskMeta';
+const MAX_ARIA2_TASK_META_RECORDS = 2000;
 const ARIA2_TASK_RESULT_METHODS = new Set(['tellActive', 'tellWaiting', 'tellStopped', 'tellStatus']);
 let aria2OriginalUris = {};
 let aria2OriginalUrisReady = Promise.resolve();
 let aria2OriginalUrisWrite = Promise.resolve();
+let aria2TaskMeta = {};
+let aria2TaskMetaReady = Promise.resolve();
+let aria2TaskMetaWrite = Promise.resolve();
 
 function normalizeAria2OriginalUris(value) {
   if (!Array.isArray(value)) return [];
@@ -174,6 +179,87 @@ async function loadAria2OriginalUris() {
 }
 
 aria2OriginalUrisReady = loadAria2OriginalUris();
+
+function normalizeAria2TaskMeta(value) {
+  const addedAt = Number(value?.addedAt) || 0;
+  return addedAt > 0 ? { addedAt } : null;
+}
+
+async function loadAria2TaskMeta() {
+  try {
+    const stored = await storageGet(chrome.storage.local, { [ARIA2_TASK_META_STORAGE_KEY]: {} });
+    const saved = stored?.[ARIA2_TASK_META_STORAGE_KEY];
+    if (!saved || typeof saved !== 'object') return;
+    aria2TaskMeta = Object.fromEntries(
+      Object.entries(saved)
+        .map(([gid, meta]) => [String(gid), normalizeAria2TaskMeta(meta)])
+        .filter(([, meta]) => meta),
+    );
+  } catch {
+    aria2TaskMeta = {};
+  }
+}
+
+aria2TaskMetaReady = loadAria2TaskMeta();
+
+function getAria2TaskAddedAt(gid) {
+  const key = String(gid || '').trim();
+  return Number(aria2TaskMeta[key]?.addedAt) || Number(tasks[key]?.addedAt) || 0;
+}
+
+function rememberAria2TaskAddedAtIfMissing(gid) {
+  const key = String(gid || '').trim();
+  const existing = getAria2TaskAddedAt(key);
+  if (!key || existing > 0) return { addedAt: existing, write: Promise.resolve() };
+
+  const addedAt = Date.now();
+  aria2TaskMeta[key] = { addedAt, source: 'first-observed' };
+  return { addedAt, write: rememberAria2TaskAddedAt(key, addedAt) };
+}
+
+function rememberAria2TaskAddedAt(gid, addedAt = Date.now()) {
+  const key = String(gid || '').trim();
+  const value = Number(addedAt) || 0;
+  if (!key || value <= 0) return Promise.resolve();
+
+  aria2TaskMetaWrite = aria2TaskMetaWrite
+    .catch(() => {})
+    .then(async () => {
+      await aria2TaskMetaReady;
+      aria2TaskMeta[key] = { addedAt: value };
+      const keys = Object.keys(aria2TaskMeta);
+      if (keys.length > MAX_ARIA2_TASK_META_RECORDS) {
+        keys
+          .sort((a, b) => aria2TaskMeta[a].addedAt - aria2TaskMeta[b].addedAt)
+          .slice(0, keys.length - MAX_ARIA2_TASK_META_RECORDS)
+          .forEach((oldKey) => delete aria2TaskMeta[oldKey]);
+      }
+      await storageSet(chrome.storage.local, { [ARIA2_TASK_META_STORAGE_KEY]: aria2TaskMeta });
+    })
+    .catch((error) => {
+      console.warn('[Downlink][aria2] failed to persist task creation time', error);
+    });
+  return aria2TaskMetaWrite;
+}
+
+function forgetAria2TaskAddedAt(gids) {
+  const keys = (Array.isArray(gids) ? gids : [gids])
+    .map((gid) => String(gid || '').trim())
+    .filter(Boolean);
+  if (!keys.length) return Promise.resolve();
+
+  aria2TaskMetaWrite = aria2TaskMetaWrite
+    .catch(() => {})
+    .then(async () => {
+      await aria2TaskMetaReady;
+      keys.forEach((key) => delete aria2TaskMeta[key]);
+      await storageSet(chrome.storage.local, { [ARIA2_TASK_META_STORAGE_KEY]: aria2TaskMeta });
+    })
+    .catch((error) => {
+      console.warn('[Downlink][aria2] failed to remove task creation time', error);
+    });
+  return aria2TaskMetaWrite;
+}
 
 function getAria2OriginalUris(gid) {
   const remembered = normalizeAria2OriginalUris(aria2OriginalUris[String(gid || '')]);
@@ -226,13 +312,19 @@ function forgetAria2OriginalUris(gids) {
 }
 
 async function attachAria2OriginalUris(result) {
-  await aria2OriginalUrisReady;
-  const attach = (task) => {
+  await Promise.all([aria2OriginalUrisReady, aria2TaskMetaReady]);
+  const attach = async (task) => {
     if (!task || typeof task !== 'object') return task;
+    const taskTime = rememberAria2TaskAddedAtIfMissing(task.gid);
+    await taskTime.write;
+    const addedAt = taskTime.addedAt;
+    const enrichedTask = !task.addedTime && addedAt > 0
+      ? { ...task, addedTime: String(Math.floor(addedAt / 1000)) }
+      : task;
     const uris = getAria2OriginalUris(task.gid);
-    return uris.length ? { ...task, downlinkOriginalUris: uris } : task;
+    return uris.length ? { ...enrichedTask, downlinkOriginalUris: uris } : enrichedTask;
   };
-  return Array.isArray(result) ? result.map(attach) : attach(result);
+  return Array.isArray(result) ? Promise.all(result.map(attach)) : attach(result);
 }
 
 async function loadStoredConfig() {
@@ -1367,17 +1459,21 @@ const downloaderClients = downloaders.createClients({
   },
   onAria2TaskQueued: (gid, taskInfo) => {
     clearUiAlert();
+    const addedAt = taskInfo.addedAt || Date.now();
     tasks[gid] = {
       gid,
       url: taskInfo.url,
       filename: taskInfo.filename,
-      addedAt: taskInfo.addedAt || Date.now(),
+      addedAt,
       status: 'active',
       provider: 'aria2',
     };
     delete hiddenTaskGids[gid];
     broadcastUpdate();
-    return rememberAria2OriginalUris(gid, [taskInfo.url]);
+    return Promise.all([
+      rememberAria2OriginalUris(gid, [taskInfo.url]),
+      rememberAria2TaskAddedAt(gid, addedAt),
+    ]);
   },
   onGopeedTaskQueued: (gid, taskInfo) => {
     clearUiAlert();
@@ -2211,13 +2307,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             let result = await aria2Call(method, params, msg.config);
             if (method === 'addUri') {
               await rememberAria2OriginalUris(result, params[0]);
+              const gid = String(result || '').trim();
+              const addedAt = Date.now();
+              if (gid) {
+                await rememberAria2TaskAddedAt(gid, addedAt);
+              }
             } else if (ARIA2_TASK_RESULT_METHODS.has(method)) {
               result = await attachAria2OriginalUris(result);
             }
             if (ARIA2_REMOVE_METHODS.has(method)) {
               await forgetAria2OriginalUris(params[0]);
+              await forgetAria2TaskAddedAt(params[0]);
             } else if (method === 'purgeDownloadResult') {
               await forgetAria2OriginalUris(purgedGids);
+              await forgetAria2TaskAddedAt(purgedGids);
             }
             sendResponse({ ok: true, result });
           } catch (error) {
@@ -2289,7 +2392,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 chrome.runtime.onStartup.addListener(async () => {
   await configReady;
   if (config.downloaderType !== 'aria2') return;
-  await aria2OriginalUrisReady;
+  await Promise.all([aria2OriginalUrisReady, aria2TaskMetaReady]);
   try {
     for (const status of await aria2Call('tellActive')) {
       const filePath = status.files?.[0]?.path || '';
@@ -2299,7 +2402,7 @@ chrome.runtime.onStartup.addListener(async () => {
         filename: filePath.split(/[\\/]/).pop() || '',
         filePath,
         dirPath: dirname(filePath),
-        addedAt: Date.now(),
+        addedAt: getAria2TaskAddedAt(status.gid),
         status: status.status,
       };
     }

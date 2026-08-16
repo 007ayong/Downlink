@@ -6,7 +6,10 @@
   const HISTORY_LIMIT = 1000;
   const DETAIL_FILE_LIMIT = 50;
   const DETAIL_URI_LIMIT = 3;
+  const OBSERVED_TASK_TIME_STORAGE_KEY = 'aria2TaskObservedTimes';
+  const MAX_OBSERVED_TASK_TIMES = 2000;
   const isZh = (navigator.language || '').toLowerCase().includes('zh');
+  let observedTaskTimes = null;
 
   const T = isZh
     ? {
@@ -31,6 +34,7 @@
       progressColumn: '下载进度',
       speedColumn: '速度',
       stateColumn: '状态',
+      createdTimeColumn: '创建时间',
       actionsColumn: '操作',
       purgeAll: '清除已完成',
       pauseAll: '全部暂停',
@@ -148,6 +152,7 @@
       progressColumn: 'Progress',
       speedColumn: 'Speed',
       stateColumn: 'Status',
+      createdTimeColumn: 'Created',
       actionsColumn: 'Actions',
       purgeAll: 'Clear stopped',
       pauseAll: 'Pause all',
@@ -380,6 +385,60 @@
     });
   }
 
+  function getTaskMeta() {
+    return new Promise((resolve) => {
+      const storage = globalThis.chrome?.storage?.local;
+      if (!storage?.get) {
+        resolve({});
+        return;
+      }
+      let settled = false;
+      const finish = (stored) => {
+        if (settled) return;
+        settled = true;
+        const value = stored?.aria2TaskMeta;
+        resolve(value && typeof value === 'object' ? value : {});
+      };
+      try {
+        const result = storage.get({ aria2TaskMeta: {} }, finish);
+        result?.then?.(finish).catch?.(() => finish({}));
+      } catch {
+        finish({});
+      }
+    });
+  }
+
+  function loadObservedTaskTimes() {
+    if (observedTaskTimes) return observedTaskTimes;
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(OBSERVED_TASK_TIME_STORAGE_KEY) || '{}');
+      observedTaskTimes = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      observedTaskTimes = {};
+    }
+    return observedTaskTimes;
+  }
+
+  function rememberObservedTaskTime(gid, addedAt = Date.now()) {
+    const key = String(gid || '').trim();
+    const value = Number(addedAt) || 0;
+    if (!key || value <= 0) return 0;
+    const times = loadObservedTaskTimes();
+    const existing = Number(times[key]) || 0;
+    if (existing > 0) return existing;
+    times[key] = value;
+    const keys = Object.keys(times);
+    if (keys.length > MAX_OBSERVED_TASK_TIMES) {
+      keys
+        .sort((a, b) => Number(times[a]) - Number(times[b]))
+        .slice(0, keys.length - MAX_OBSERVED_TASK_TIMES)
+        .forEach((oldKey) => delete times[oldKey]);
+    }
+    try { window.localStorage.setItem(OBSERVED_TASK_TIME_STORAGE_KEY, JSON.stringify(times)); } catch {}
+    return value;
+  }
+
+
   function setRpcEndpoint(endpoint) {
     const label = $('rpcEndpoint');
     const value = String(endpoint || DEFAULT_RPC).trim() || DEFAULT_RPC;
@@ -492,7 +551,7 @@
     return taskUris(task)[0] || '';
   }
 
-  function normalizeTask(raw) {
+  function normalizeTask(raw, taskMeta = {}) {
     const status = String(raw.status || '');
     const firstFile = raw.files?.[0] || {};
     const total = Number(raw.totalLength) || 0;
@@ -501,8 +560,16 @@
     const name = taskDisplayName(raw);
     const rawErrorCode = String(raw.errorCode ?? '').trim();
     const errorCode = rawErrorCode && rawErrorCode !== '0' ? rawErrorCode : '';
+    const gid = String(raw.gid || '');
+    const rememberedAddedAt = Number(taskMeta[gid]?.addedAt) || 0;
+    let addedTime = Number(raw.addedTime)
+      || Math.floor((Number(raw.addedAt) || 0) / 1000)
+      || Math.floor(rememberedAddedAt / 1000)
+      || 0;
+    if (addedTime > 0) rememberObservedTaskTime(gid, addedTime * 1000);
+    else addedTime = Math.floor(rememberObservedTaskTime(gid) / 1000);
     return {
-      gid: String(raw.gid || ''),
+      gid,
       raw,
       status,
       name,
@@ -515,7 +582,7 @@
       uploadSpeed: Number(raw.uploadSpeed) || 0,
       dir: raw.dir || '',
       filePath: firstFile.path || '',
-      addedTime: Number(raw.addedTime) || 0,
+      addedTime,
       completedTime: Number(raw.completedTime) || 0,
       connections: Number(raw.connections) || 0,
       numSeeders: Number(raw.numSeeders) || 0,
@@ -528,11 +595,11 @@
     };
   }
 
-  function buildSnapshot(activeRaw, waitingRaw, stoppedRaw, globalStat) {
+  function buildSnapshot(activeRaw, waitingRaw, stoppedRaw, globalStat, taskMeta = {}) {
     const byGid = new Map();
     const add = (raw) => {
       if (!raw || !raw.gid) return;
-      byGid.set(String(raw.gid), normalizeTask(raw));
+      byGid.set(String(raw.gid), normalizeTask(raw, taskMeta));
     };
     (Array.isArray(activeRaw) ? activeRaw : []).forEach(add);
     (Array.isArray(waitingRaw) ? waitingRaw : []).forEach(add);
@@ -564,13 +631,14 @@
     if (state.loading) return;
     state.loading = true;
     try {
-      const [stat, active, waiting, stopped] = await Promise.all([
+      const [stat, active, waiting, stopped, taskMeta] = await Promise.all([
         rpc('getGlobalStat'),
         rpc('tellActive'),
         rpc('tellWaiting', [0, HISTORY_LIMIT]),
         rpc('tellStopped', [0, HISTORY_LIMIT]),
+        getTaskMeta(),
       ]);
-      state.snapshot = buildSnapshot(active, waiting, stopped, stat);
+      state.snapshot = buildSnapshot(active, waiting, stopped, stat, taskMeta);
       state.tasks = sortTasks(state.snapshot.all);
       const validGids = new Set(state.tasks.map((task) => task.gid));
       state.selectedGids.forEach((gid) => {
@@ -726,6 +794,12 @@
     badge.className = `status-badge ${statusClass(task.status)}`;
     badge.textContent = statusLabel(task.status);
 
+    const createdTime = document.createElement('time');
+    createdTime.className = 'task-created-time';
+    createdTime.dateTime = task.addedTime > 0 ? new Date(task.addedTime * 1000).toISOString() : '';
+    createdTime.textContent = fmtTime(task.addedTime);
+    createdTime.title = `${T.createdTimeColumn}: ${createdTime.textContent}`;
+
     const progress = document.createElement('div');
     progress.className = 'task-progress';
     const track = document.createElement('div');
@@ -747,7 +821,7 @@
     }
     meta.append(left, right);
     progress.append(track, meta);
-    info.append(name, sub);
+    info.append(name, progress, sub);
 
     const traffic = document.createElement('div');
     traffic.className = 'task-traffic';
@@ -775,7 +849,7 @@
       actions.appendChild(iconBtn('removeResult', ICONS.trash, T.actionRemoveResult, 'danger'));
     }
 
-    row.append(selectLabel, icon, info, progress, traffic, badge, actions);
+    row.append(selectLabel, icon, info, traffic, badge, createdTime, actions);
     row.addEventListener('click', (event) => {
       if (event.target.closest?.('.icon-btn, .task-select')) return;
       selectTask(task.gid);
@@ -1392,7 +1466,7 @@
   } catch (_) {
     setSidebarCollapsed(false);
   }
-  globalThis.__aria2TasksTestHooks = { getState: () => state, taskUriEntries, T };
+  globalThis.__aria2TasksTestHooks = { getState: () => state, normalizeTask, taskUriEntries, T };
 
   init().catch((error) => {
     setStatus(false);

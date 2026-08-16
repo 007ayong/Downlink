@@ -535,12 +535,16 @@
     .detail-body {
       flex: 1;
       overflow-y: auto;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
       padding: 14px 16px 16px;
       display: flex;
       flex-direction: column;
       gap: 13px;
       font-size: 13px;
     }
+    .detail-body::-webkit-scrollbar,
+    .file-item .uris::-webkit-scrollbar { display: none; width: 0; height: 0; }
     .detail-section-title {
       font-size: 11.5px;
       font-weight: 650;
@@ -714,6 +718,8 @@
       word-break: break-all;
       max-height: 60px;
       overflow-y: auto;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
     }
     .detail-actions {
       display: flex;
@@ -1057,7 +1063,7 @@
       gap: 0;
       transition: grid-template-columns .24s ease, gap .24s ease;
     }
-    .main.has-detail { grid-template-columns: minmax(500px, 1fr) minmax(330px, 390px); gap: 20px; }
+    .main.has-detail { grid-template-columns: minmax(0, 1fr) minmax(300px, 340px); gap: 14px; }
     .list-panel { padding: 0; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
     .list-meta { min-height: 24px; padding: 0 2px 8px; }
     .list-meta::before { content: none; }
@@ -1072,8 +1078,7 @@
     .task-progress { width: 245px; gap: 7px; }
     .progress-track { height: 7px; background: var(--bg3); }
     .progress-meta { font-size: 12px; }
-    .status-badge { order: 4; width: 62px; padding: 5px 8px; border-radius: 8px; }
-    .task-actions { order: 5; }
+    .status-badge { width: 62px; padding: 5px 8px; border-radius: 8px; }
     .detail-panel {
       width: 0;
       min-width: 0;
@@ -1109,7 +1114,7 @@
       .sidebar { width: 192px; }
       .header-status { display: none; }
       .main { grid-template-columns: minmax(0, 1fr) 0; gap: 0; padding: 14px; }
-      .main.has-detail { grid-template-columns: minmax(400px, 1fr) minmax(300px, 340px); gap: 14px; }
+      .main.has-detail { grid-template-columns: minmax(0, 1fr) minmax(288px, 316px); gap: 12px; }
       .task-progress { width: 185px; }
     }
     @media (max-width: 860px) {
@@ -1149,6 +1154,9 @@
     /* Reference queue layout: compact filter strip and balanced task cards. */
     .main { padding: 12px 20px 18px; }
     .list-panel {
+      --task-grid-columns: 18px 52px minmax(260px, 1fr) minmax(88px, 104px) 62px minmax(132px, 156px) 96px;
+      --task-grid-gap: 12px;
+      --task-grid-padding-x: 15px;
       min-width: 0;
       min-height: 0;
       display: flex;
@@ -1161,6 +1169,17 @@
       border-radius: 14px;
       box-shadow: var(--shadow);
     }
+    .main.has-detail .list-panel {
+      --task-grid-columns: 18px 44px minmax(180px, 1fr) 82px 58px minmax(118px, 132px) 88px;
+      --task-grid-gap: 8px;
+      --task-grid-padding-x: 12px;
+      padding-right: 14px;
+      padding-left: 14px;
+    }
+    .main.has-detail .task-row .task-icon { width: 42px; height: 42px; }
+    .main.has-detail .task-created-time { font-size: 11px; }
+    .main.has-detail .task-actions { gap: 2px; }
+    .main.has-detail .icon-btn { width: 26px; height: 26px; }
     .queue-header {
       display: flex;
       align-items: center;
@@ -1181,20 +1200,22 @@
       min-height: 0;
       overflow-y: auto;
       overscroll-behavior: contain;
-      scrollbar-gutter: stable;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
       gap: 0;
     }
+    .task-table::-webkit-scrollbar { display: none; width: 0; height: 0; }
     .task-table-header {
       position: relative;
       top: auto;
       flex: 0 0 auto;
       z-index: 4;
       display: grid;
-      grid-template-columns: 18px 52px minmax(190px, 1fr) minmax(190px, 280px) minmax(88px, 104px) 62px 16px 96px;
+      grid-template-columns: var(--task-grid-columns);
       align-items: center;
-      column-gap: 12px;
+      column-gap: var(--task-grid-gap);
       min-height: 44px;
-      padding: 9px 15px 10px;
+      padding: 9px var(--task-grid-padding-x) 10px;
       border-bottom: 1px solid var(--border);
       background: var(--bg2);
       box-shadow: none;
@@ -1206,17 +1227,17 @@
       white-space: nowrap;
     }
     .task-header-name { grid-column: 3; }
-    .task-header-progress { grid-column: 4; }
-    .task-header-speed { grid-column: 5; justify-self: center; text-align: center; }
-    .task-header-status { grid-column: 6; justify-self: center; text-align: center; }
-    .task-header-actions { grid-column: 8; justify-self: center; text-align: center; }
+    .task-header-speed { grid-column: 4; justify-self: center; text-align: center; }
+    .task-header-status { grid-column: 5; justify-self: center; text-align: center; }
+    .task-header-created-time { grid-column: 6; justify-self: center; text-align: center; }
+    .task-header-actions { grid-column: 7; justify-self: center; text-align: center; }
     .task-row {
       display: grid;
-      grid-template-columns: 18px 52px minmax(190px, 1fr) minmax(190px, 280px) minmax(88px, 104px) 62px 16px 96px;
+      grid-template-columns: var(--task-grid-columns);
       align-items: center;
-      column-gap: 12px;
+      column-gap: var(--task-grid-gap);
       min-height: 88px;
-      padding: 13px 15px;
+      padding: 13px var(--task-grid-padding-x);
       border: 0;
       border-bottom: 1px solid var(--border);
       border-radius: 0;
@@ -1234,7 +1255,9 @@
     }
     .task-row .task-icon { width: 48px; height: 48px; border-radius: 12px; background: transparent; border: 0; box-shadow: none; }
     .task-icon img { width: 100%; height: 100%; object-fit: contain; }
-    .task-info { align-self: stretch; justify-content: center; gap: 6px; }
+    .task-select { grid-column: 1; }
+    .task-row .task-icon { grid-column: 2; }
+    .task-info { grid-column: 3; align-self: stretch; justify-content: center; gap: 6px; }
     .task-name { font-size: 13.5px; }
     .task-sub { font-size: 11.5px; }
     .task-sub:empty { display: none; }
@@ -1242,20 +1265,57 @@
     .progress-track { height: 6px; background: var(--bg3); }
     .progress-meta { font-size: 11.5px; }
     .progress-meta .eta { color: var(--text-2); white-space: nowrap; }
-    .task-traffic { display: flex; flex-direction: column; align-items: center; justify-self: center; gap: 7px; min-width: 0; font-size: 11.5px; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
+    .task-created-time {
+      grid-column: 6;
+      justify-self: center;
+      min-width: 0;
+      color: var(--text-2);
+      font-size: 11.5px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .task-traffic { grid-column: 4; display: flex; flex-direction: column; align-items: center; justify-self: center; gap: 7px; min-width: 0; font-size: 11.5px; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
     .traffic-down { color: var(--blue); }
     .traffic-up { color: var(--green); }
-    .status-badge { justify-self: center; width: 62px; min-width: 62px; padding: 5px 0; border-radius: 8px; text-align: center; }
-    .task-actions { grid-column: 8; display: inline-flex; gap: 4px; justify-content: center; justify-self: center; }
+    .status-badge { grid-column: 5; order: 0; justify-self: center; width: 62px; min-width: 62px; padding: 5px 0; border-radius: 8px; text-align: center; }
+    .task-actions { grid-column: 7; order: 0; display: inline-flex; gap: 4px; justify-content: center; justify-self: center; }
     .icon-btn { width: 28px; height: 28px; background: transparent; }
     .icon-btn:hover { background: var(--bg3); }
 
     @media (max-width: 1280px) {
       .queue-header { align-items: flex-start; flex-direction: column; }
       .queue-header .queue-actions { width: 100%; justify-content: flex-start; }
-      .task-table-header { grid-template-columns: 18px 48px minmax(150px, 1fr) minmax(170px, 220px) 84px 58px 14px 96px; column-gap: 10px; }
-      .task-row { grid-template-columns: 18px 48px minmax(150px, 1fr) minmax(170px, 220px) 84px 58px 14px 96px; column-gap: 10px; }
+      .list-panel {
+        --task-grid-columns: 18px 48px minmax(220px, 1fr) 84px 58px minmax(128px, 148px) 96px;
+        --task-grid-gap: 10px;
+      }
+      .main.has-detail .list-panel {
+        --task-grid-columns: 18px 42px minmax(150px, 1fr) 76px 56px minmax(112px, 124px) 84px;
+        --task-grid-gap: 7px;
+        --task-grid-padding-x: 10px;
+        padding-right: 12px;
+        padding-left: 12px;
+      }
       .status-badge { width: 58px; min-width: 58px; }
+      .main.has-detail .status-badge { width: 56px; min-width: 56px; }
+    }
+    @media (min-width: 861px) and (max-width: 1100px) {
+      .main.has-detail { grid-template-columns: minmax(300px, 1fr) minmax(270px, 290px); gap: 10px; }
+      .main.has-detail .task-table-header { display: none; }
+      .main.has-detail .task-row {
+        grid-template-columns: 18px 42px minmax(0, 1fr) auto;
+        row-gap: 9px;
+        column-gap: 9px;
+        min-height: 0;
+        padding: 12px 10px;
+      }
+      .main.has-detail .task-info { grid-column: 3 / 5; }
+      .main.has-detail .task-traffic { grid-column: 3 / 4; justify-self: start; flex-direction: row; }
+      .main.has-detail .task-created-time { grid-column: 3 / 4; justify-self: start; }
+      .main.has-detail .status-badge { grid-column: 4; justify-self: end; }
+      .main.has-detail .task-actions { grid-column: 1 / 5; justify-self: stretch; justify-content: flex-end; }
     }
     @media (max-width: 860px) {
       .task-actions-bar { min-height: 54px; padding: 10px 12px; overflow-x: auto; }
@@ -1270,6 +1330,7 @@
       .task-info, .task-progress { grid-column: 3 / 5; }
       .task-progress { max-width: none; }
       .task-traffic { grid-column: 3 / 4; }
+      .task-created-time { grid-column: 3 / 4; justify-self: start; }
       .status-badge { grid-column: 4; justify-self: end; }
       .task-actions { grid-column: 1 / 5; justify-self: stretch; justify-content: flex-end; }
     }
@@ -1438,9 +1499,9 @@
     <section class="list-panel">
       <div class="task-table-header" aria-hidden="true">
         <span class="task-header-name" data-l10n="fileNameColumn">文件名</span>
-        <span class="task-header-progress" data-l10n="progressColumn">下载进度</span>
         <span class="task-header-speed" data-l10n="speedColumn">速度</span>
         <span class="task-header-status" data-l10n="stateColumn">状态</span>
+        <span class="task-header-created-time" data-l10n="createdTimeColumn">创建时间</span>
         <span class="task-header-actions" data-l10n="actionsColumn">操作</span>
       </div>
       <div class="task-table" id="taskList"></div>

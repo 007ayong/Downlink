@@ -2983,6 +2983,58 @@ test('Aria2 silent intercepted downloads send immediately', async () => {
   assert.equal(state.tasks['gid-1']?.filename, 'file.zip');
 });
 
+test('Aria2 automatic interception persists creation time for manager results', async () => {
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://localhost:6800/jsonrpc',
+      autoCapture: true,
+      aria2Silent: true,
+      captureExtensions: 'zip',
+    },
+    {
+      fetch: async (_url, options) => {
+        requestBody = JSON.parse(options.body);
+        if (requestBody.method === 'aria2.addUri') {
+          return { ok: true, async json() { return { result: 'auto-capture-gid' }; } };
+        }
+        if (requestBody.method === 'aria2.tellActive') {
+          return {
+            ok: true,
+            async json() {
+              return {
+                result: [{ gid: 'auto-capture-gid', status: 'active', files: [] }],
+              };
+            },
+          };
+        }
+        throw new Error(`unexpected rpc method ${requestBody.method}`);
+      },
+    },
+  );
+
+  await invokeDownloadCreated(background, {
+    id: 1,
+    url: 'https://example.com/auto-captured.zip',
+    filename: 'auto-captured.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  const metadataWrite = background.chrome._localStorageWrites
+    .map((values) => values.aria2TaskMeta)
+    .find((value) => value?.['auto-capture-gid']?.addedAt);
+  assert.ok(metadataWrite?.['auto-capture-gid']?.addedAt > 0);
+
+  const active = await invokeBackgroundMessage(background, {
+    type: 'ARIA2_RPC',
+    method: 'tellActive',
+  });
+  assert.equal(requestBody.method, 'aria2.tellActive');
+  assert.ok(Number(active.result[0].addedTime) > 0);
+});
+
 test('Aria2 silent downloads omit dir when custom save locations are disabled', async () => {
   let requestBody = null;
   const background = loadBackgroundRuntime(
@@ -4505,6 +4557,7 @@ test('ARIA2_RPC proxy forwards whitelisted methods and rejects others', async ()
   assert.equal(active.ok, true);
   assert.equal(active.result[0].gid, 'mgr-active-1');
   assert.equal(active.result[0].status, 'active');
+  assert.ok(Number(active.result[0].addedTime) > 0);
   assert.equal(lastRpcBody.method, 'aria2.tellActive');
 
   const stat = await invokeBackgroundMessage(background, { type: 'ARIA2_RPC', method: 'getGlobalStat', params: [] });
@@ -4523,6 +4576,7 @@ test('ARIA2_RPC proxy forwards whitelisted methods and rejects others', async ()
 
   const stopped = await invokeBackgroundMessage(background, { type: 'ARIA2_RPC', method: 'tellStopped', params: [0, 1000] });
   assert.deepEqual(stopped.result[0].downlinkOriginalUris, ['https://example.com/movie.mp4']);
+  assert.ok(Number(stopped.result[0].addedTime) > 0);
 
   const removed = await invokeBackgroundMessage(background, {
     type: 'ARIA2_RPC',
