@@ -106,11 +106,17 @@
       confirmRemoveResult: '确定要删除这条完成/停止记录吗？',
       confirmPurge: '确定要清除所有已完成/已停止的任务记录吗？此操作不可恢复。',
       confirmRedownload: '确定要重新下载 $1 吗？将按原地址加入新任务。',
+      confirmDeleteTitle: '确认删除',
+      confirmRedownloadTitle: '确认重新下载',
+      confirmDeleteAction: '删除',
+      confirmClearAction: '清除',
+      confirmRedownloadAction: '重新下载',
       actionDone: '操作完成',
       actionFailed: '操作失败：$1',
       noFiles: '无文件信息',
       unknownFile: '未知文件',
       unknownSize: '大小未知',
+      resolvingMetadata: '正在解析元数据…',
       etaInfinity: '—',
       waitingDetail: '等待中',
       pausedDetail: '已暂停',
@@ -224,11 +230,17 @@
       confirmRemoveResult: 'Delete this stopped record?',
       confirmPurge: 'Clear all stopped task records? This cannot be undone.',
       confirmRedownload: 'Re-download $1 from the original URL?',
+      confirmDeleteTitle: 'Confirm deletion',
+      confirmRedownloadTitle: 'Confirm re-download',
+      confirmDeleteAction: 'Delete',
+      confirmClearAction: 'Clear',
+      confirmRedownloadAction: 'Re-download',
       actionDone: 'Done',
       actionFailed: 'Failed: $1',
       noFiles: 'No file info',
       unknownFile: 'Unknown file',
       unknownSize: 'Unknown size',
+      resolvingMetadata: 'Resolving metadata…',
       etaInfinity: '—',
       waitingDetail: 'Waiting',
       pausedDetail: 'Paused',
@@ -551,12 +563,23 @@
     return taskUris(task)[0] || '';
   }
 
+  function isMagnetMetadataTask(raw) {
+    if (raw?.bittorrent?.info) return false;
+    return taskUris(raw).some((uri) => /^magnet:/i.test(String(uri || '').trim()));
+  }
+
   function normalizeTask(raw, taskMeta = {}) {
     const status = String(raw.status || '');
     const firstFile = raw.files?.[0] || {};
-    const total = Number(raw.totalLength) || 0;
-    const completed = Number(raw.completedLength) || 0;
-    const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : (status === 'complete' ? 100 : 0);
+    const isMagnetMetadata = isMagnetMetadataTask(raw);
+    // Before aria2 has resolved a magnet link, these lengths describe the
+    // small metadata transfer rather than the files in the torrent. Treating
+    // them as payload bytes makes a newly-added magnet appear 100% complete.
+    const total = isMagnetMetadata ? 0 : (Number(raw.totalLength) || 0);
+    const completed = isMagnetMetadata ? 0 : (Number(raw.completedLength) || 0);
+    const pct = total > 0
+      ? Math.min(100, Math.round((completed / total) * 100))
+      : (status === 'complete' && !isMagnetMetadata ? 100 : 0);
     const name = taskDisplayName(raw);
     const rawErrorCode = String(raw.errorCode ?? '').trim();
     const errorCode = rawErrorCode && rawErrorCode !== '0' ? rawErrorCode : '';
@@ -577,7 +600,8 @@
       total,
       completed,
       pct,
-      downloadProgressAvailable: total > 0 || status === 'complete',
+      isMagnetMetadata,
+      downloadProgressAvailable: !isMagnetMetadata && (total > 0 || status === 'complete'),
       speed: Number(raw.downloadSpeed) || 0,
       uploadSpeed: Number(raw.uploadSpeed) || 0,
       dir: raw.dir || '',
@@ -599,6 +623,10 @@
     const byGid = new Map();
     const add = (raw) => {
       if (!raw || !raw.gid) return;
+      // aria2 completes the temporary metadata transfer and creates a new
+      // task for the torrent payload. Do not show that bootstrap transfer as
+      // a separate completed download.
+      if (isMagnetMetadataTask(raw) && Array.isArray(raw.followedBy) && raw.followedBy.length) return;
       byGid.set(String(raw.gid), normalizeTask(raw, taskMeta));
     };
     (Array.isArray(activeRaw) ? activeRaw : []).forEach(add);
@@ -792,7 +820,7 @@
     }
     const badge = document.createElement('span');
     badge.className = `status-badge ${statusClass(task.status)}`;
-    badge.textContent = statusLabel(task.status);
+    badge.textContent = task.isMagnetMetadata ? T.resolvingMetadata : statusLabel(task.status);
 
     const createdTime = document.createElement('time');
     createdTime.className = 'task-created-time';
@@ -811,7 +839,9 @@
     const meta = document.createElement('div');
     meta.className = 'progress-meta';
     const left = document.createElement('span');
-    left.textContent = `${task.pct}% · ${fmtBytes(task.completed)}/${fmtBytes(task.total)}`;
+    left.textContent = task.isMagnetMetadata
+      ? T.resolvingMetadata
+      : `${task.pct}% · ${fmtBytes(task.completed)}/${fmtBytes(task.total)}`;
     const right = document.createElement('span');
     if (task.status === 'active') {
       right.className = 'eta';
@@ -867,11 +897,11 @@
     if (action === 'pause') return runAction('pause', [task.gid]);
     if (action === 'resume') return runAction('unpause', [task.gid]);
     if (action === 'remove') {
-      if (!window.confirm(T.confirmRemove.replace('$1', task.name))) return;
+      if (!await confirmAction(T.confirmRemove.replace('$1', task.name))) return;
       return runAction(task.status === 'paused' ? 'forceRemove' : 'remove', [task.gid]);
     }
     if (action === 'removeResult') {
-      if (!window.confirm(T.confirmRemoveResult)) return;
+      if (!await confirmAction(T.confirmRemoveResult)) return;
       return runAction('removeDownloadResult', [task.gid]);
     }
     if (action === 'redownload') return redownloadTask(task);
@@ -882,7 +912,10 @@
       showToast(T.noUriForRedownload);
       return;
     }
-    if (!window.confirm(T.confirmRedownload.replace('$1', task.name))) return;
+    if (!await confirmAction(
+      T.confirmRedownload.replace('$1', task.name),
+      { title: T.confirmRedownloadTitle, acceptLabel: T.confirmRedownloadAction, danger: false },
+    )) return;
     try {
       await rpc('addUri', [[task.uri], {}]);
       showToast(T.redownloadQueued);
@@ -1088,7 +1121,9 @@
       createProgressRing(
         T.downloadProgressLabel,
         task.pct,
-        task.downloadProgressAvailable ? `${fmtBytes(task.completed)} / ${fmtBytes(task.total)}` : T.unknownSize,
+        task.isMagnetMetadata
+          ? T.resolvingMetadata
+          : (task.downloadProgressAvailable ? `${fmtBytes(task.completed)} / ${fmtBytes(task.total)}` : T.unknownSize),
         'var(--accent)',
         task.downloadProgressAvailable,
       ),
@@ -1097,9 +1132,9 @@
 
     kv.append(
       detailRow(T.gidLabel, gidLink),
-      detailRow(T.stateLabel, statusLabel(task.status)),
-      detailRow(T.progressLabel, `${task.pct}%`),
-      detailRow(T.sizeLabel, `${fmtBytes(task.completed)} / ${fmtBytes(task.total)}`)
+      detailRow(T.stateLabel, task.isMagnetMetadata ? T.resolvingMetadata : statusLabel(task.status)),
+      detailRow(T.progressLabel, task.isMagnetMetadata ? T.resolvingMetadata : `${task.pct}%`),
+      detailRow(T.sizeLabel, task.isMagnetMetadata ? T.unknownSize : `${fmtBytes(task.completed)} / ${fmtBytes(task.total)}`)
     );
     if (task.status === 'active') {
       kv.append(
@@ -1234,14 +1269,14 @@
       makeBtn(T.actionRedownload, 'primary', () => redownloadTask(task));
     }
     if (['active', 'waiting', 'paused'].includes(task.status)) {
-      makeBtn(T.actionRemove, 'danger', () => {
-        if (!window.confirm(T.confirmRemove.replace('$1', task.name))) return;
+      makeBtn(T.actionRemove, 'danger', async () => {
+        if (!await confirmAction(T.confirmRemove.replace('$1', task.name))) return;
         runAction(task.status === 'paused' ? 'forceRemove' : 'remove', [task.gid]);
       });
     }
     if (['complete', 'error', 'removed'].includes(task.status)) {
-      makeBtn(T.actionRemoveResult, 'danger', () => {
-        if (!window.confirm(T.confirmRemoveResult)) return;
+      makeBtn(T.actionRemoveResult, 'danger', async () => {
+        if (!await confirmAction(T.confirmRemoveResult)) return;
         runAction('removeDownloadResult', [task.gid]);
       });
     }
@@ -1250,6 +1285,21 @@
   async function runAction(method, params) {
     try {
       await rpc(method, params);
+      const gid = String(params?.[0] || '');
+      if (method === 'pause' && gid && applyTaskStatus([gid], 'paused')) render();
+      if (method === 'unpause' && gid && applyTaskStatus([gid], 'waiting')) render();
+      if (method === 'pauseAll') {
+        const gids = state.tasks
+          .filter((task) => ['active', 'waiting'].includes(task.status))
+          .map((task) => task.gid);
+        if (applyTaskStatus(gids, 'paused')) render();
+      }
+      if (method === 'unpauseAll') {
+        const gids = state.tasks
+          .filter((task) => ['paused', 'waiting'].includes(task.status))
+          .map((task) => task.gid);
+        if (applyTaskStatus(gids, 'waiting')) render();
+      }
       showToast(T.actionDone);
       await loadSnapshot();
     } catch (error) {
@@ -1272,6 +1322,10 @@
     }
     const method = action === 'pause' ? 'pause' : 'unpause';
     const results = await Promise.allSettled(eligible.map((task) => rpc(method, [task.gid])));
+    const succeededGids = eligible
+      .filter((_, index) => results[index].status === 'fulfilled')
+      .map((task) => task.gid);
+    if (applyTaskStatus(succeededGids, action === 'pause' ? 'paused' : 'waiting')) render();
     const failed = results.filter((result) => result.status === 'rejected').length;
     state.selectedGids.clear();
     updateBulkControls();
@@ -1281,6 +1335,44 @@
       showToast(T.bulkDone.replace('$1', String(eligible.length)));
     }
     await loadSnapshot();
+  }
+
+  function applyTaskStatus(gids, status) {
+    const targets = new Set((Array.isArray(gids) ? gids : [gids]).map(String).filter(Boolean));
+    if (!targets.size) return false;
+    let changed = false;
+    state.tasks = sortTasks(state.tasks.map((task) => {
+      if (!targets.has(task.gid) || task.status === status) return task;
+      changed = true;
+      const stopTraffic = status === 'paused' || status === 'waiting';
+      return {
+        ...task,
+        status,
+        speed: stopTraffic ? 0 : task.speed,
+        uploadSpeed: stopTraffic ? 0 : task.uploadSpeed,
+        raw: { ...task.raw, status },
+      };
+    }));
+    if (!changed || !state.snapshot) return changed;
+
+    const activeTasks = state.tasks.filter((task) => task.status === 'active');
+    const waitingTasks = state.tasks.filter((task) => task.status === 'waiting');
+    const pausedTasks = state.tasks.filter((task) => task.status === 'paused');
+    const stoppedTasks = state.tasks.filter((task) => ['complete', 'error', 'removed'].includes(task.status));
+    state.snapshot = {
+      ...state.snapshot,
+      all: state.tasks,
+      activeTasks,
+      waitingTasks,
+      pausedTasks,
+      stoppedTasks,
+      totalSpeed: activeTasks.reduce((sum, task) => sum + task.speed, 0),
+      totalUploadSpeed: activeTasks.reduce((sum, task) => sum + task.uploadSpeed, 0),
+      numActive: activeTasks.length,
+      numWaiting: waitingTasks.length,
+      numStopped: stoppedTasks.length,
+    };
+    return true;
   }
 
   function setStatus(ok) {
@@ -1316,6 +1408,36 @@
     toastTimer = setTimeout(() => { toast.classList.remove('show'); }, 2200);
   }
 
+  let confirmResolver = null;
+  let confirmRestoreFocus = null;
+
+  function confirmAction(message, options = {}) {
+    const dialog = $('confirmDialog');
+    if (!dialog?.showModal) return Promise.resolve(false);
+    if (dialog.open) dialog.close('cancel');
+    $('confirmDialogTitle').textContent = options.title || T.confirmDeleteTitle;
+    $('confirmDialogMessage').textContent = String(message || '');
+    $('confirmDialogCancel').textContent = T.cancel;
+    const accept = $('confirmDialogAccept');
+    const isDanger = options.danger !== false;
+    dialog.classList.toggle('neutral', !isDanger);
+    $('confirmDialogIcon').innerHTML = isDanger ? ICONS.trash : ICONS.redownload;
+    accept.textContent = options.acceptLabel || T.confirmDeleteAction;
+    accept.className = `btn ${isDanger ? 'danger-solid' : 'primary'}`;
+    confirmRestoreFocus = document.activeElement;
+    dialog.showModal();
+    return new Promise((resolve) => { confirmResolver = resolve; });
+  }
+
+  function settleConfirmation(accepted) {
+    const resolve = confirmResolver;
+    confirmResolver = null;
+    if (resolve) resolve(accepted);
+    const target = confirmRestoreFocus;
+    confirmRestoreFocus = null;
+    if (target?.isConnected && typeof target.focus === 'function') target.focus();
+  }
+
   function selectTask(gid) {
     // Detail selection is independent from the batch-selection set.
     // Clicking a row opens details; only its checkbox changes selectedGids.
@@ -1338,6 +1460,11 @@
   }
 
   function bindEvents() {
+    const confirmDialog = $('confirmDialog');
+    confirmDialog.addEventListener('close', () => settleConfirmation(confirmDialog.returnValue === 'confirm'));
+    confirmDialog.addEventListener('click', (event) => {
+      if (event.target === confirmDialog) confirmDialog.close('cancel');
+    });
     $('sidebarToggleBtn').addEventListener('click', () => {
       setSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed'));
     });
@@ -1361,8 +1488,8 @@
       $('refreshBtn').disabled = false;
       $('refreshBtn').textContent = original;
     });
-    $('purgeBtn').addEventListener('click', () => {
-      if (!window.confirm(T.confirmPurge)) return;
+    $('purgeBtn').addEventListener('click', async () => {
+      if (!await confirmAction(T.confirmPurge, { acceptLabel: T.confirmClearAction })) return;
       runAction('purgeDownloadResult', []);
     });
     $('pauseAllBtn').addEventListener('click', () => runSelectedAction('pause'));
@@ -1466,7 +1593,15 @@
   } catch (_) {
     setSidebarCollapsed(false);
   }
-  globalThis.__aria2TasksTestHooks = { getState: () => state, normalizeTask, taskUriEntries, T };
+  globalThis.__aria2TasksTestHooks = {
+    getState: () => state,
+    normalizeTask,
+    buildSnapshot,
+    applyTaskStatus,
+    isMagnetMetadataTask,
+    taskUriEntries,
+    T,
+  };
 
   init().catch((error) => {
     setStatus(false);

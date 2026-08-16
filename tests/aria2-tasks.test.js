@@ -131,3 +131,103 @@ test('Aria2 task creation time falls back to the first page observation', () => 
   assert.ok(first.addedTime > 0);
   assert.equal(second.addedTime, first.addedTime);
 });
+
+test('Magnet metadata transfer is not reported as completed payload progress', () => {
+  const runtime = loadAria2TasksRuntime();
+  const task = runtime.__aria2TasksTestHooks.normalizeTask({
+    gid: 'magnet-metadata-gid',
+    status: 'active',
+    totalLength: '2048',
+    completedLength: '2048',
+    downlinkOriginalUris: ['magnet:?xt=urn:btih:abc123'],
+    files: [],
+  });
+
+  assert.equal(task.total, 0);
+  assert.equal(task.completed, 0);
+  assert.equal(task.pct, 0);
+  assert.equal(task.isMagnetMetadata, true);
+  assert.equal(task.downloadProgressAvailable, false);
+});
+
+test('Resolved magnet task uses torrent payload lengths for progress', () => {
+  const runtime = loadAria2TasksRuntime();
+  const task = runtime.__aria2TasksTestHooks.normalizeTask({
+    gid: 'magnet-payload-gid',
+    status: 'active',
+    totalLength: '1000',
+    completedLength: '250',
+    downlinkOriginalUris: ['magnet:?xt=urn:btih:abc123'],
+    bittorrent: { info: { name: 'example' } },
+    files: [],
+  });
+
+  assert.equal(task.total, 1000);
+  assert.equal(task.completed, 250);
+  assert.equal(task.pct, 25);
+  assert.equal(task.isMagnetMetadata, false);
+  assert.equal(task.downloadProgressAvailable, true);
+});
+
+test('Completed magnet metadata bootstrap is omitted after aria2 creates its payload task', () => {
+  const runtime = loadAria2TasksRuntime();
+  const snapshot = runtime.__aria2TasksTestHooks.buildSnapshot(
+    [{
+      gid: 'payload-gid',
+      status: 'active',
+      totalLength: '1000',
+      completedLength: '100',
+      bittorrent: { info: { name: 'example' } },
+      files: [],
+    }],
+    [],
+    [{
+      gid: 'metadata-gid',
+      status: 'complete',
+      totalLength: '2048',
+      completedLength: '2048',
+      followedBy: ['payload-gid'],
+      downlinkOriginalUris: ['magnet:?xt=urn:btih:abc123'],
+      files: [],
+    }],
+    {},
+  );
+
+  assert.deepEqual(Array.from(snapshot.all, (task) => task.gid), ['payload-gid']);
+  assert.equal(snapshot.all[0].pct, 10);
+});
+
+test('Optimistic pause status updates both list tasks and detail snapshot data', () => {
+  const runtime = loadAria2TasksRuntime();
+  const hooks = runtime.__aria2TasksTestHooks;
+  const state = hooks.getState();
+  const active = hooks.normalizeTask({
+    gid: 'sync-gid',
+    status: 'active',
+    totalLength: '1000',
+    completedLength: '100',
+    downloadSpeed: '256',
+    uploadSpeed: '64',
+    files: [],
+  });
+  state.tasks = [active];
+  state.snapshot = hooks.buildSnapshot([active.raw], [], [], {});
+  state.detailGid = active.gid;
+
+  assert.equal(hooks.applyTaskStatus([active.gid], 'paused'), true);
+  assert.equal(state.tasks[0].status, 'paused');
+  assert.equal(state.tasks[0].speed, 0);
+  assert.equal(state.snapshot.all[0].status, 'paused');
+  assert.equal(state.snapshot.activeTasks.length, 0);
+  assert.equal(state.snapshot.pausedTasks[0].gid, active.gid);
+});
+
+test('Aria2 task actions use an in-page confirmation dialog instead of window.confirm', () => {
+  const script = fs.readFileSync(path.join(__dirname, '..', 'aria2-tasks.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'aria2-tasks.html'), 'utf8');
+
+  assert.doesNotMatch(script, /window\.confirm\s*\(/);
+  assert.match(script, /confirmAction\s*\(/);
+  assert.match(html, /<dialog[^>]+id="confirmDialog"/);
+  assert.match(html, /id="confirmDialogAccept"/);
+});
