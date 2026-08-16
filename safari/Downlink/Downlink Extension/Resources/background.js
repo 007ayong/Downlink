@@ -229,6 +229,115 @@ function storageSet(area, values) {
   });
 }
 
+const ARIA2_ORIGINAL_URI_STORAGE_KEY = 'aria2OriginalUris';
+const MAX_ARIA2_ORIGINAL_URI_RECORDS = 2000;
+const ARIA2_MANAGER_METHODS = new Set([
+  'getGlobalStat',
+  'tellActive',
+  'tellWaiting',
+  'tellStopped',
+  'tellStatus',
+  'pause',
+  'pauseAll',
+  'unpause',
+  'unpauseAll',
+  'remove',
+  'forceRemove',
+  'purgeDownloadResult',
+  'removeDownloadResult',
+  'changeGlobalOption',
+  'getGlobalOption',
+  'addUri',
+  'getOption',
+]);
+const ARIA2_REMOVE_METHODS = new Set(['remove', 'forceRemove', 'removeDownloadResult']);
+const ARIA2_TASK_RESULT_METHODS = new Set(['tellActive', 'tellWaiting', 'tellStopped', 'tellStatus']);
+let aria2OriginalUris = {};
+let aria2OriginalUrisReady = Promise.resolve();
+let aria2OriginalUrisWrite = Promise.resolve();
+
+function normalizeAria2OriginalUris(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((uri) => String(uri || '').trim()).filter(Boolean);
+}
+
+async function loadAria2OriginalUris() {
+  try {
+    const stored = await storageGet(chrome.storage.local, { [ARIA2_ORIGINAL_URI_STORAGE_KEY]: {} });
+    const saved = stored?.[ARIA2_ORIGINAL_URI_STORAGE_KEY];
+    if (!saved || typeof saved !== 'object') return;
+    aria2OriginalUris = Object.fromEntries(
+      Object.entries(saved)
+        .map(([gid, uris]) => [String(gid), normalizeAria2OriginalUris(uris)])
+        .filter(([, uris]) => uris.length),
+    );
+  } catch {
+    aria2OriginalUris = {};
+  }
+}
+
+aria2OriginalUrisReady = loadAria2OriginalUris();
+
+function getAria2OriginalUris(gid) {
+  const remembered = normalizeAria2OriginalUris(aria2OriginalUris[String(gid || '')]);
+  if (remembered.length) return remembered;
+  const taskUrl = String(tasks[String(gid || '')]?.url || '').trim();
+  return taskUrl ? [taskUrl] : [];
+}
+
+function rememberAria2OriginalUris(gid, uris) {
+  const key = String(gid || '').trim();
+  const normalized = normalizeAria2OriginalUris(uris);
+  if (!key || !normalized.length) return Promise.resolve();
+
+  aria2OriginalUrisWrite = aria2OriginalUrisWrite
+    .catch(() => {})
+    .then(async () => {
+      await aria2OriginalUrisReady;
+      aria2OriginalUris[key] = normalized;
+      const keys = Object.keys(aria2OriginalUris);
+      if (keys.length > MAX_ARIA2_ORIGINAL_URI_RECORDS) {
+        keys.slice(0, keys.length - MAX_ARIA2_ORIGINAL_URI_RECORDS).forEach((oldKey) => {
+          delete aria2OriginalUris[oldKey];
+        });
+      }
+      await storageSet(chrome.storage.local, { [ARIA2_ORIGINAL_URI_STORAGE_KEY]: aria2OriginalUris });
+    })
+    .catch((error) => {
+      console.warn('[Downlink][aria2] failed to persist original URI', error);
+    });
+  return aria2OriginalUrisWrite;
+}
+
+function forgetAria2OriginalUris(gids) {
+  const keys = (Array.isArray(gids) ? gids : [gids])
+    .map((gid) => String(gid || '').trim())
+    .filter(Boolean);
+  if (!keys.length) return Promise.resolve();
+
+  aria2OriginalUrisWrite = aria2OriginalUrisWrite
+    .catch(() => {})
+    .then(async () => {
+      await aria2OriginalUrisReady;
+      keys.forEach((key) => delete aria2OriginalUris[key]);
+      await storageSet(chrome.storage.local, { [ARIA2_ORIGINAL_URI_STORAGE_KEY]: aria2OriginalUris });
+    })
+    .catch((error) => {
+      console.warn('[Downlink][aria2] failed to remove original URI', error);
+    });
+  return aria2OriginalUrisWrite;
+}
+
+async function attachAria2OriginalUris(result) {
+  await aria2OriginalUrisReady;
+  const attach = (task) => {
+    if (!task || typeof task !== 'object') return task;
+    const uris = getAria2OriginalUris(task.gid);
+    return uris.length ? { ...task, downlinkOriginalUris: uris } : task;
+  };
+  return Array.isArray(result) ? result.map(attach) : attach(result);
+}
+
 function cookiesGetAll(details) {
   return new Promise((resolve) => {
     if (!chrome.cookies?.getAll) {
@@ -2191,6 +2300,7 @@ const downloaderClients = downloaders.createClients({
     };
     delete hiddenTaskGids[gid];
     broadcastUpdate();
+    return rememberAria2OriginalUris(gid, [taskInfo.url]);
   },
   onGopeedTaskQueued: (gid, taskInfo) => {
     clearUiAlert();
@@ -3091,6 +3201,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           await aria2Call('remove', [msg.gid]).catch(() => {});
           await aria2Call('removeDownloadResult', [msg.gid]).catch(() => {});
         }
+        await forgetAria2OriginalUris(msg.gid);
         delete hiddenTaskGids[msg.gid];
         delete tasks[msg.gid];
         broadcastUpdate();
@@ -3152,6 +3263,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       case 'OPEN_GOPEED_VIEW':
         sendResponse(await openGopeedView());
+        break;
+      case 'ARIA2_RPC':
+        {
+          const method = String(msg.method || '');
+          if (!ARIA2_MANAGER_METHODS.has(method)) {
+            sendResponse({ ok: false, error: `Unsupported aria2 method: ${method}` });
+            break;
+          }
+          try {
+            const params = Array.isArray(msg.params) ? msg.params : [];
+            let purgedGids = [];
+            if (method === 'purgeDownloadResult') {
+              try {
+                const stopped = await aria2Call('tellStopped', [0, MAX_ARIA2_ORIGINAL_URI_RECORDS], msg.config);
+                purgedGids = (Array.isArray(stopped) ? stopped : [])
+                  .map((task) => task?.gid)
+                  .filter(Boolean);
+              } catch {}
+            }
+            let result = await aria2Call(method, params, msg.config);
+            if (method === 'addUri') {
+              await rememberAria2OriginalUris(result, params[0]);
+            } else if (ARIA2_TASK_RESULT_METHODS.has(method)) {
+              result = await attachAria2OriginalUris(result);
+            }
+            if (ARIA2_REMOVE_METHODS.has(method)) {
+              await forgetAria2OriginalUris(params[0]);
+            } else if (method === 'purgeDownloadResult') {
+              await forgetAria2OriginalUris(purgedGids);
+            }
+            sendResponse({ ok: true, result });
+          } catch (error) {
+            sendResponse({ ok: false, error: error?.message || String(error) });
+          }
+        }
         break;
     }
   })();
@@ -3246,12 +3392,13 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 chrome.runtime.onStartup.addListener(async () => {
   await configReady;
   if (config.downloaderType !== 'aria2') return;
+  await aria2OriginalUrisReady;
   try {
     for (const status of await aria2Call('tellActive')) {
       const filePath = status.files?.[0]?.path || '';
       tasks[status.gid] = {
         gid: status.gid,
-        url: status.files?.[0]?.uris?.[0]?.uri || '',
+        url: getAria2OriginalUris(status.gid)[0] || status.files?.[0]?.uris?.[0]?.uri || '',
         filename: filePath.split(/[\\/]/).pop() || '',
         filePath,
         dirPath: dirname(filePath),

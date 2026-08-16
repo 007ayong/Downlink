@@ -3465,6 +3465,65 @@ test('AB DM downloader label is fixed', () => {
   assert.equal(clients.getDownloaderLabel('abdownload', { downloaderType: 'abdownload' }), 'AB DM');
 });
 
+test('Aria2 sends wait for the queued-task persistence callback', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://localhost:6800/jsonrpc',
+      aria2Secret: '',
+      aria2Silent: false,
+      aria2CustomSaveEnabled: false,
+      aria2SaveLocations: [],
+    },
+    {
+      fetch: async (_url, options) => ({
+        ok: true,
+        async json() {
+          const request = JSON.parse(options.body);
+          assert.equal(request.method, 'aria2.addUri');
+          return { result: 'queued-gid-1' };
+        },
+      }),
+    },
+  );
+  let release;
+  const queued = new Promise((resolve) => {
+    release = resolve;
+  });
+  const clients = background.BackgroundDownloaders.createClients({
+    getConfig: () => ({
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://localhost:6800/jsonrpc',
+      aria2Secret: '',
+      aria2Silent: false,
+      aria2CustomSaveEnabled: false,
+      aria2SaveLocations: [],
+    }),
+    notify() {},
+    onBeforeAria2Send() {},
+    onAria2TaskQueued() {
+      return queued;
+    },
+  });
+
+  let settled = false;
+  const outcome = clients.sendTask({ url: 'https://example.com/file.zip', filename: 'file.zip' })
+    .then((result) => {
+      settled = true;
+      return result;
+    }, (error) => {
+      settled = true;
+      throw error;
+    });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(settled, false);
+
+  release();
+  const result = await outcome;
+  assert.equal(result.ok, true);
+  assert.equal(result.gid, 'queued-gid-1');
+});
+
 test('AB DM normal sends use add endpoint by default', async () => {
   let requestedUrl = '';
   let requestBody = null;
@@ -4406,11 +4465,28 @@ test('ARIA2_RPC proxy forwards whitelisted methods and rejects others', async ()
                 ],
               };
             }
+            if (lastRpcBody.method === 'aria2.tellStopped') {
+              return {
+                result: [
+                  {
+                    gid: 'new-gid-1',
+                    status: 'complete',
+                    files: [{ path: '/dl/movie.mp4', uris: [{ uri: 'https://cdn.example.com/movie.mp4' }] }],
+                  },
+                ],
+              };
+            }
             if (lastRpcBody.method === 'aria2.getGlobalStat') {
               return { result: { numActive: '1', numWaiting: '2', numStopped: '3', downloadSpeed: '1024' } };
             }
             if (lastRpcBody.method === 'aria2.addUri') {
               return { result: 'new-gid-1' };
+            }
+            if (lastRpcBody.method === 'aria2.removeDownloadResult') {
+              return { result: 'OK' };
+            }
+            if (lastRpcBody.method === 'aria2.purgeDownloadResult') {
+              return { result: 'OK' };
             }
             if (lastRpcBody.method === 'aria2.getOption') {
               return { result: { 'max-overall-download-limit': '5242880' } };
@@ -4444,6 +4520,32 @@ test('ARIA2_RPC proxy forwards whitelisted methods and rejects others', async ()
   assert.equal(redownload.ok, true);
   assert.equal(redownload.result, 'new-gid-1');
   assert.deepEqual(lastRpcBody.params, [['https://example.com/movie.mp4'], {}]);
+
+  const stopped = await invokeBackgroundMessage(background, { type: 'ARIA2_RPC', method: 'tellStopped', params: [0, 1000] });
+  assert.deepEqual(stopped.result[0].downlinkOriginalUris, ['https://example.com/movie.mp4']);
+
+  const removed = await invokeBackgroundMessage(background, {
+    type: 'ARIA2_RPC',
+    method: 'removeDownloadResult',
+    params: ['new-gid-1'],
+  });
+  assert.equal(removed.ok, true);
+  const afterRemove = await invokeBackgroundMessage(background, { type: 'ARIA2_RPC', method: 'tellStopped', params: [0, 1000] });
+  assert.equal(afterRemove.result[0].downlinkOriginalUris, undefined);
+
+  await invokeBackgroundMessage(background, {
+    type: 'ARIA2_RPC',
+    method: 'addUri',
+    params: [['https://example.com/movie.mp4'], {}],
+  });
+  const purged = await invokeBackgroundMessage(background, {
+    type: 'ARIA2_RPC',
+    method: 'purgeDownloadResult',
+    params: [],
+  });
+  assert.equal(purged.ok, true);
+  const afterPurge = await invokeBackgroundMessage(background, { type: 'ARIA2_RPC', method: 'tellStopped', params: [0, 1000] });
+  assert.equal(afterPurge.result[0].downlinkOriginalUris, undefined);
 
   const speedLimit = await invokeBackgroundMessage(background, {
     type: 'ARIA2_RPC',

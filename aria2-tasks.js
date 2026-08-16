@@ -428,9 +428,25 @@
   }
 
   function taskUriEntries(task) {
-    const files = Array.isArray(task?.files) ? task.files : [];
+    const rawTask = task?.raw && typeof task.raw === 'object' ? task.raw : task;
+    const files = Array.isArray(task?.files)
+      ? task.files
+      : (Array.isArray(rawTask?.files) ? rawTask.files : []);
     const seen = new Set();
     const entries = [];
+    const firstFilePath = String(files[0]?.path || '');
+    const originalUris = Array.isArray(task?.downlinkOriginalUris)
+      ? task.downlinkOriginalUris
+      : (Array.isArray(rawTask?.downlinkOriginalUris) ? rawTask.downlinkOriginalUris : []);
+
+    originalUris.forEach((value) => {
+      const uri = String(value || '').trim();
+      if (!uri || seen.has(uri)) return;
+      seen.add(uri);
+      entries.push({ uri, filePath: firstFilePath });
+    });
+    if (entries.length) return entries;
+
     files.forEach((file) => {
       (Array.isArray(file?.uris) ? file.uris : []).forEach((entry) => {
         const uri = String(entry?.uri || '').trim();
@@ -1080,7 +1096,7 @@
       body.appendChild(empty);
     }
 
-    const uriEntries = taskUriEntries({ files });
+    const uriEntries = taskUriEntries(task);
     const linksHeading = document.createElement('div');
     linksHeading.className = 'detail-section-heading';
     const linksTitle = section(T.linksLabel);
@@ -1376,7 +1392,7 @@
   } catch (_) {
     setSidebarCollapsed(false);
   }
-  globalThis.__aria2TasksTestHooks = { getState: () => state, T };
+  globalThis.__aria2TasksTestHooks = { getState: () => state, taskUriEntries, T };
 
   init().catch((error) => {
     setStatus(false);

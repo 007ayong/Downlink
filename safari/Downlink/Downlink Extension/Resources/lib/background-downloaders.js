@@ -591,7 +591,7 @@
           aria2Opts.dir = defaultSaveLocation.path;
         }
         const gid = await addUriToAria2(taskInfo.url, taskInfo.filename, taskInfo.headers || {}, aria2Opts);
-        onAria2TaskQueued?.(gid, taskInfo);
+        await onAria2TaskQueued?.(gid, taskInfo);
         clearConnectionFailureNotificationCooldown('aria2');
         notify(t('sentToLabel', [getDownloaderLabel()], `已发送到 ${getDownloaderLabel()}`), taskInfo.filename || taskInfo.url.slice(0, 80));
         return { ok: true, gid };
