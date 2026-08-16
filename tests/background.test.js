@@ -4617,6 +4617,119 @@ test('ARIA2_RPC proxy forwards whitelisted methods and rejects others', async ()
   assert.match(blocked.error, /Unsupported aria2 method/);
 });
 
+test('Aria2 RPC proxy adds cached trackers to magnet tasks', async () => {
+  let rpcRequest;
+  const background = loadBackgroundRuntime(
+    { aria2Trackers: ['udp://tracker.example:80/announce'] },
+    {
+      fetch: async (_url, options) => {
+        rpcRequest = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() { return { result: 'magnet-gid' }; },
+        };
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ARIA2_RPC',
+    method: 'addUri',
+    params: [['magnet:?xt=urn:btih:abc'], {}],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(rpcRequest.params[1]['bt-tracker'], 'udp://tracker.example:80/announce');
+});
+
+test('tracker refresh keeps cached values for failed subscriptions and stores the cache locally', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      aria2TrackerSubscriptions: ['https://lists.example/ok.txt', 'https://lists.example/down.txt'],
+      aria2Trackers: ['udp://cached.example:80/announce'],
+    },
+    {
+      fetch: async (url) => {
+        if (url === 'https://lists.example/down.txt') throw new Error('network offline');
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return 'udp://new.example:443/announce\n\nhttps://tracker.example/announce';
+          },
+        };
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, { type: 'REFRESH_ARIA2_TRACKERS' });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.updated, true);
+  assert.equal(result.failed.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.trackers)), [
+    'udp://new.example:443/announce',
+    'https://tracker.example/announce',
+    'udp://cached.example:80/announce',
+  ]);
+  const cacheWrite = background.chrome._localStorageWrites.find((values) => values.aria2TrackersUpdatedAt);
+  assert.deepEqual(JSON.parse(JSON.stringify(cacheWrite.aria2Trackers)), JSON.parse(JSON.stringify(result.trackers)));
+});
+
+test('tracker refresh preserves the last usable cache when every subscription fails', async () => {
+  const cachedTrackers = ['udp://cached.example:80/announce'];
+  const background = loadBackgroundRuntime(
+    {
+      aria2TrackerSubscriptions: ['https://lists.example/empty.txt'],
+      aria2Trackers: cachedTrackers,
+    },
+    {
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        async text() { return '# temporarily empty'; },
+      }),
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, { type: 'REFRESH_ARIA2_TRACKERS' });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.updated, false);
+  assert.equal(result.preserved, true);
+  assert.match(result.failed[0].error, /未解析到有效 Tracker/);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.trackers)), cachedTrackers);
+  assert.equal(background.chrome._localStorageWrites.some((values) => values.aria2Trackers), false);
+});
+
+test('concurrent tracker refresh requests share one subscription fetch', async () => {
+  let fetchCount = 0;
+  let releaseFetch;
+  const background = loadBackgroundRuntime(
+    { aria2TrackerSubscriptions: ['https://lists.example/trackers.txt'] },
+    {
+      fetch: async () => {
+        fetchCount += 1;
+        await new Promise((resolve) => { releaseFetch = resolve; });
+        return {
+          ok: true,
+          status: 200,
+          async text() { return 'udp://tracker.example:80/announce'; },
+        };
+      },
+    }
+  );
+
+  const first = invokeBackgroundMessage(background, { type: 'REFRESH_ARIA2_TRACKERS' });
+  const second = invokeBackgroundMessage(background, { type: 'REFRESH_ARIA2_TRACKERS' });
+  await new Promise((resolve) => setImmediate(resolve));
+  releaseFetch();
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+
+  assert.equal(fetchCount, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(firstResult)), JSON.parse(JSON.stringify(secondResult)));
+});
+
 test('MotrixNext connection test validates the incoming secret through stat endpoint', async () => {
   const requests = [];
   const background = loadBackgroundRuntime(

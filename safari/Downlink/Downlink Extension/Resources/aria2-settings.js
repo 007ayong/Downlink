@@ -10,11 +10,14 @@
   let rpcOnly = settingsSection === 'rpc';
   document.body.classList.toggle('embedded', embedded);
   const COLORS = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#007aff', '#af52de', '#8e8e93'];
+  const DEFAULT_ARIA2_TRACKER_SUBSCRIPTION = 'https://ngosang.github.io/trackerslist/trackers_best.txt';
   const storageKeys = {
     aria2Rpc: rpcApi?.DEFAULT_RPC || 'http://localhost:6800/jsonrpc',
     aria2Secret: '',
     aria2CustomSaveEnabled: false,
     aria2SaveLocations: [],
+    aria2TrackerSubscriptions: [DEFAULT_ARIA2_TRACKER_SUBSCRIPTION],
+    aria2Trackers: [],
     aria2PanelMaxConcurrent: '',
     aria2PanelDownloadLimit: '',
     aria2PanelUploadLimit: '',
@@ -22,12 +25,10 @@
   let loadedSettings = { ...storageKeys };
 
   const globalControls = [
-    $('customSaveEnabled')?.closest('.field'),
-    $('locations')?.closest('.field'),
-    $('concurrent')?.closest('.field'),
-    $('downlimit')?.closest('.field'),
-    $('uplimit')?.closest('.field'),
-    document.querySelector('.note'),
+    $('saveSettingsGroup'),
+    $('trackerSettingsGroup'),
+    $('transferSettingsGroup'),
+    document.querySelector('.form > .note'),
   ].filter(Boolean);
   globalControls.forEach((element) => element.classList.add('global-settings-control'));
   const title = document.querySelector('.top h1');
@@ -42,10 +43,10 @@
     document.title = rpcOnly ? 'Aria2 RPC 连接设置' : 'Aria2 全局设置';
     if (title) title.textContent = rpcOnly ? 'RPC 连接设置' : '全局设置';
     if (lead) lead.textContent = rpcOnly ? '配置与测试扩展和 Aria2 之间的 RPC 连接。' : '管理当前 aria2c 实例的默认下载行为。';
-    if (cardTitle) cardTitle.textContent = rpcOnly ? 'RPC 连接' : '下载与队列';
+    if (cardTitle) cardTitle.textContent = rpcOnly ? '连接设置' : 'Aria2 设置';
     if (cardLead) cardLead.textContent = rpcOnly
       ? '地址、端口、路径和密钥与扩展悬浮页共用并保持同步。'
-      : '传输限制会立即应用到正在运行的 Aria2；保存位置只在创建任务时按需传入。';
+      : '连接、任务行为与传输参数按功能分组；保存后会同步到扩展的其他设置入口。';
   }
   applySection(settingsSection);
 
@@ -109,6 +110,102 @@
     });
   }
 
+  function normalizeTrackerSubscriptions(subscriptions) {
+    return (Array.isArray(subscriptions) ? subscriptions : [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+  }
+
+  function trackerSubscriptionInputs() {
+    return Array.from($('trackerSubscriptions').querySelectorAll('.tracker-subscription-input'));
+  }
+
+  function editableTrackerSubscriptions() {
+    return trackerSubscriptionInputs().map((input) => input.value.trim()).filter(Boolean);
+  }
+
+  function renderTrackerSubscriptions(subscriptions = []) {
+    const list = $('trackerSubscriptions');
+    if (!list) return;
+    list.replaceChildren();
+    (Array.isArray(subscriptions) ? subscriptions : []).forEach((value, index) => {
+      const row = document.createElement('div');
+      row.className = 'tracker-subscription';
+      const icon = document.createElement('span');
+      icon.className = 'tracker-subscription-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = '<svg viewBox="0 0 24 24"><path d="M10.6 13.4a4 4 0 0 0 5.7 0l2.1-2.1a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M13.4 10.6a4 4 0 0 0-5.7 0l-2.1 2.1a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>';
+      const input = document.createElement('input');
+      input.className = 'tracker-subscription-input';
+      input.type = 'text';
+      input.placeholder = 'https://example.com/trackers.txt';
+      input.value = String(value || '');
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'mini remove';
+      remove.textContent = '×';
+      remove.title = '删除';
+      remove.addEventListener('click', () => {
+        const next = trackerSubscriptionInputs().map((item) => item.value);
+        next.splice(index, 1);
+        renderTrackerSubscriptions(next);
+      });
+      row.append(icon, input, remove);
+      list.appendChild(row);
+    });
+  }
+
+  function renderTrackers(trackers = [], failed = []) {
+    const preview = $('trackerPreview');
+    if (!preview) return;
+    preview.replaceChildren();
+    const title = document.createElement('div');
+    title.className = 'tracker-preview-title';
+    title.textContent = `已解析 Tracker（${trackers.length}）`;
+    preview.appendChild(title);
+    if (!trackers.length) {
+      const empty = document.createElement('div');
+      empty.className = 'tracker-preview-empty';
+      empty.textContent = '暂无 Tracker，添加订阅后点击“立即更新”拉取。';
+      preview.appendChild(empty);
+    } else {
+      trackers.forEach((tracker) => {
+        const item = document.createElement('div');
+        item.className = 'tracker-item';
+        item.textContent = tracker;
+        preview.appendChild(item);
+      });
+    }
+    (Array.isArray(failed) ? failed : []).forEach((item) => {
+      const error = document.createElement('div');
+      error.className = 'tracker-preview-empty';
+      error.style.color = 'var(--red)';
+      error.textContent = `订阅失败：${item?.url || ''}（${item?.error || '未知错误'}）`;
+      preview.appendChild(error);
+    });
+  }
+
+  async function refreshTrackers({ silent = false } = {}) {
+    const button = $('refreshTrackers');
+    const previousText = button?.textContent || '';
+    if (button) { button.disabled = true; button.textContent = '更新中…'; }
+    try {
+      const response = await sendRuntimeMessage({ type: 'REFRESH_ARIA2_TRACKERS' });
+      renderTrackers(response?.trackers || [], response?.failed || []);
+      if (!silent) {
+        const failedCount = response?.failed?.length || 0;
+        if (response?.preserved) toast(`更新失败，已保留原有 ${response?.trackers?.length || 0} 个 Tracker`);
+        else toast(failedCount ? `Tracker 已更新，${failedCount} 个订阅失败` : `已更新 ${response?.trackers?.length || 0} 个 Tracker`);
+      }
+      return response;
+    } catch (error) {
+      if (!silent) toast(`Tracker 更新失败：${error.message}`);
+      throw error;
+    } finally {
+      if (button) { button.disabled = false; button.textContent = previousText; }
+    }
+  }
+
   function fill(data = {}) {
     loadedSettings = { ...storageKeys, ...data };
     const parts = rpcApi?.rpcParts?.(loadedSettings.aria2Rpc) || {
@@ -122,6 +219,8 @@
     renderRpcPreview();
     $('customSaveEnabled').checked = !!data.aria2CustomSaveEnabled;
     renderLocations(normalizeLocations(data.aria2SaveLocations));
+    renderTrackerSubscriptions(data.aria2TrackerSubscriptions);
+    renderTrackers(data.aria2Trackers);
     $('concurrent').value = data.aria2PanelMaxConcurrent || '';
     $('downlimit').value = data.aria2PanelDownloadLimit || '0';
     $('uplimit').value = data.aria2PanelUploadLimit || '0';
@@ -248,16 +347,35 @@
     }
   };
   $('addLocation').onclick = () => { const next = editableLocations(); next.push({ name: '', path: '', color: '#ff9500' }); renderLocations(next); };
+  $('addTrackerSubscription').onclick = () => {
+    const next = trackerSubscriptionInputs().map((input) => input.value);
+    next.push('');
+    renderTrackerSubscriptions(next);
+    const inputs = trackerSubscriptionInputs();
+    inputs[inputs.length - 1]?.focus();
+  };
+  $('refreshTrackers').onclick = async () => {
+    const subscriptions = normalizeTrackerSubscriptions(editableTrackerSubscriptions());
+    if (!subscriptions.length) {
+      toast('请先添加 Tracker 订阅链接');
+      return;
+    }
+    try {
+      await saveConfig({ ...loadedSettings, aria2TrackerSubscriptions: subscriptions });
+      await refreshTrackers();
+    } catch (error) {
+      toast(`操作失败：${error.message}`);
+    }
+  };
   extensionApi?.storage?.onChanged?.addListener(async (changes, area) => {
     if (area !== 'sync' && area !== 'local') return;
-    if (changes.aria2Rpc || changes.aria2Secret || changes.aria2CustomSaveEnabled || changes.aria2SaveLocations) {
+    if (changes.aria2Rpc || changes.aria2Secret || changes.aria2CustomSaveEnabled || changes.aria2SaveLocations || changes.aria2TrackerSubscriptions || changes.aria2Trackers) {
       const data = await getConfig();
       fill(data);
-      toast(changes.aria2Rpc || changes.aria2Secret
-        ? '已同步悬浮页中的 RPC 连接设置'
-        : changes.aria2CustomSaveEnabled?.newValue === false
-        ? '已关闭自定义位置；新任务将使用 aria2c 自身目录'
-        : '已同步悬浮页中的保存位置');
+      if (changes.aria2Rpc || changes.aria2Secret) toast('已同步悬浮页中的 RPC 连接设置');
+      else if (changes.aria2CustomSaveEnabled?.newValue === false) toast('已关闭自定义位置；新任务将使用 aria2c 自身目录');
+      else if (changes.aria2TrackerSubscriptions || changes.aria2Trackers) toast('已同步 Tracker 设置');
+      else toast('已同步悬浮页中的保存位置');
     }
   });
   ['rpcProtocol', 'rpcHost', 'rpcPort', 'rpcPath'].forEach((id) => {
@@ -276,6 +394,7 @@
     event.preventDefault();
     const locations = rpcOnly ? loadedSettings.aria2SaveLocations : normalizeLocations(editableLocations());
     const customSaveEnabled = rpcOnly ? loadedSettings.aria2CustomSaveEnabled : $('customSaveEnabled').checked;
+    const trackerSubscriptions = rpcOnly ? loadedSettings.aria2TrackerSubscriptions : normalizeTrackerSubscriptions(editableTrackerSubscriptions());
     const values = rpcOnly
       ? { concurrent: loadedSettings.aria2PanelMaxConcurrent, downlimit: loadedSettings.aria2PanelDownloadLimit, uplimit: loadedSettings.aria2PanelUploadLimit }
       : { concurrent: $('concurrent').value.trim(), downlimit: $('downlimit').value, uplimit: $('uplimit').value };
@@ -285,6 +404,7 @@
     const options = { 'max-overall-download-limit': values.downlimit, 'max-overall-upload-limit': values.uplimit };
     if (!rpcOnly && values.concurrent) options['max-concurrent-downloads'] = values.concurrent;
     const save = $('save'); save.disabled = true;
+    const trackerSubscriptionsChanged = JSON.stringify(trackerSubscriptions) !== JSON.stringify(loadedSettings.aria2TrackerSubscriptions || []);
     try {
       const disablingCustomLocations = loadedSettings.aria2CustomSaveEnabled && !customSaveEnabled;
       if (!rpcOnly) await rpc('changeGlobalOption', [options]);
@@ -294,17 +414,24 @@
         aria2Secret,
         aria2CustomSaveEnabled: customSaveEnabled,
         aria2SaveLocations: locations,
+        aria2TrackerSubscriptions: trackerSubscriptions,
         aria2PanelMaxConcurrent: values.concurrent,
         aria2PanelDownloadLimit: values.downlimit,
         aria2PanelUploadLimit: values.uplimit,
       };
       await saveConfig(nextConfig);
+      if (!rpcOnly && trackerSubscriptionsChanged) {
+        try {
+          await refreshTrackers({ silent: true });
+        } catch (_) {}
+      }
       loadedSettings = {
         ...loadedSettings,
         aria2Rpc,
         aria2Secret,
         aria2CustomSaveEnabled: customSaveEnabled,
         aria2SaveLocations: locations,
+        aria2TrackerSubscriptions: trackerSubscriptions,
         aria2PanelMaxConcurrent: values.concurrent,
         aria2PanelDownloadLimit: values.downlimit,
         aria2PanelUploadLimit: values.uplimit,

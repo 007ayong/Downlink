@@ -85,6 +85,7 @@ const {
 } = globalThis.ConfigDefaults;
 const DEFAULT_MEDIA_SNIFFING_BLACKLIST = 'x.com,youtube.com';
 const DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST = 'web.telegram.org';
+const DEFAULT_ARIA2_TRACKER_SUBSCRIPTION = 'https://ngosang.github.io/trackerslist/trackers_best.txt';
 const CONFIG_STORAGE_AREA_KEY = '__downlinkConfigStorageArea';
 
 const DEFAULT_CONFIG = {
@@ -95,6 +96,9 @@ const DEFAULT_CONFIG = {
   aria2Silent: false,
   aria2CustomSaveEnabled: false,
   aria2SaveLocations: [],
+  aria2TrackerSubscriptions: [DEFAULT_ARIA2_TRACKER_SUBSCRIPTION],
+  aria2Trackers: [],
+  aria2TrackersUpdatedAt: 0,
   useMotrixNext: false,
   motrixNextPort: '16801',
   motrixNextSecret: '',
@@ -479,15 +483,23 @@ async function loadStoredConfig() {
   try {
     const syncStored = await storageGet(chrome.storage.sync, {});
     const { [CONFIG_STORAGE_AREA_KEY]: _storageArea, ...localConfig } = localStored || {};
+    const localTrackerCache = {
+      ...(Object.prototype.hasOwnProperty.call(localConfig, 'aria2Trackers')
+        ? { aria2Trackers: localConfig.aria2Trackers }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(localConfig, 'aria2TrackersUpdatedAt')
+        ? { aria2TrackersUpdatedAt: localConfig.aria2TrackersUpdatedAt }
+        : {}),
+    };
     const hasLocalConfig = Object.keys(DEFAULT_CONFIG).some((key) => Object.prototype.hasOwnProperty.call(localConfig, key));
     const hasSyncConfig = Object.keys(DEFAULT_CONFIG).some((key) => Object.prototype.hasOwnProperty.call(syncStored, key));
     if (localStored?.[CONFIG_STORAGE_AREA_KEY] === 'sync') {
       activeConfigStorageArea = 'sync';
-      return { ...DEFAULT_CONFIG, ...(hasSyncConfig ? syncStored : (hasLocalConfig ? localConfig : {})) };
+      return { ...DEFAULT_CONFIG, ...(hasSyncConfig ? syncStored : (hasLocalConfig ? localConfig : {})), ...localTrackerCache };
     }
     if (hasSyncConfig) {
       activeConfigStorageArea = 'sync';
-      return { ...DEFAULT_CONFIG, ...syncStored };
+      return { ...DEFAULT_CONFIG, ...syncStored, ...localTrackerCache };
     }
 
     // Older builds did not persist which storage area won. If sync is empty
@@ -510,8 +522,11 @@ function loadStoredConfigCallback(callback) {
 }
 
 async function saveStoredConfig(nextConfig) {
+  const syncConfig = { ...nextConfig };
+  delete syncConfig.aria2Trackers;
+  delete syncConfig.aria2TrackersUpdatedAt;
   try {
-    await storageSet(chrome.storage.sync, nextConfig);
+    if (Object.keys(syncConfig).length) await storageSet(chrome.storage.sync, syncConfig);
     activeConfigStorageArea = 'sync';
     // Keep a local cache so a temporarily unavailable sync store does not
     // reset the extension to defaults on the next Safari launch.
@@ -1049,11 +1064,40 @@ function normalizeAria2SaveLocations(locations = []) {
     .filter((item) => item.name && item.path);
 }
 
+function isAria2TrackerUrl(value) {
+  return /^(https?|udp|ws|wss):\/\//i.test(String(value || '').trim());
+}
+
+function normalizeAria2TrackerSubscriptions(subscriptions = []) {
+  if (!Array.isArray(subscriptions)) return [];
+  const unique = [];
+  for (const item of subscriptions) {
+    const value = String(item || '').trim();
+    if (value && !unique.includes(value)) unique.push(value);
+  }
+  return unique;
+}
+
+function normalizeAria2Trackers(trackers = []) {
+  if (!Array.isArray(trackers)) return [];
+  const unique = [];
+  for (const item of trackers) {
+    const value = String(item || '').trim();
+    if (isAria2TrackerUrl(value) && !unique.includes(value)) unique.push(value);
+  }
+  return unique;
+}
+
 function normalizeConfig(nextConfig = {}) {
   const normalized = {
     ...nextConfig,
     aria2CustomSaveEnabled: !!nextConfig.aria2CustomSaveEnabled,
     aria2SaveLocations: normalizeAria2SaveLocations(nextConfig.aria2SaveLocations),
+    aria2TrackerSubscriptions: nextConfig.aria2TrackerSubscriptions === undefined
+      ? [DEFAULT_ARIA2_TRACKER_SUBSCRIPTION]
+      : normalizeAria2TrackerSubscriptions(nextConfig.aria2TrackerSubscriptions),
+    aria2Trackers: normalizeAria2Trackers(nextConfig.aria2Trackers),
+    aria2TrackersUpdatedAt: Math.max(0, Number(nextConfig.aria2TrackersUpdatedAt) || 0),
     externalLauncherName: 'AB DM',
     externalLauncherHost: 'localhost',
     mediaSniffingBlacklist: nextConfig.mediaSniffing === false
@@ -1102,6 +1146,91 @@ async function saveConfigAndSync(nextConfig) {
     broadcastUpdate();
   }
   return config;
+}
+
+const ARIA2_TRACKER_FETCH_TIMEOUT_MS = 8000;
+const ARIA2_TRACKER_AUTO_REFRESH_MS = 24 * 60 * 60 * 1000;
+let aria2TrackerRefreshQueue = Promise.resolve();
+const aria2TrackerRefreshJobs = new Map();
+
+function parseTrackerSubscriptionText(text = '') {
+  const candidates = String(text || '').match(/(?:https?|udp|ws|wss):\/\/[^\s"'<>,;]+/gi) || [];
+  const trackers = [];
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim().replace(/[)\]}>.,;:!?]+$/, '');
+    if (isAria2TrackerUrl(value) && !trackers.includes(value)) trackers.push(value);
+  }
+  return trackers;
+}
+
+async function fetchAria2TrackerSubscription(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ARIA2_TRACKER_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(String(url), { signal: controller.signal, cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const trackers = parseTrackerSubscriptionText(await response.text());
+    if (!trackers.length) throw new Error('未解析到有效 Tracker');
+    return trackers;
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('请求超时');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function refreshAria2TrackersFromSubscriptions({ force = true } = {}) {
+  const subscriptions = normalizeAria2TrackerSubscriptions(config.aria2TrackerSubscriptions);
+  if (!force && Date.now() - config.aria2TrackersUpdatedAt < ARIA2_TRACKER_AUTO_REFRESH_MS) {
+    return Promise.resolve({ ok: true, trackers: config.aria2Trackers, failed: [], updated: false, cached: true });
+  }
+  const refreshKey = JSON.stringify(subscriptions);
+  if (aria2TrackerRefreshJobs.has(refreshKey)) return aria2TrackerRefreshJobs.get(refreshKey);
+
+  const refreshJob = aria2TrackerRefreshQueue
+    .catch(() => {})
+    .then(async () => {
+      if (!subscriptions.length) {
+        if (config.aria2Trackers?.length || config.aria2TrackersUpdatedAt) {
+          await saveConfigAndSync({ aria2Trackers: [], aria2TrackersUpdatedAt: 0 });
+        }
+        return { ok: true, trackers: [], failed: [], updated: false };
+      }
+
+      const results = await Promise.allSettled(subscriptions.map(async (url) => {
+        const trackers = await fetchAria2TrackerSubscription(url);
+        return { url, trackers };
+      }));
+
+      const merged = [];
+      const failed = [];
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          merged.push(...result.value.trackers);
+        } else {
+          failed.push({
+            url: subscriptions[index],
+            error: result.reason?.message || String(result.reason),
+          });
+        }
+      });
+      const successfulCount = results.length - failed.length;
+      if (!successfulCount) {
+        return { ok: true, trackers: config.aria2Trackers, failed, updated: false, preserved: true };
+      }
+      const trackers = normalizeAria2Trackers(failed.length ? [...merged, ...config.aria2Trackers] : merged);
+      const updatedAt = Date.now();
+      await saveConfigAndSync({ aria2Trackers: trackers, aria2TrackersUpdatedAt: updatedAt });
+      return { ok: true, trackers, failed, updated: true, updatedAt };
+    });
+  aria2TrackerRefreshQueue = refreshJob;
+  aria2TrackerRefreshJobs.set(refreshKey, refreshJob);
+  const clearRefreshJob = () => {
+    if (aria2TrackerRefreshJobs.get(refreshKey) === refreshJob) aria2TrackerRefreshJobs.delete(refreshKey);
+  };
+  refreshJob.then(clearRefreshJob, clearRefreshJob);
+  return refreshJob;
 }
 
 function queueAutoCaptureToggle() {
@@ -3354,6 +3483,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await saveConfigAndSync(msg.config || {});
         sendResponse({ ok: true });
         break;
+      case 'REFRESH_ARIA2_TRACKERS':
+        {
+          const result = await refreshAria2TrackersFromSubscriptions();
+          sendResponse({ ok: true, ...result });
+        }
+        break;
       case 'OPEN_MOTRIXNEXT_VIEW':
         sendResponse(await openMotrixNextView());
         break;
@@ -3368,7 +3503,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             break;
           }
           try {
-            const params = Array.isArray(msg.params) ? msg.params : [];
+            let params = Array.isArray(msg.params) ? msg.params : [];
             let purgedGids = [];
             if (method === 'purgeDownloadResult') {
               try {
@@ -3377,6 +3512,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                   .map((task) => task?.gid)
                   .filter(Boolean);
               } catch {}
+            }
+            const effectiveConfig = getEffectiveConfig(msg.config);
+            if (method === 'addUri' && Array.isArray(effectiveConfig.aria2Trackers) && effectiveConfig.aria2Trackers.length) {
+              const uris = Array.isArray(params[0]) ? params[0] : [];
+              const hasMagnet = uris.some((uri) => /^magnet:/i.test(String(uri || '')));
+              const opts = params[1] && typeof params[1] === 'object' && !Array.isArray(params[1]) ? params[1] : {};
+              if (hasMagnet && !opts['bt-tracker']) {
+                params = [...params];
+                params[1] = { ...opts, 'bt-tracker': effectiveConfig.aria2Trackers.join(',') };
+              }
             }
             let result = await aria2Call(method, params, msg.config);
             if (method === 'addUri') {
@@ -3417,6 +3562,9 @@ chrome.commands?.onCommand?.addListener((command) => {
 
 chrome.runtime.onInstalled.addListener(() => {
   refreshContextMenus();
+  configReady
+    .then(() => refreshAria2TrackersFromSubscriptions({ force: false }))
+    .catch(() => {});
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -3494,6 +3642,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 chrome.runtime.onStartup.addListener(async () => {
   await configReady;
+  refreshAria2TrackersFromSubscriptions({ force: false }).catch(() => {});
   if (config.downloaderType !== 'aria2') return;
   await Promise.all([aria2OriginalUrisReady, aria2TaskMetaReady]);
   try {

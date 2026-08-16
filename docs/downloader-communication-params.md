@@ -26,6 +26,9 @@
 | `aria2Silent` | `false` | 自动捕获普通下载时是否跳过确认面板直接发送 |
 | `aria2CustomSaveEnabled` | `false` | 是否启用自定义保存位置，`aria2Silent` 为 `true` 时强制关闭 |
 | `aria2SaveLocations` | `[]` | 自定义保存位置列表，每项含 `name`、`path`、`color`，第一项为默认 |
+| `aria2TrackerSubscriptions` | `["https://ngosang.github.io/trackerslist/trackers_best.txt"]` | Tracker 列表订阅链接，保存后会自动抓取并合并到 `aria2Trackers` |
+| `aria2Trackers` | `[]` | 已解析的磁力链接 Tracker 缓存（存于本地，避免同步存储配额限制），创建磁力任务时通过 `bt-tracker` 传给 Aria2 |
+| `aria2TrackersUpdatedAt` | `0` | Tracker 缓存最近成功更新时间；浏览器启动时超过 24 小时会后台更新 |
 | `useMotrixNext` | `false` | 仅用于任务面板中快速跳转 MotrixNext 查看，不改变 Aria2 通讯方式 |
 
 ### 请求格式
@@ -78,6 +81,7 @@ Content-Type: application/json
 | `max-connection-per-server` | 确认面板选项 | 否 | 单线程下载时为 `"1"` |
 | `min-split-size` | 确认面板选项 | 否 | 单线程下载时为 `"1024M"` |
 | `dir` | 确认面板保存位置选择 | 否 | 自定义保存位置，指定下载目录 |
+| `bt-tracker` | `aria2Trackers` | 否 | 磁力任务自动附加的 Tracker 列表，逗号分隔 |
 
 ### 连接检测
 

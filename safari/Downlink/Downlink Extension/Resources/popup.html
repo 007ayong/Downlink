@@ -1385,6 +1385,57 @@
       font-size: 12px;
       font-weight: 500;
     }
+    .tracker-subscription-list {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      margin-top: 8px;
+    }
+    .tracker-subscription-row {
+      display: flex;
+      align-items: stretch;
+      gap: 7px;
+    }
+    .tracker-subscription-row .settings-input {
+      flex: 1;
+      min-width: 0;
+      margin-top: 0;
+    }
+    .tracker-subscription-remove {
+      width: 32px;
+      height: 32px;
+      flex: 0 0 32px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg2);
+      color: var(--text-2);
+      cursor: pointer;
+      line-height: 1;
+    }
+    .tracker-preview-list {
+      margin-top: 8px;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--bg2);
+      max-height: 160px;
+      overflow: auto;
+    }
+    .tracker-preview-title {
+      font-size: 10.5px;
+      color: var(--text-3);
+      margin-bottom: 4px;
+    }
+    .tracker-preview-empty {
+      font-size: 10.5px;
+      color: var(--text-3);
+    }
+    .tracker-preview-item {
+      font-size: 10.5px;
+      color: var(--text-2);
+      word-break: break-all;
+      padding: 1px 0;
+    }
 
     /* Toggle */
     .toggle {
@@ -1771,6 +1822,15 @@
       <label><span data-i18n="settingsAria2SaveLocations">保存位置列表</span> <span class="settings-sub" data-i18n="settingsAria2SaveLocationsSub">可自定义名称、路径和颜色标签，可调整顺序</span></label>
       <div class="save-location-list" id="cfgAria2SaveLocations"></div>
       <button class="add-save-location-btn" type="button" id="addAria2SaveLocationBtn" data-i18n="addSaveLocation">添加保存位置</button>
+    </div>
+    <div class="settings-row col aria2-only">
+      <label><span data-i18n="settingsAria2Trackers">磁力链接 Tracker</span> <span class="settings-sub" data-i18n="settingsAria2TrackersSub">添加 Tracker 列表订阅链接，自动更新并用于磁力下载任务</span></label>
+      <div class="tracker-subscription-list" id="cfgAria2TrackerSubscriptions"></div>
+      <div class="settings-input-action">
+        <button class="add-save-location-btn" style="margin-top:0;flex:1" type="button" id="addAria2TrackerSubscriptionBtn" data-i18n="addAria2TrackerSubscription">添加订阅链接</button>
+        <button class="btn btn-ghost" type="button" id="refreshAria2TrackersBtn" data-i18n="refreshAria2Trackers">立即更新</button>
+      </div>
+      <div class="tracker-preview-list" id="cfgAria2TrackersPreview"></div>
     </div>
     <div class="settings-row aria2-only">
       <label><span data-i18n="settingsUseMotrixNext">使用 MotrixNext 管理</span> <span class="settings-sub" data-i18n="settingsUseMotrixNextSub">在任务面板显示“Motrix中查看”，默认关闭</span></label>

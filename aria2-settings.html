@@ -9,10 +9,53 @@
   <style>
     .grid { display: block; }
     .nav { display: none; }
+    .card-head { padding: 24px 26px 20px; }
+    .card-head h2 { font-size: 18px; }
+    .form { padding: 22px 26px 26px; }
+    .settings-stack { display: flex; flex-direction: column; }
+    .settings-group { padding: 2px 0 4px; }
+    .settings-group + .settings-group { margin-top: 25px; padding-top: 25px; border-top: 1px solid var(--border); }
+    .settings-group-head { padding: 0; }
+    .settings-group-title { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 15px; line-height: 1.35; letter-spacing: -.01em; }
+    .settings-group-title::before { content: ''; width: 3px; height: 15px; flex: 0 0 3px; border-radius: 99px; background: var(--accent); }
+    .settings-group-description { margin: 5px 0 0 12px; color: var(--subtle); font-size: 11px; line-height: 1.5; }
+    .settings-group-body { padding: 16px 0 0 12px; }
+    .settings-subsection + .settings-subsection { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+    .settings-subsection-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .settings-subsection-title { margin: 0; font-size: 12px; font-weight: 700; }
+    .settings-subsection-hint { color: var(--subtle); font-size: 10.5px; }
     .rpc-grid { display: grid; grid-template-columns: minmax(100px, .7fr) minmax(0, 1.6fr) minmax(90px, .7fr); gap: 12px; margin-top: 4px; }
     .rpc-grid .field { min-width: 0; }
+    .rpc-details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
     .rpc-error { min-height: 18px; margin-top: 7px; color: var(--red); font-size: 12px; }
-    @media(max-width:700px){.rpc-grid{grid-template-columns:1fr 1fr}.rpc-grid .field:first-child{grid-column:1/-1}}
+    .tracker-subscriptions { display: flex; flex-direction: column; gap: 9px; margin-top: 4px; }
+    .tracker-subscription { display: grid; grid-template-columns: 34px minmax(0, 1fr) 36px; align-items: center; min-height: 42px; border: 1px solid var(--border); border-radius: 10px; background: var(--field); transition: border-color .16s, box-shadow .16s, background .16s; }
+    .tracker-subscription:focus-within { border-color: var(--accent); background: var(--panel); box-shadow: 0 0 0 3px var(--accent-bg); }
+    .tracker-subscription-icon { display: grid; place-items: center; color: var(--subtle); }
+    .tracker-subscription-icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .tracker-subscription input { width: 100%; min-width: 0; padding: 10px 2px; border: 0; border-radius: 0; outline: 0; background: transparent; box-shadow: none; appearance: none; -webkit-appearance: none; }
+    .tracker-subscription input:focus,
+    .tracker-subscription input:focus-visible { border-color: transparent; outline: 0; box-shadow: none; }
+    .tracker-subscription .mini { width: 28px; height: 28px; margin-right: 4px; border: 0; background: transparent; font-size: 17px; }
+    .tracker-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .tracker-preview { margin-top: 12px; padding: 11px 12px; border: 0; border-radius: 9px; background: var(--field); max-height: 180px; overflow: auto; }
+    .tracker-preview-title { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    .tracker-preview-empty { font-size: 11px; color: var(--subtle); }
+    .tracker-item { font-size: 11px; color: var(--subtle); word-break: break-all; padding: 2px 0; }
+    .transfer-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .settings-group .toggle-row { padding: 0; border: 0; border-radius: 0; background: transparent; }
+    .settings-group .locations { margin-top: 2px; }
+    #addLocation { margin-top: 12px; }
+    .form > .note { margin-top: 16px; }
+    .actions { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+    @media(max-width:700px){
+      .card-head,.form{padding-left:18px;padding-right:18px}
+      .settings-group-body{padding-left:0}
+      .settings-group-description{margin-left:12px}
+      .rpc-grid,.rpc-details-grid,.transfer-grid{grid-template-columns:1fr}
+      .rpc-grid .field:first-child{grid-column:auto}
+      .settings-subsection-head{align-items:flex-start;flex-direction:column;gap:3px}
+    }
   </style>
   <style>
     html { scrollbar-gutter: stable; }
@@ -21,6 +64,75 @@
     body.rpc-only .global-settings-control { display: none !important; }
     body.global-only .rpc-connection-section,
     body.global-only #testRpc { display: none !important; }
+    body.global-only #saveSettingsGroup { margin-top: 0; padding-top: 2px; border-top: 0; }
   </style>
 </head>
-<body><main class="shell"><header class="top"><button class="back" id="back">← 任务队列</button><div><div class="eyebrow">ARIA2 CONSOLE / CONFIGURATION</div><h1>全局设置</h1><p class="lead">管理当前 aria2c 实例的默认下载行为。</p></div></header><div class="grid"><nav class="nav"><div class="active">下载与队列</div><div>传输限制</div><div>扩展设置（即将提供）</div></nav><section class="card"><div class="card-head"><h2>下载与队列</h2><p>传输限制会立即应用到正在运行的 Aria2；保存位置只在创建任务时按需传入。</p></div><form class="form" id="form"><div class="fields"><div class="field wide rpc-connection-section"><label>RPC 连接</label><small>与扩展悬浮页共用同一个 RPC 地址和密钥；修改后两处会同步生效。</small><div class="rpc-grid"><div class="field"><label for="rpcProtocol">协议</label><select id="rpcProtocol"><option value="http">HTTP</option><option value="https">HTTPS</option></select></div><div class="field"><label for="rpcHost">地址</label><input id="rpcHost" type="text" autocomplete="url" placeholder="localhost"></div><div class="field"><label for="rpcPort">端口</label><input id="rpcPort" type="number" min="1" max="65535" inputmode="numeric" placeholder="6800"></div></div><div class="field" style="margin-top:12px"><label for="rpcPath">RPC 路径</label><input id="rpcPath" type="text" placeholder="/jsonrpc"></div><div class="field" style="margin-top:12px"><label for="rpcSecret">RPC 密钥 / Secret</label><input id="rpcSecret" type="password" autocomplete="current-password" placeholder="留空则不使用"></div><div class="rpc-error" id="rpcError" role="alert"></div></div><div class="field wide"><div class="toggle-row"><div><strong>自定义保存位置</strong><small>启用后，悬浮页确认任务与任务管理页会使用同一份位置列表；第一项为新任务的默认选项。关闭后不会传递目录，由 aria2c 决定保存位置。</small></div><label class="toggle"><input id="customSaveEnabled" type="checkbox"><span class="track"></span></label></div></div><div class="field wide"><label>保存位置列表</label><div class="locations" id="locations"></div><button class="btn add" type="button" id="addLocation">+ 添加保存位置</button></div><div class="field"><label for="concurrent">最大并行下载</label><input id="concurrent" type="number" min="1" max="100" inputmode="numeric" placeholder="例如 5"></div><div class="field"><label for="downlimit">全局下载限速</label><select id="downlimit"><option value="0">不限速</option><option value="1048576">1 MB/s</option><option value="5242880">5 MB/s</option><option value="10485760">10 MB/s</option><option value="52428800">50 MB/s</option></select></div><div class="field"><label for="uplimit">全局上传限速</label><select id="uplimit"><option value="0">不限速</option><option value="524288">512 KB/s</option><option value="1048576">1 MB/s</option><option value="5242880">5 MB/s</option></select></div></div><div class="note">提示：保存位置列表与扩展悬浮页设置实时共用。Aria2 全局参数要在重启 <code>aria2c</code> 后继续生效，也请写入 <code>aria2.conf</code>。</div><div class="actions"><button class="btn" type="button" id="testRpc">测试连接</button><button class="btn primary" type="submit" id="save">保存并应用</button></div></form></section></div></main><div class="toast" id="toast"></div><script src="lib/aria2-rpc.js"></script><script src="aria2-settings.js"></script></body></html>
+<body>
+  <main class="shell">
+    <header class="top">
+      <button class="back" id="back">← 任务队列</button>
+      <div><div class="eyebrow">ARIA2 CONSOLE / CONFIGURATION</div><h1>全局设置</h1><p class="lead">管理当前 aria2c 实例的默认下载行为。</p></div>
+    </header>
+    <div class="grid">
+      <section class="card">
+        <div class="card-head"><h2>Aria2 设置</h2><p>连接、任务行为与传输参数按功能分组；保存后会同步到扩展的其他设置入口。</p></div>
+        <form class="form" id="form">
+          <div class="settings-stack">
+            <section class="settings-group rpc-connection-section" id="rpcSettingsGroup">
+              <header class="settings-group-head"><h3 class="settings-group-title">RPC 连接</h3><p class="settings-group-description">扩展用于连接 aria2c 的服务地址与鉴权信息。</p></header>
+              <div class="settings-group-body">
+                <div class="rpc-grid">
+                  <div class="field"><label for="rpcProtocol">协议</label><select id="rpcProtocol"><option value="http">HTTP</option><option value="https">HTTPS</option></select></div>
+                  <div class="field"><label for="rpcHost">服务器地址</label><input id="rpcHost" type="text" autocomplete="url" placeholder="localhost"></div>
+                  <div class="field"><label for="rpcPort">端口</label><input id="rpcPort" type="number" min="1" max="65535" inputmode="numeric" placeholder="6800"></div>
+                </div>
+                <div class="rpc-details-grid">
+                  <div class="field"><label for="rpcPath">RPC 路径</label><input id="rpcPath" type="text" placeholder="/jsonrpc"></div>
+                  <div class="field"><label for="rpcSecret">RPC 密钥 / Secret</label><input id="rpcSecret" type="password" autocomplete="current-password" placeholder="留空则不使用"></div>
+                </div>
+                <div class="rpc-error" id="rpcError" role="alert"></div>
+              </div>
+            </section>
+
+            <section class="settings-group global-settings-control" id="saveSettingsGroup">
+              <header class="settings-group-head"><h3 class="settings-group-title">任务与保存位置</h3><p class="settings-group-description">决定新任务是否携带下载目录，以及可选择的保存位置。</p></header>
+              <div class="settings-group-body">
+                <div class="settings-subsection">
+                  <div class="toggle-row"><div><strong>自定义保存位置</strong><small>开启后使用下方位置列表；关闭后不传递目录，由 aria2c 使用自身默认目录。</small></div><label class="toggle"><input id="customSaveEnabled" type="checkbox"><span class="track"></span></label></div>
+                </div>
+                <div class="settings-subsection">
+                  <div class="settings-subsection-head"><h4 class="settings-subsection-title">保存位置列表</h4><span class="settings-subsection-hint">第一项作为新任务默认位置</span></div>
+                  <div class="locations" id="locations"></div>
+                  <button class="btn add" type="button" id="addLocation">+ 添加保存位置</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-group global-settings-control" id="trackerSettingsGroup">
+              <header class="settings-group-head"><h3 class="settings-group-title">磁力链接 Tracker</h3><p class="settings-group-description">订阅 Tracker 列表并合并缓存，创建磁力任务时自动传给 Aria2。</p></header>
+              <div class="settings-group-body">
+                <div class="settings-subsection-head"><h4 class="settings-subsection-title">订阅地址</h4><span class="settings-subsection-hint">支持多个纯文本列表链接</span></div>
+                <div class="tracker-subscriptions" id="trackerSubscriptions"></div>
+                <div class="tracker-actions"><button class="btn" type="button" id="addTrackerSubscription">+ 添加订阅链接</button><button class="btn" type="button" id="refreshTrackers">立即更新</button></div>
+                <div class="tracker-preview" id="trackerPreview"></div>
+              </div>
+            </section>
+
+            <section class="settings-group global-settings-control" id="transferSettingsGroup">
+              <header class="settings-group-head"><h3 class="settings-group-title">队列与传输限制</h3><p class="settings-group-description">这些参数保存时会立即应用到当前正在运行的 aria2c 实例。</p></header>
+              <div class="settings-group-body transfer-grid">
+                <div class="field"><label for="concurrent">最大并行下载</label><input id="concurrent" type="number" min="1" max="100" inputmode="numeric" placeholder="例如 5"></div>
+                <div class="field"><label for="downlimit">全局下载限速</label><select id="downlimit"><option value="0">不限速</option><option value="1048576">1 MB/s</option><option value="5242880">5 MB/s</option><option value="10485760">10 MB/s</option><option value="52428800">50 MB/s</option></select></div>
+                <div class="field"><label for="uplimit">全局上传限速</label><select id="uplimit"><option value="0">不限速</option><option value="524288">512 KB/s</option><option value="1048576">1 MB/s</option><option value="5242880">5 MB/s</option></select></div>
+              </div>
+            </section>
+          </div>
+          <div class="note">提示：保存位置与 Tracker 设置会在扩展内同步。要让 Aria2 全局参数在重启 <code>aria2c</code> 后继续生效，请同时写入 <code>aria2.conf</code>。</div>
+          <div class="actions"><button class="btn" type="button" id="testRpc">测试连接</button><button class="btn primary" type="submit" id="save">保存并应用</button></div>
+        </form>
+      </section>
+    </div>
+  </main>
+  <div class="toast" id="toast"></div>
+  <script src="lib/aria2-rpc.js"></script><script src="aria2-settings.js"></script>
+</body></html>
