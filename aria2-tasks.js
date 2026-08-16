@@ -111,9 +111,6 @@
       waitingDetail: '等待中',
       pausedDetail: '已暂停',
       downloadProgressLabel: '下载进度',
-      uploadProgressLabel: '上传进度',
-      uploadUnavailable: '暂无上传数据',
-      uploadedLabel: '已上传',
       linksLabel: '下载链接',
       moreLinks: '还有 $1 个不同链接',
       noLinks: '无可用下载链接',
@@ -231,9 +228,6 @@
       waitingDetail: 'Waiting',
       pausedDetail: 'Paused',
       downloadProgressLabel: 'Download progress',
-      uploadProgressLabel: 'Upload progress',
-      uploadUnavailable: 'Upload data unavailable',
-      uploadedLabel: 'Uploaded',
       linksLabel: 'Download links',
       moreLinks: '$1 more distinct links',
       noLinks: 'No download links available',
@@ -491,11 +485,6 @@
     const name = taskDisplayName(raw);
     const rawErrorCode = String(raw.errorCode ?? '').trim();
     const errorCode = rawErrorCode && rawErrorCode !== '0' ? rawErrorCode : '';
-    const uploadLengthValue = Number(raw.uploadLength);
-    const uploadLengthAvailable = raw.uploadLength !== undefined
-      && raw.uploadLength !== null
-      && String(raw.uploadLength).trim() !== ''
-      && Number.isFinite(uploadLengthValue);
     return {
       gid: String(raw.gid || ''),
       raw,
@@ -508,8 +497,6 @@
       downloadProgressAvailable: total > 0 || status === 'complete',
       speed: Number(raw.downloadSpeed) || 0,
       uploadSpeed: Number(raw.uploadSpeed) || 0,
-      uploadLength: uploadLengthAvailable ? Math.max(0, uploadLengthValue) : 0,
-      uploadLengthAvailable,
       dir: raw.dir || '',
       filePath: firstFile.path || '',
       addedTime: Number(raw.addedTime) || 0,
@@ -1005,10 +992,6 @@
     });
     gidLink.title = T.copyGid;
 
-    const uploadProgressAvailable = task.uploadLengthAvailable && task.total > 0;
-    const uploadDetail = task.uploadLengthAvailable
-      ? `${T.uploadedLabel} ${fmtBytes(task.uploadLength)}${task.total > 0 ? ` / ${fmtBytes(task.total)}` : ''}${task.uploadSpeed > 0 ? ` · ${fmtSpeed(task.uploadSpeed)}` : ''}`
-      : T.uploadUnavailable;
     const progressGrid = document.createElement('div');
     progressGrid.className = 'detail-progress-grid';
     progressGrid.append(
@@ -1018,13 +1001,6 @@
         task.downloadProgressAvailable ? `${fmtBytes(task.completed)} / ${fmtBytes(task.total)}` : T.unknownSize,
         'var(--accent)',
         task.downloadProgressAvailable,
-      ),
-      createProgressRing(
-        T.uploadProgressLabel,
-        uploadProgressAvailable ? Math.min(100, (task.uploadLength / task.total) * 100) : 0,
-        uploadDetail,
-        'var(--green)',
-        uploadProgressAvailable,
       ),
     );
     body.appendChild(progressGrid);
@@ -1037,7 +1013,7 @@
     );
     if (task.status === 'active') {
       kv.append(
-        detailRow(T.speedLabel, `${fmtSpeed(task.speed)}${task.uploadLengthAvailable ? ` / ↑ ${fmtSpeed(task.uploadSpeed)}` : ''}`),
+        detailRow(T.speedLabel, `${fmtSpeed(task.speed)}${task.uploadSpeed > 0 ? ` / ↑ ${fmtSpeed(task.uploadSpeed)}` : ''}`),
         detailRow(T.etaLabel, fmtEta(task.speed, task.total, task.completed)),
         detailRow(T.connectionsLabel, `${task.connections}`)
       );
