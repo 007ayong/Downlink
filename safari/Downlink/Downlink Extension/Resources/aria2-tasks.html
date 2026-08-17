@@ -1100,6 +1100,12 @@
       transition: grid-template-columns .24s ease, gap .24s ease;
     }
     .main.has-detail { grid-template-columns: minmax(0, 1fr) minmax(300px, 340px); gap: 14px; }
+    @media (min-width: 1400px) {
+      .main.has-detail { grid-template-columns: minmax(0, 1fr) minmax(360px, 420px); }
+    }
+    @media (min-width: 1700px) {
+      .main.has-detail { grid-template-columns: minmax(0, 1fr) minmax(430px, 500px); }
+    }
     .list-panel { padding: 0; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
     .list-meta { min-height: 24px; padding: 0 2px 8px; }
     .list-meta::before { content: none; }
