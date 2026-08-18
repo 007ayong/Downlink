@@ -47,6 +47,7 @@ function createChromeStub(storedConfig = {}) {
   const runtimeMessages = [];
   const localStorageWrites = [];
   const syncShouldFail = storedConfig.__syncShouldFail;
+  const badgeError = storedConfig.__badgeError;
   const throwOnDeterminingFilenameAccess = storedConfig.__throwOnDeterminingFilenameAccess;
   const storedValues = { ...storedConfig };
   delete storedValues.__syncShouldFail;
@@ -54,6 +55,7 @@ function createChromeStub(storedConfig = {}) {
   delete storedValues.__throwOnDeterminingFilenameAccess;
   delete storedValues.__activeTabs;
   delete storedValues.__tabsById;
+  delete storedValues.__badgeError;
   let runtimeApi;
 
   const downloadsApi = {
@@ -131,12 +133,15 @@ function createChromeStub(storedConfig = {}) {
     action: {
       setBadgeBackgroundColor(payload) {
         actionCalls.setBadgeBackgroundColor.push(payload);
+        if (badgeError) return Promise.reject(new Error(badgeError));
       },
       setBadgeTextColor(payload) {
         actionCalls.setBadgeTextColor.push(payload);
+        if (badgeError) return Promise.reject(new Error(badgeError));
       },
       setBadgeText(payload) {
         actionCalls.setBadgeText.push(payload);
+        if (badgeError) return Promise.reject(new Error(badgeError));
       },
       openPopup() {
         actionCalls.openPopup += 1;
@@ -268,7 +273,7 @@ function createChromeStub(storedConfig = {}) {
 function loadBackgroundRuntime(storedConfig = {}, options = {}) {
   const chrome = createChromeStub(storedConfig);
   const context = {
-    console,
+    console: options.console || console,
     Buffer,
     AbortController,
     TextDecoder,
@@ -4895,6 +4900,50 @@ test('disabling auto capture pauses active tab sniffing and shows disabled badge
   assert.deepEqual(JSON.parse(JSON.stringify(state.pausedTabs)), [12]);
   assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeText.at(-1))), { text: '✕', tabId: 12 });
   assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeBackgroundColor.at(-1))), { color: '#6b7280', tabId: 12 });
+});
+
+test('badge updates ignore the normal race when the target tab has already closed', async () => {
+  const warnings = [];
+  const background = loadBackgroundRuntime(
+    { __badgeError: 'No tab with id: 823017455.' },
+    {
+      console: {
+        ...console,
+        warn(...args) {
+          warnings.push(args);
+        },
+      },
+    }
+  );
+
+  background.__backgroundTestHooks.updateActionBadgeForTab(823017455, 2);
+  await Promise.resolve();
+
+  assert.equal(background.chrome._actionCalls.setBadgeBackgroundColor.length, 1);
+  assert.equal(background.chrome._actionCalls.setBadgeTextColor.length, 1);
+  assert.equal(background.chrome._actionCalls.setBadgeText.length, 1);
+  assert.equal(warnings.length, 0);
+});
+
+test('badge updates still report unexpected action API failures', async () => {
+  const warnings = [];
+  const background = loadBackgroundRuntime(
+    { __badgeError: 'Action API unavailable' },
+    {
+      console: {
+        ...console,
+        warn(...args) {
+          warnings.push(args);
+        },
+      },
+    }
+  );
+
+  background.__backgroundTestHooks.updateActionBadgeForTab(12, 1);
+  await Promise.resolve();
+
+  assert.equal(warnings.length, 3);
+  assert.ok(warnings.every((args) => args[0] === '[Downlink][badge] failed to update tab badge'));
 });
 
 test('enabling auto capture resumes tabs paused by the auto capture switch', async () => {

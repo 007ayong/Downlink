@@ -75,10 +75,62 @@ function loadSafariBridgeMessageValidator() {
   return context.validate;
 }
 
+function loadSafariBadgeUpdater(badgeError) {
+  const source = readSafariBackground();
+  const functionSource = source.slice(
+    source.indexOf('function observeTabScopedActionCall'),
+    source.indexOf('function getActiveTabs')
+  );
+  const calls = [];
+  const warnings = [];
+  const rejectBadgeUpdate = (operation, payload) => {
+    calls.push({ operation, payload });
+    return Promise.reject(new Error(badgeError));
+  };
+  const context = {
+    config: { autoCapture: true },
+    chrome: {
+      action: {
+        setBadgeBackgroundColor: (payload) => rejectBadgeUpdate('setBadgeBackgroundColor', payload),
+        setBadgeTextColor: (payload) => rejectBadgeUpdate('setBadgeTextColor', payload),
+        setBadgeText: (payload) => rejectBadgeUpdate('setBadgeText', payload),
+      },
+    },
+    console: {
+      warn(...args) {
+        warnings.push(args);
+      },
+    },
+  };
+  vm.runInNewContext(`${functionSource}; this.updateBadge = updateActionBadgeForTab;`, context);
+  return { updateBadge: context.updateBadge, calls, warnings };
+}
+
 test('Safari disabled badge uses ASCII text', () => {
   const source = readSafariBackground();
   assert.match(source, /isCaptureDisabled \? 'OFF'/);
   assert.doesNotMatch(source, /isCaptureDisabled \? '✕'/);
+});
+
+test('Safari badge updates ignore a closed-tab Promise rejection', async () => {
+  const runtime = loadSafariBadgeUpdater('No tab with id: 823017455.');
+
+  runtime.updateBadge(823017455, 2);
+  await Promise.resolve();
+
+  assert.equal(runtime.calls.length, 3);
+  assert.equal(runtime.warnings.length, 0);
+});
+
+test('Safari badge updates report unexpected Promise rejections', async () => {
+  const runtime = loadSafariBadgeUpdater('Action API unavailable');
+
+  runtime.updateBadge(12, 1);
+  await Promise.resolve();
+
+  assert.equal(runtime.calls.length, 3);
+  assert.equal(runtime.warnings.length, 3);
+  assert.ok(runtime.warnings.every((args) => args[0] === '[Downlink][badge] failed to update tab badge'));
 });
 
 test('Safari config saves synchronize DNR rules directly', () => {

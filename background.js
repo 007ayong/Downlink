@@ -1669,13 +1669,40 @@ async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false, 
   };
 }
 
+function observeTabScopedActionCall(result, operation, tabId) {
+  if (!result || typeof result.catch !== 'function') return;
+  result.catch((error) => {
+    const message = error?.message || String(error || '');
+    // A tab can disappear between a webRequest/tab event and this badge update.
+    // Chromium reports that normal race as a rejected Promise, not a sync throw.
+    if (/\bNo tab with id\b/i.test(message)) return;
+    console.warn('[Downlink][badge] failed to update tab badge', {
+      operation,
+      tabId,
+      error: message,
+    });
+  });
+}
+
 function updateActionBadgeForTab(tabId, count, isPaused = false) {
   if (typeof tabId !== 'number' || tabId < 0) return;
   try {
     const isCaptureDisabled = !config.autoCapture;
-    chrome.action.setBadgeBackgroundColor({ color: isCaptureDisabled || isPaused ? '#6b7280' : '#e05c2a', tabId });
-    chrome.action.setBadgeTextColor?.({ color: '#ffffff', tabId });
-    chrome.action.setBadgeText({ text: isCaptureDisabled ? '✕' : (count > 0 ? String(Math.min(count, 99)) : ''), tabId });
+    observeTabScopedActionCall(
+      chrome.action.setBadgeBackgroundColor({ color: isCaptureDisabled || isPaused ? '#6b7280' : '#e05c2a', tabId }),
+      'setBadgeBackgroundColor',
+      tabId
+    );
+    observeTabScopedActionCall(
+      chrome.action.setBadgeTextColor?.({ color: '#ffffff', tabId }),
+      'setBadgeTextColor',
+      tabId
+    );
+    observeTabScopedActionCall(
+      chrome.action.setBadgeText({ text: isCaptureDisabled ? '✕' : (count > 0 ? String(Math.min(count, 99)) : ''), tabId }),
+      'setBadgeText',
+      tabId
+    );
   } catch {}
 }
 
@@ -2582,5 +2609,6 @@ globalThis.__backgroundTestHooks = {
   pollTasks,
   openTaskSurface,
   waitForAutoCaptureToggle: () => autoCaptureTogglePromise,
+  updateActionBadgeForTab,
   mediaManager,
 };
