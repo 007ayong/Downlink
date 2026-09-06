@@ -1774,3 +1774,44 @@ test('restore default buttons fill defaults and autosave', async () => {
   assert.equal(context.document.getElementById('cfgDownloadInterceptionBlacklist').value, interceptionDefaults);
   assert.equal(sentMessages.at(-1).config.downloadInterceptionBlacklist, interceptionDefaults);
 });
+
+
+test('popup profiles retain edits when switching and deleting, and load remote changes', () => {
+  const { context, listenersById } = loadPopupSettingsRuntime();
+  // Match the custom picker's sync: it also writes the native value carrier.
+  context.syncAria2ProfilePicker = (value) => {
+    context.document.getElementById('cfgAria2Profile').value = value;
+  };
+  let config = { aria2Rpc: 'http://localhost:6800/jsonrpc', aria2Secret: 'local-secret' };
+  const controller = context.PopupSettings.createSettingsController({
+    getCurrentConfig: () => config, setCurrentConfig: (next) => { config = next; },
+    getCurrentState: () => ({ tasks: {}, pending: {} }), getLoading: () => true,
+    setLoading() {}, getAutoSaveTimer: () => null, setAutoSaveTimer() {},
+    getSaveFeedbackTimer: () => null, setSaveFeedbackTimer() {}, syncGlobals() {},
+    updateSettingsVisibility() {}, updateDynamicLabels() {}, renderTasks() {},
+  });
+  const get = (id) => context.document.getElementById(id);
+  const fire = (id, type) => { for (const handler of listenersById.get(id)?.[type] || []) handler({ target: get(id) }); };
+  controller.loadSettings(config);
+  controller.bindSettingsEvents();
+  fire('addAria2ProfileBtn', 'click');
+  get('cfgAria2ProfileName').value = 'NAS';
+  get('cfgRpc').value = 'http://nas.local:6800/jsonrpc';
+  get('cfgSecret').value = 'nas-secret';
+  const nas = controller.collectSettingsFromForm();
+  assert.equal(nas.aria2Profiles.length, 2);
+  assert.equal(nas.aria2Profiles[1].name, 'NAS');
+  get('cfgAria2Profile').value = 'default';
+  fire('cfgAria2Profile', 'change');
+  assert.equal(get('cfgSecret').value, 'local-secret');
+  assert.equal(controller.collectSettingsFromForm().aria2ActiveProfileId, 'default');
+  get('cfgAria2Profile').value = nas.aria2ActiveProfileId;
+  fire('cfgAria2Profile', 'change');
+  assert.equal(get('cfgRpc').value, 'http://nas.local:6800/jsonrpc');
+  fire('deleteAria2ProfileBtn', 'click');
+  assert.equal(controller.collectSettingsFromForm().aria2Profiles.length, 1);
+  assert.equal(get('deleteAria2ProfileBtn').disabled, true);
+  controller.loadSettings(nas);
+  assert.equal(get('cfgAria2ProfileName').value, 'NAS');
+  assert.equal(get('cfgSecret').value, 'nas-secret');
+});

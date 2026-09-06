@@ -25,6 +25,8 @@ const DEFAULT_CONFIG = {
   downloaderType: 'aria2',
   aria2Rpc: 'http://localhost:6800/jsonrpc',
   aria2Secret: '',
+  aria2Profiles: [],
+  aria2ActiveProfileId: '',
   aria2Silent: false,
   aria2CustomSaveEnabled: false,
   aria2SaveLocations: [],
@@ -568,6 +570,16 @@ async function saveConfigAndSync(nextConfig) {
   const previousMediaSniffingEnabled = isMediaSniffingEnabled(config);
   const previousAutoCapture = config.autoCapture;
   const previousMediaSniffingBlacklist = config.mediaSniffingBlacklist;
+  // Keep legacy connection editors and every download adapter on the active profile.
+  if ('aria2Rpc' in nextConfig || 'aria2Secret' in nextConfig || 'aria2Profiles' in nextConfig) {
+    const merged = { ...config, ...nextConfig };
+    const profiles = Array.isArray(merged.aria2Profiles) ? merged.aria2Profiles.map((item) => ({ ...item })) : [];
+    if (!profiles.length) profiles.push({ id: 'default', name: '默认配置', rpc: merged.aria2Rpc, secret: merged.aria2Secret });
+    const active = profiles.find((item) => item.id === merged.aria2ActiveProfileId) || profiles[0];
+    active.rpc = merged.aria2Rpc;
+    active.secret = merged.aria2Secret;
+    nextConfig = { ...nextConfig, aria2Profiles: profiles, aria2ActiveProfileId: active.id };
+  }
   let storedConfig = nextConfig;
   if (nextConfig.mediaSniffing === false) {
     storedConfig = { ...nextConfig, mediaSniffing: true, mediaSniffingBlacklist: '*' };
@@ -1470,7 +1482,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     syncMediaSniffingStateForActiveTabs().then(() => {
       broadcastUpdate();
     }).catch(() => {});
-  } else if (changes.aria2CustomSaveEnabled || changes.aria2SaveLocations) {
+  } else if (changes.aria2Profiles || changes.aria2ActiveProfileId || changes.aria2Rpc || changes.aria2Secret || changes.aria2CustomSaveEnabled || changes.aria2SaveLocations) {
     broadcastUpdate();
   }
 });

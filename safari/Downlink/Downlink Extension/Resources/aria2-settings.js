@@ -14,6 +14,8 @@
   const storageKeys = {
     aria2Rpc: rpcApi?.DEFAULT_RPC || 'http://localhost:6800/jsonrpc',
     aria2Secret: '',
+    aria2Profiles: [],
+    aria2ActiveProfileId: '',
     aria2CustomSaveEnabled: false,
     aria2SaveLocations: [],
     aria2TrackerSubscriptions: [DEFAULT_ARIA2_TRACKER_SUBSCRIPTION],
@@ -206,6 +208,62 @@
     }
   }
 
+  let profiles = [];
+  let selectedProfileId = '';
+
+  function renderProfile() {
+    const select = $('rpcProfile');
+    select.replaceChildren();
+    profiles.forEach((profile) => {
+      const option = document.createElement('option');
+      option.value = profile.id;
+      option.textContent = profile.name;
+      select.appendChild(option);
+    });
+    select.value = selectedProfileId;
+    const profile = profiles.find((item) => item.id === selectedProfileId);
+    $('rpcProfileName').value = profile.name;
+    const parts = rpcApi?.rpcParts?.(profile.rpc) || { protocol: 'http', host: 'localhost', port: '6800', path: '/jsonrpc' };
+    $('rpcProtocol').value = parts.protocol;
+    $('rpcHost').value = parts.host;
+    $('rpcPort').value = parts.port;
+    $('rpcPath').value = parts.path;
+    $('rpcSecret').value = profile.secret;
+    $('deleteRpcProfile').disabled = profiles.length <= 1;
+    renderRpcPreview();
+  }
+
+  function captureProfile() {
+    const rpc = buildRpcFromForm();
+    const name = $('rpcProfileName').value.trim();
+    if (!rpc || !name) {
+      if (!name) showRpcError('请输入配置名称');
+      return false;
+    }
+    Object.assign(profiles.find((item) => item.id === selectedProfileId), { name, rpc, secret: $('rpcSecret').value.trim() });
+    return true;
+  }
+
+  $('rpcProfile').addEventListener('change', () => {
+    const nextId = $('rpcProfile').value;
+    if (!captureProfile()) { $('rpcProfile').value = selectedProfileId; return; }
+    selectedProfileId = nextId;
+    renderProfile();
+  });
+  $('addRpcProfile').onclick = () => {
+    if (!captureProfile()) return;
+    selectedProfileId = globalThis.crypto?.randomUUID?.() || `rpc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    profiles.push({ id: selectedProfileId, name: `新配置 ${profiles.length + 1}`, rpc: storageKeys.aria2Rpc, secret: '' });
+    renderProfile();
+    $('rpcProfileName').focus();
+  };
+  $('deleteRpcProfile').onclick = () => {
+    if (profiles.length <= 1) return;
+    profiles = profiles.filter((item) => item.id !== selectedProfileId);
+    selectedProfileId = profiles[0].id;
+    renderProfile();
+  };
+
   function fill(data = {}) {
     loadedSettings = { ...storageKeys, ...data };
     const parts = rpcApi?.rpcParts?.(loadedSettings.aria2Rpc) || {
@@ -216,7 +274,14 @@
     $('rpcPort').value = parts.port;
     $('rpcPath').value = parts.path;
     $('rpcSecret').value = loadedSettings.aria2Secret || '';
-    renderRpcPreview();
+    profiles = Array.isArray(data.aria2Profiles) && data.aria2Profiles.length
+      ? data.aria2Profiles.map((item) => ({ ...item }))
+      : [{ id: 'default', name: '默认配置', rpc: loadedSettings.aria2Rpc, secret: loadedSettings.aria2Secret }];
+    selectedProfileId = profiles.some((item) => item.id === data.aria2ActiveProfileId) ? data.aria2ActiveProfileId : profiles[0].id;
+    const active = profiles.find((item) => item.id === selectedProfileId);
+    active.rpc = loadedSettings.aria2Rpc;
+    active.secret = loadedSettings.aria2Secret;
+    renderProfile();
     $('customSaveEnabled').checked = !!data.aria2CustomSaveEnabled;
     renderLocations(normalizeLocations(data.aria2SaveLocations));
     renderTrackerSubscriptions(data.aria2TrackerSubscriptions);
@@ -402,7 +467,7 @@
   };
   extensionApi?.storage?.onChanged?.addListener(async (changes, area) => {
     if (area !== 'sync' && area !== 'local') return;
-    if (changes.aria2Rpc || changes.aria2Secret || changes.aria2CustomSaveEnabled || changes.aria2SaveLocations || changes.aria2TrackerSubscriptions || changes.aria2Trackers) {
+    if (changes.aria2Profiles || changes.aria2ActiveProfileId || changes.aria2Rpc || changes.aria2Secret || changes.aria2CustomSaveEnabled || changes.aria2SaveLocations || changes.aria2TrackerSubscriptions || changes.aria2Trackers) {
       const data = await getConfig();
       fill(data);
       if (changes.aria2Rpc || changes.aria2Secret) toast('已同步悬浮页中的 RPC 连接设置');
@@ -434,6 +499,7 @@
       : { connections: $('connections').value.trim(), downlimit: $('downlimit').value, uplimit: $('uplimit').value };
     const aria2Rpc = rpcOnly ? buildRpcFromForm() : loadedSettings.aria2Rpc;
     if (!aria2Rpc) return;
+    if (rpcOnly && !captureProfile()) return;
     const aria2Secret = rpcOnly ? $('rpcSecret').value.trim() : loadedSettings.aria2Secret;
     const options = { 'max-overall-download-limit': values.downlimit, 'max-overall-upload-limit': values.uplimit };
     if (!rpcOnly && values.connections) {
@@ -454,7 +520,7 @@
         }
       }
       const nextConfig = {
-        ...loadedSettings,
+        ...(rpcOnly ? { aria2Profiles: profiles.map((item) => ({ ...item })), aria2ActiveProfileId: selectedProfileId } : {}),
         aria2Rpc,
         aria2Secret,
         aria2CustomSaveEnabled: customSaveEnabled,
@@ -464,6 +530,7 @@
         aria2PanelDownloadLimit: values.downlimit,
         aria2PanelUploadLimit: values.uplimit,
       };
+      if (!rpcOnly) { delete nextConfig.aria2Rpc; delete nextConfig.aria2Secret; }
       await saveConfig(nextConfig);
       if (!rpcOnly && trackerSubscriptionsChanged) {
         try {
@@ -472,6 +539,7 @@
       }
       loadedSettings = {
         ...loadedSettings,
+        ...nextConfig,
         aria2Rpc,
         aria2Secret,
         aria2CustomSaveEnabled: customSaveEnabled,

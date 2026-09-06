@@ -81,6 +81,11 @@
             <section class="settings-group rpc-connection-section" id="rpcSettingsGroup">
               <header class="settings-group-head"><h3 class="settings-group-title">RPC 连接</h3><p class="settings-group-description">扩展用于连接 aria2c 的服务地址与鉴权信息。</p></header>
               <div class="settings-group-body">
+                <div class="rpc-details-grid">
+                  <div class="field"><label for="rpcProfile">连接配置</label><select id="rpcProfile"></select><small>选择后点击“保存并应用”，所有下载入口将使用该连接。</small></div>
+                  <div class="field"><label for="rpcProfileName">配置名称</label><input id="rpcProfileName" type="text" maxlength="80" placeholder="例如：本机、NAS"></div>
+                </div>
+                <div class="tracker-actions"><button class="btn" type="button" id="addRpcProfile">+ 新增配置</button><button class="btn" type="button" id="deleteRpcProfile">删除配置</button></div>
                 <div class="rpc-grid">
                   <div class="field"><label for="rpcProtocol">协议</label><select id="rpcProtocol"><option value="http">HTTP</option><option value="https">HTTPS</option></select></div>
                   <div class="field"><label for="rpcHost">服务器地址</label><input id="rpcHost" type="text" autocomplete="url" placeholder="localhost"></div>

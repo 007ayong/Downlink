@@ -1129,6 +1129,34 @@
     .settings-input-action .btn { flex: 0 0 auto; padding: 6px 12px; }
     .settings-row.col { flex-direction: column; align-items: stretch; }
     .settings-row .btn.btn-ghost { height: 32px; }
+    .aria2-profile-card { padding: 14px; }
+    .aria2-profile-header { margin-bottom: 12px; }
+    .aria2-profile-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+    .aria2-profile-heading label { font-size: 11px; color: var(--text-2); }
+    .aria2-profile-picker { display: flex; align-items: center; gap: 7px; }
+    .aria2-profile-picker .downloader-picker { flex: 1; min-width: 0; margin-top: 0; }
+    .aria2-profile-picker .downloader-picker__control { height: 36px; background: var(--bg); border-radius: 8px; font-weight: 600; }
+    .aria2-profile-picker .profile-icon-button {
+      display: grid; place-items: center; flex: 0 0 32px; width: 32px; height: 32px;
+      padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text-3); cursor: pointer;
+    }
+    .aria2-profile-picker .profile-icon-button:hover { background: var(--bg3); color: var(--text); }
+    .profile-icon-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    .aria2-profile-fields { display: flex; flex-direction: column; gap: 12px; padding: 14px 0 2px; border-top: 1px solid var(--border); }
+    .aria2-profile-fields .settings-row { display: flex; flex-direction: column; align-items: stretch; padding: 0; gap: 6px; border: 0; }
+    .aria2-profile-fields .settings-row:last-child { border-bottom: 0; }
+    .aria2-profile-fields .settings-row label { font-size: 11px; color: var(--text-2); }
+    .aria2-profile-fields .settings-input.wide { width: 100%; min-width: 0; height: 34px; margin: 0; padding: 0 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; box-shadow: none; }
+    .aria2-profile-fields .settings-input.wide:hover { background: var(--bg3); }
+    .aria2-profile-fields .settings-input.wide:focus { background: var(--bg2); border-color: var(--accent); }
+    #cfgAria2ProfileName { font-family: inherit; }
+    .aria2-profile-footer { padding-top: 14px; }
+    .aria2-profile-actions { display: flex; justify-content: flex-end; }
+    .aria2-profile-actions .btn { height: 28px; padding: 0 10px; font-size: 11px; border-radius: 6px; }
+    .aria2-profile-card .conn-result:empty { display: none; }
+    .aria2-profile-card .conn-result:not(:empty) { margin-bottom: 8px; }
+    #deleteAria2ProfileBtn:hover:not(:disabled) { color: var(--red); background: var(--red-bg); }
+    #deleteAria2ProfileBtn:disabled { opacity: .3; cursor: default; }
     .downloader-picker {
       position: relative;
       width: 100%;
@@ -1706,18 +1734,45 @@
 
   <div class="settings-group">
     <div class="settings-group-title" data-i18n="settingsConnectionGroup">连接信息</div>
-    <div class="settings-row col aria2-only">
-      <label><span data-i18n="settingsRpcAddress">RPC 地址</span> <span class="settings-sub" data-i18n="settingsRpcAddressSub">默认 http://localhost:6800/jsonrpc</span></label>
-      <input class="settings-input wide" id="cfgRpc" type="text" placeholder="http://localhost:6800/jsonrpc"/>
-    </div>
-    <div class="settings-row col aria2-only">
-      <label><span data-i18n="settingsRpcSecret">RPC 密钥</span> <span class="settings-sub" data-i18n="settingsRpcSecretSub">aria2c --rpc-secret 设置的密钥</span></label>
-      <input class="settings-input wide" id="cfgSecret" type="password" placeholder="留空则不使用" data-i18n-placeholder="settingsRpcSecretPlaceholder"/>
-    </div>
-    <div class="settings-row col settings-test-row aria2-only">
-      <div class="conn-result" id="connResult"></div>
-      <button class="btn btn-ghost settings-test-button" id="testConnBtn" data-i18n="connectionTest">连接测试</button>
-    </div>
+    <section class="aria2-profile-card aria2-only" aria-label="Aria2 连接配置">
+      <div class="aria2-profile-header">
+        <div class="aria2-profile-heading">
+          <label id="aria2ProfilePickerTitle" for="aria2ProfilePickerButton">连接配置</label>
+        </div>
+        <div class="aria2-profile-picker">
+          <div class="downloader-picker" id="aria2ProfilePicker">
+            <button type="button" class="downloader-picker__control" id="aria2ProfilePickerButton" aria-haspopup="listbox" aria-expanded="false" aria-controls="aria2ProfilePickerMenu" aria-labelledby="aria2ProfilePickerTitle aria2ProfilePickerLabel">
+              <span class="downloader-picker__label" id="aria2ProfilePickerLabel">默认配置</span>
+              <span class="downloader-picker__caret" aria-hidden="true"></span>
+            </button>
+            <div class="downloader-picker__menu" id="aria2ProfilePickerMenu" role="listbox" aria-label="连接配置" hidden></div>
+            <select class="downloader-picker__native" id="cfgAria2Profile" tabindex="-1" aria-hidden="true"></select>
+          </div>
+          <button class="profile-icon-button" type="button" id="addAria2ProfileBtn" title="新增配置" aria-label="新增配置"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button class="profile-icon-button" type="button" id="deleteAria2ProfileBtn" title="删除当前配置" aria-label="删除当前配置"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"/></svg></button>
+        </div>
+      </div>
+      <div class="aria2-profile-fields">
+        <div class="settings-row col">
+          <label for="cfgAria2ProfileName">配置名称</label>
+          <input class="settings-input wide" id="cfgAria2ProfileName" type="text" maxlength="80" placeholder="例如：本机、NAS"/>
+        </div>
+        <div class="settings-row col">
+          <label for="cfgRpc"><span data-i18n="settingsRpcAddress">RPC 地址</span></label>
+          <input class="settings-input wide" id="cfgRpc" type="text" placeholder="http://localhost:6800/jsonrpc"/>
+        </div>
+        <div class="settings-row col">
+          <label for="cfgSecret"><span data-i18n="settingsRpcSecret">RPC 密钥</span></label>
+          <input class="settings-input wide" id="cfgSecret" type="password" placeholder="留空则不使用" data-i18n-placeholder="settingsRpcSecretPlaceholder"/>
+        </div>
+      </div>
+      <div class="aria2-profile-footer">
+        <div class="conn-result" id="connResult" role="status"></div>
+        <div class="aria2-profile-actions">
+          <button class="btn btn-ghost settings-test-button" id="testConnBtn" data-i18n="connectionTest">连接测试</button>
+        </div>
+      </div>
+    </section>
     <div class="settings-row col launcher-only settings-hidden">
       <label><span data-i18n="settingsPort">端口号</span> <span class="settings-sub" data-i18n="settingsPortSub">在下载器「设置 -- 浏览器插件集成」的服务器端口处获取</span></label>
       <input class="settings-input wide" id="cfgLauncherPort" type="text" placeholder="15151"/>

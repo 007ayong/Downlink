@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-async function runtime(applied = '8', split = applied) {
+async function runtime(applied = '8', split = applied, search = '') {
   const elements = new Map();
   function element() {
     return { value: '', dataset: {}, style: {}, validity: {}, classList: { add() {}, toggle() {} },
@@ -16,7 +16,7 @@ async function runtime(applied = '8', split = applied) {
   const calls = [];
   const config = { aria2Rpc: 'http://localhost:6800/jsonrpc', aria2TrackerSubscriptions: [], aria2PanelConnections: '5' };
   vm.runInNewContext(fs.readFileSync(require('node:path').join(__dirname, '../aria2-settings.js'), 'utf8'), {
-    URL, URLSearchParams, location: { search: '', origin: 'https://example.com' },
+    URL, URLSearchParams, location: { search, origin: 'https://example.com' },
     document: { body: element(), getElementById: get, querySelector: () => element(), createElement: element },
     window: { addEventListener() {} }, setTimeout() {}, clearTimeout() {},
     chrome: { storage: { sync: { get(defaults, cb) { cb({ ...defaults, ...config }); } } }, runtime: {
@@ -72,4 +72,37 @@ test('single-server summary uses the lower limit and keeps raw values in details
 test('missing server option does not display a misleading zero limit', async () => {
   const page = await runtime('', '16');
   assert.equal(page.get('connectionsStatus').textContent, '当前单任务连接上限：未知');
+});
+
+
+test('RPC profiles preserve old connection, switch and delete without applying global options', async () => {
+  const page = await runtime('8', '8', '?section=rpc');
+  assert.equal(page.get('rpcProfileName').value, '默认配置');
+  page.get('rpcSecret').value = 'first-secret';
+  page.get('addRpcProfile').onclick();
+  page.get('rpcProfileName').value = 'NAS';
+  page.get('rpcHost').value = 'nas.local';
+  page.get('rpcSecret').value = 'second-secret';
+  await page.submit('');
+  const saved = page.calls.at(-1).config;
+  assert.equal(saved.aria2Profiles.length, 2);
+  assert.equal(saved.aria2Profiles[0].secret, 'first-secret');
+  assert.equal(saved.aria2Profiles[1].name, 'NAS');
+  assert.equal(saved.aria2Rpc, 'http://nas.local:6800/jsonrpc');
+  assert.equal(saved.aria2Secret, 'second-secret');
+  assert.equal(saved.aria2ActiveProfileId, saved.aria2Profiles[1].id);
+  assert.equal(page.calls.some(call => call.type === 'ARIA2_RPC'), false);
+  page.get('deleteRpcProfile').onclick();
+  await page.submit('');
+  assert.equal(page.calls.at(-1).config.aria2Profiles.length, 1);
+  assert.equal(page.calls.at(-1).config.aria2Secret, 'first-secret');
+  assert.equal(page.get('deleteRpcProfile').disabled, true);
+});
+
+test('blank profile name prevents saving', async () => {
+  const page = await runtime('8', '8', '?section=rpc');
+  page.get('rpcProfileName').value = ' ';
+  await page.submit('');
+  assert.equal(page.calls.length, 0);
+  assert.match(page.get('rpcError').textContent, /配置名称/);
 });
