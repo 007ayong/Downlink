@@ -469,52 +469,35 @@ async function getCookieHeaderForUrl(url = '') {
 }
 
 async function loadStoredConfig() {
-  let localStored = {};
-  try {
-    localStored = await storageGet(chrome.storage.local, {});
-  } catch {}
-
-  if (localStored?.[CONFIG_STORAGE_AREA_KEY] === 'local') {
-    activeConfigStorageArea = 'local';
-    const { [CONFIG_STORAGE_AREA_KEY]: _storageArea, ...localConfig } = localStored;
-    return { ...DEFAULT_CONFIG, ...localConfig };
-  }
-
-  try {
-    const syncStored = await storageGet(chrome.storage.sync, {});
-    const { [CONFIG_STORAGE_AREA_KEY]: _storageArea, ...localConfig } = localStored || {};
-    const localTrackerCache = {
-      ...(Object.prototype.hasOwnProperty.call(localConfig, 'aria2Trackers')
-        ? { aria2Trackers: localConfig.aria2Trackers }
-        : {}),
-      ...(Object.prototype.hasOwnProperty.call(localConfig, 'aria2TrackersUpdatedAt')
-        ? { aria2TrackersUpdatedAt: localConfig.aria2TrackersUpdatedAt }
-        : {}),
-    };
-    const hasLocalConfig = Object.keys(DEFAULT_CONFIG).some((key) => Object.prototype.hasOwnProperty.call(localConfig, key));
-    const hasSyncConfig = Object.keys(DEFAULT_CONFIG).some((key) => Object.prototype.hasOwnProperty.call(syncStored, key));
-    if (localStored?.[CONFIG_STORAGE_AREA_KEY] === 'sync') {
-      activeConfigStorageArea = 'sync';
-      return { ...DEFAULT_CONFIG, ...(hasSyncConfig ? syncStored : (hasLocalConfig ? localConfig : {})), ...localTrackerCache };
+  let canMigrate = true;
+  const localStored = await storageGet(chrome.storage.local, {}).catch(() => {
+    canMigrate = false;
+    return {};
+  });
+  const localConfig = Object.fromEntries(Object.keys(DEFAULT_CONFIG)
+    .filter((key) => Object.prototype.hasOwnProperty.call(localStored, key))
+    .map((key) => [key, localStored[key]]));
+  let syncStored = {};
+  if (localStored[CONFIG_STORAGE_AREA_KEY] !== 'local') {
+    try {
+      syncStored = await storageGet(chrome.storage.sync, {});
+    } catch {
+      canMigrate = false;
     }
-    if (hasSyncConfig) {
-      activeConfigStorageArea = 'sync';
-      return { ...DEFAULT_CONFIG, ...syncStored, ...localTrackerCache };
-    }
-
-    // Older builds did not persist which storage area won. If sync is empty
-    // but local contains config values, preserve that local fallback state.
-    activeConfigStorageArea = hasLocalConfig ? 'local' : 'sync';
-    return hasLocalConfig ? { ...DEFAULT_CONFIG, ...localConfig } : { ...DEFAULT_CONFIG };
-  } catch {
-    // A sync-backed profile may temporarily be unreadable. Use its local
-    // cache now, but keep listening to sync so recovery or another-device
-    // update is not ignored. A later failed save explicitly switches the
-    // marker to local.
-    activeConfigStorageArea = localStored?.[CONFIG_STORAGE_AREA_KEY] === 'sync' ? 'sync' : 'local';
-    const { [CONFIG_STORAGE_AREA_KEY]: _storageArea, ...localConfig } = localStored || {};
-    return { ...DEFAULT_CONFIG, ...localConfig };
   }
+  // Migrate older sync-backed profiles, preserving the device's saved values
+  // even when Safari returns an older, nonempty sync snapshot after restart.
+  const restored = { ...DEFAULT_CONFIG, ...syncStored, ...localConfig };
+  // An unreadable store is not an empty store. Never commit fallback values
+  // or a migration marker until every required read has succeeded.
+  if (canMigrate) {
+    await storageSet(chrome.storage.local, {
+      ...restored,
+      [CONFIG_STORAGE_AREA_KEY]: 'local',
+    }).catch(() => {});
+  }
+  activeConfigStorageArea = 'local';
+  return restored;
 }
 
 function loadStoredConfigCallback(callback) {
@@ -522,27 +505,13 @@ function loadStoredConfigCallback(callback) {
 }
 
 async function saveStoredConfig(nextConfig) {
-  const syncConfig = { ...nextConfig };
-  delete syncConfig.aria2Trackers;
-  delete syncConfig.aria2TrackersUpdatedAt;
-  try {
-    if (Object.keys(syncConfig).length) await storageSet(chrome.storage.sync, syncConfig);
-    activeConfigStorageArea = 'sync';
-    // Keep a local cache so a temporarily unavailable sync store does not
-    // reset the extension to defaults on the next Safari launch.
-    await storageSet(chrome.storage.local, {
-      ...nextConfig,
-      [CONFIG_STORAGE_AREA_KEY]: 'sync',
-    }).catch(() => {});
-    return 'sync';
-  } catch {
-    activeConfigStorageArea = 'local';
-    await storageSet(chrome.storage.local, {
-      ...nextConfig,
-      [CONFIG_STORAGE_AREA_KEY]: 'local',
-    });
-    return 'local';
-  }
+  // Local persistence is required before acknowledging a successful save.
+  await storageSet(chrome.storage.local, {
+    ...nextConfig,
+    [CONFIG_STORAGE_AREA_KEY]: 'local',
+  });
+  activeConfigStorageArea = 'local';
+  return 'local';
 }
 
 function normalizeCaptureExtensionsConfig(value) {

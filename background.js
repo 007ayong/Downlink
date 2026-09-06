@@ -331,14 +331,6 @@ async function attachAria2OriginalUris(result) {
   return Array.isArray(result) ? Promise.all(result.map(attach)) : attach(result);
 }
 
-async function loadStoredConfig() {
-  try {
-    return await storageGet(chrome.storage.sync, DEFAULT_CONFIG);
-  } catch {
-    return storageGet(chrome.storage.local, DEFAULT_CONFIG).catch(() => DEFAULT_CONFIG);
-  }
-}
-
 function loadStoredConfigCallback(callback) {
   let settled = false;
   const finish = (stored) => {
@@ -346,11 +338,10 @@ function loadStoredConfigCallback(callback) {
     settled = true;
     callback(stored || DEFAULT_CONFIG);
   };
-  const finishWithTrackerCache = (stored) => {
-    const cacheDefaults = {
-      aria2Trackers: stored?.aria2Trackers || [],
-      aria2TrackersUpdatedAt: stored?.aria2TrackersUpdatedAt || 0,
-    };
+  const finishWithLocalConfig = (stored) => {
+    // Local settings include saves made while sync was unavailable.
+    // Read them over sync defaults so restarting cannot restore stale ports.
+    const cacheDefaults = { ...DEFAULT_CONFIG, ...stored };
     try {
       const localResult = chrome.storage.local?.get?.(cacheDefaults, (cached) => {
         finish({ ...stored, ...cached });
@@ -379,10 +370,10 @@ function loadStoredConfigCallback(callback) {
     const syncResult = chrome.storage.sync?.get?.(DEFAULT_CONFIG, (stored) => {
       const error = getRuntimeLastErrorMessage();
       if (error) fallbackToLocal();
-      else finishWithTrackerCache(stored);
+      else finishWithLocalConfig(stored);
     });
     if (syncResult && typeof syncResult.then === 'function') {
-      syncResult.then((stored) => finishWithTrackerCache(stored)).catch(fallbackToLocal);
+      syncResult.then((stored) => finishWithLocalConfig(stored)).catch(fallbackToLocal);
     }
     if (!chrome.storage.sync?.get) fallbackToLocal();
   } catch {
@@ -391,19 +382,17 @@ function loadStoredConfigCallback(callback) {
 }
 
 async function saveStoredConfig(nextConfig) {
+  // A successful save must be durable on this device, regardless of sync.
+  await storageSet(chrome.storage.local, nextConfig);
   const syncConfig = { ...nextConfig };
-  const trackerCache = {};
   for (const key of ['aria2Trackers', 'aria2TrackersUpdatedAt']) {
     if (!Object.prototype.hasOwnProperty.call(syncConfig, key)) continue;
-    trackerCache[key] = syncConfig[key];
     delete syncConfig[key];
   }
   try {
     if (Object.keys(syncConfig).length) await storageSet(chrome.storage.sync, syncConfig);
-    if (Object.keys(trackerCache).length) await storageSet(chrome.storage.local, trackerCache);
     return 'sync';
   } catch {
-    await storageSet(chrome.storage.local, nextConfig);
     return 'local';
   }
 }
@@ -1452,8 +1441,23 @@ const configReady = new Promise((resolve) => {
   });
 });
 
+let syncConfigChangesQueue = Promise.resolve();
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName && !['sync', 'local'].includes(areaName)) return;
+  if (areaName === 'sync') {
+    const values = {};
+    for (const [key, change] of Object.entries(changes)) {
+      if (!Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG, key)) continue;
+      if (['aria2Trackers', 'aria2TrackersUpdatedAt'].includes(key)) continue;
+      values[key] = change.newValue === undefined ? DEFAULT_CONFIG[key] : change.newValue;
+    }
+    if (!Object.keys(values).length) return;
+    // Commit incoming sync updates to the same store used on restart.
+    // The resulting local onChanged event applies the durable values.
+    syncConfigChangesQueue = syncConfigChangesQueue.then(() => storageSet(chrome.storage.local, values))
+      .catch((error) => console.warn('[Downlink] failed to persist synced settings', error));
+    return syncConfigChangesQueue;
+  }
   const previousMediaSniffingEnabled = isMediaSniffingEnabled(config);
   const previousAutoCapture = config.autoCapture;
   for (const key in changes) config[key] = changes[key].newValue;

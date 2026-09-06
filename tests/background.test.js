@@ -272,6 +272,7 @@ function createChromeStub(storedConfig = {}) {
 
 function loadBackgroundRuntime(storedConfig = {}, options = {}) {
   const chrome = createChromeStub(storedConfig);
+  if (options.storage) Object.assign(chrome.storage, options.storage);
   const context = {
     console: options.console || console,
     Buffer,
@@ -5384,6 +5385,11 @@ test('storage auto capture changes pause active tab sniffing and update the badg
   });
 
   assert.equal(typeof background.chrome._listeners.storageOnChanged, 'function');
+  background.chrome.storage.local.set = async (values) => {
+    background.chrome._listeners.storageOnChanged(Object.fromEntries(
+      Object.entries(values).map(([key, newValue]) => [key, { newValue }])
+    ), 'local');
+  };
   background.chrome._listeners.storageOnChanged({
     autoCapture: { oldValue: true, newValue: false },
   }, 'sync');
@@ -5450,4 +5456,81 @@ test('rapid auto capture shortcut presses are applied sequentially', async () =>
   assert.equal(state.config.autoCapture, true);
   assert.deepEqual(JSON.parse(JSON.stringify(state.pausedTabs)), []);
   assert.deepEqual(JSON.parse(JSON.stringify(background.chrome._actionCalls.setBadgeText.at(-1))), { text: '1', tabId: 12 });
+});
+
+
+test('saved connection settings survive restart with stale or empty sync storage', async () => {
+  for (const failSyncSave of [false, true]) {
+    const localValues = {};
+    let syncValues = { motrixNextPort: '16801' };
+    const storage = {
+      local: {
+        get(defaults, callback) { callback({ ...defaults, ...localValues }); },
+        async set(values) { Object.assign(localValues, values); },
+      },
+      sync: {
+        get(defaults, callback) { callback({ ...defaults, ...syncValues }); },
+        async set(values) {
+          if (failSyncSave) throw new Error('sync unavailable');
+          Object.assign(syncValues, values);
+        },
+      },
+    };
+    const saved = {
+      downloaderType: 'motrixnext',
+      motrixNextPort: '16888',
+      motrixNextSecret: 'saved-secret',
+      aria2Rpc: 'http://localhost:7777/jsonrpc',
+      gopeedApi: 'http://127.0.0.1:9998',
+      externalLauncherPort: '15199',
+    };
+    const first = loadBackgroundRuntime({}, { storage });
+    assert.equal((await invokeBackgroundMessage(first, { type: 'SAVE_CONFIG', config: saved })).ok, true);
+    for (const staleSync of [{}, { motrixNextPort: '16801' }]) {
+      syncValues = staleSync;
+      const restarted = loadBackgroundRuntime({}, { storage });
+      const state = await invokeBackgroundMessage(restarted, { type: 'GET_STATE' });
+      for (const [key, value] of Object.entries(saved)) assert.equal(state.config[key], value);
+    }
+  }
+});
+
+test('existing sync settings load when no local settings have been saved', async () => {
+  const background = loadBackgroundRuntime({ motrixNextPort: '16999' }, {
+    storage: { local: { get(defaults, callback) { callback({ ...defaults }); } } },
+  });
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.motrixNextPort, '16999');
+});
+
+
+test('incoming sync updates and removals remain effective after restart', async () => {
+  const local = { motrixNextPort: '16999' };
+  let background;
+  const storage = {
+    local: {
+      get(defaults, callback) { callback({ ...defaults, ...local }); },
+      async set(values) {
+        Object.assign(local, values);
+        background.chrome._listeners.storageOnChanged(Object.fromEntries(
+          Object.entries(values).map(([key, newValue]) => [key, { newValue }])
+        ), 'local');
+      },
+    },
+  };
+  background = loadBackgroundRuntime({}, { storage });
+  for (const newValue of ['17000', undefined]) {
+    await background.chrome._listeners.storageOnChanged({ motrixNextPort: { newValue } }, 'sync');
+    const expected = newValue ?? '16801';
+    assert.equal((await invokeBackgroundMessage(background, { type: 'GET_STATE' })).config.motrixNextPort, expected);
+    background = loadBackgroundRuntime({}, { storage });
+    assert.equal((await invokeBackgroundMessage(background, { type: 'GET_STATE' })).config.motrixNextPort, expected);
+  }
+});
+
+test('failed sync persistence does not apply a temporary config change', async () => {
+  const background = loadBackgroundRuntime({ motrixNextPort: '16999' }, { console: { ...console, warn() {} } });
+  background.chrome.storage.local.set = async () => { throw new Error('write failed'); };
+  await background.chrome._listeners.storageOnChanged({ motrixNextPort: { newValue: '17000' } }, 'sync');
+  assert.equal((await invokeBackgroundMessage(background, { type: 'GET_STATE' })).config.motrixNextPort, '16999');
 });

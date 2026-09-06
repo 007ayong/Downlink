@@ -350,15 +350,62 @@ test('Safari DNR bridge reuses the deduplicated URL capture path', () => {
   assert.doesNotMatch(handler, /queueOrSendCapturedDownload\(/);
 });
 
-test('Safari storage fallback records and honors the active storage area', () => {
+function loadSafariConfigStorage(local, sync, { failLocalWrite = false, failLocalRead = false, failSyncRead = false } = {}) {
   const source = readSafariBackground();
-  assert.match(source, /CONFIG_STORAGE_AREA_KEY/);
-  assert.match(source, /localStored\?\.\[CONFIG_STORAGE_AREA_KEY\] === 'local'/);
-  assert.match(source, /hasLocalConfig/);
-  assert.match(source, /\[CONFIG_STORAGE_AREA_KEY\]: 'sync'/);
-  assert.match(source, /\[CONFIG_STORAGE_AREA_KEY\]: 'local'/);
-  assert.match(source, /areaName !== activeConfigStorageArea/);
-  assert.match(source, /hasSyncConfig \? syncStored : \(hasLocalConfig \? localConfig : \{\}\)/);
+  const context = {
+    DEFAULT_CONFIG: { downloaderType: 'aria2', aria2Rpc: 'http://localhost:6800/jsonrpc', motrixNextPort: '16801' },
+    CONFIG_STORAGE_AREA_KEY: '__downlinkConfigStorageArea',
+    activeConfigStorageArea: '',
+    chrome: { storage: { local, sync } },
+    async storageGet(area) {
+      if (failLocalRead && area === local) throw new Error('local read failed');
+      if (failSyncRead && area === sync) throw new Error('sync read failed');
+      return { ...area };
+    },
+    async storageSet(area, values) {
+      if (failLocalWrite && area === local) throw new Error('local write failed');
+      Object.assign(area, values);
+    },
+  };
+  vm.runInNewContext(source.slice(source.indexOf('async function loadStoredConfig()'),
+    source.indexOf('function normalizeCaptureExtensionsConfig')), context);
+  return context;
+}
+
+test('Safari restores local connection settings over stale sync after restart', async () => {
+  const local = {};
+  const sync = { motrixNextPort: '16801' };
+  const first = loadSafariConfigStorage(local, sync);
+  await first.loadStoredConfig();
+  await first.saveStoredConfig({ motrixNextPort: '16999', aria2Rpc: 'http://localhost:7777/jsonrpc' });
+  const restarted = loadSafariConfigStorage(local, sync);
+  const restored = await restarted.loadStoredConfig();
+  assert.equal(restored.motrixNextPort, '16999');
+  assert.equal(restored.aria2Rpc, 'http://localhost:7777/jsonrpc');
+  assert.equal(restarted.activeConfigStorageArea, 'local');
+  assert.match(readSafariBackground(), /areaName !== activeConfigStorageArea/);
+});
+
+test('Safari migrates old sync-marked local backups without replacing saved ports', async () => {
+  for (const marker of ['sync', undefined]) {
+    const local = { __downlinkConfigStorageArea: marker, motrixNextPort: '16999' };
+    const runtime = loadSafariConfigStorage(local, { motrixNextPort: '16801' });
+    assert.equal((await runtime.loadStoredConfig()).motrixNextPort, '16999');
+    assert.equal(local.__downlinkConfigStorageArea, 'local');
+  }
+});
+
+test('Safari imports existing sync settings when local storage is empty', async () => {
+  const local = {};
+  const runtime = loadSafariConfigStorage(local, { motrixNextPort: '16999' });
+  assert.equal((await runtime.loadStoredConfig()).motrixNextPort, '16999');
+  assert.equal(local.motrixNextPort, '16999');
+});
+
+test('Safari rejects saves when local persistence fails and retains readable settings', async () => {
+  const runtime = loadSafariConfigStorage({ motrixNextPort: '16999' }, {}, { failLocalWrite: true });
+  assert.equal((await runtime.loadStoredConfig()).motrixNextPort, '16999');
+  await assert.rejects(runtime.saveStoredConfig({ motrixNextPort: '17000' }), /local write failed/);
 });
 
 test('Safari settings flow keeps the persistent host app alive', () => {
@@ -380,4 +427,20 @@ test('Safari settings flow keeps the persistent host app alive', () => {
   assert.match(appDelegateSource, /launchedAsLoginItem/);
   assert.doesNotMatch(mainHtml, /Quit and Open/);
   assert.doesNotMatch(hostScript, /Quit and Open/);
+});
+
+
+test('Safari read failures never overwrite saved settings or commit migration', async () => {
+  for (const failures of [{ failLocalRead: true }, { failSyncRead: true }, { failLocalRead: true, failSyncRead: true }]) {
+    const local = { motrixNextPort: '16999' };
+    const sync = { motrixNextPort: '17000' };
+    await loadSafariConfigStorage(local, sync, failures).loadStoredConfig();
+    assert.deepEqual(local, { motrixNextPort: '16999' });
+    assert.equal((await loadSafariConfigStorage(local, sync).loadStoredConfig()).motrixNextPort, '16999');
+  }
+  const local = {};
+  const sync = { motrixNextPort: '17000' };
+  await loadSafariConfigStorage(local, sync, { failSyncRead: true }).loadStoredConfig();
+  assert.deepEqual(local, {});
+  assert.equal((await loadSafariConfigStorage(local, sync).loadStoredConfig()).motrixNextPort, '17000');
 });

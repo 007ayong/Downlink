@@ -12,6 +12,7 @@ const popupAppT = popupAppI18n.t || ((key, substitutions, fallback = key) => {
 });
 const pendingFilenameDrafts = new Map();
 const mediaFilenameDrafts = new Map();
+const menuOriginalParents = new Map();
 const MEDIA_HOVER_PREVIEW_DELAY_MS = 280;
 const MEDIA_HOVER_PREVIEW_HIDE_DELAY_MS = 360;
 const MEDIA_HOVER_PREVIEW_LOAD_TIMEOUT_MS = 30000;
@@ -36,6 +37,11 @@ function closeAllSaveLocationMenus() {
     m.style.removeProperty('--pending-save-location-menu-left');
     m.style.removeProperty('--pending-save-location-menu-top');
     m.style.removeProperty('--pending-save-location-menu-width');
+    const originalParent = menuOriginalParents.get(m);
+    if (originalParent && m.parentNode !== originalParent) {
+      originalParent.appendChild(m);
+    }
+    menuOriginalParents.delete(m);
   });
 }
 document.addEventListener?.('click', () => closeAllSaveLocationMenus());
@@ -435,6 +441,8 @@ function createPendingCard(item, { filename, canForceSingleThread }) {
         const isOpen = menu.classList.contains('open');
         closeAllSaveLocationMenus();
         if (!isOpen) {
+          menuOriginalParents.set(menu, menu.parentNode);
+          document.body.appendChild(menu);
           positionSaveLocationMenu(trigger, menu);
           menu.classList.add('open');
         }
@@ -449,6 +457,11 @@ function createPendingCard(item, { filename, canForceSingleThread }) {
         triggerDot.style.background = item.dataset.color || '#ff9500';
         triggerText.textContent = item.querySelector('.pending-save-location-name')?.textContent || '';
         menu.classList.remove('open');
+        const originalParent = menuOriginalParents.get(menu);
+        if (originalParent && menu.parentNode !== originalParent) {
+          originalParent.appendChild(menu);
+        }
+        menuOriginalParents.delete(menu);
       });
 
       locationWrapper.appendChild(trigger);
@@ -896,6 +909,7 @@ function renderTasks(tasks, pending) {
   const pendingRenderKey = buildPendingConfirmRenderKey(pendingVals);
   const pendingList = document.getElementById('pendingList');
   if (pendingRenderKey !== lastRenderedPendingKey) {
+    closeAllSaveLocationMenus();
     pendingList.replaceChildren();
     pendingVals.forEach((item) => {
       const filename = getPendingFilenameValue(item);
