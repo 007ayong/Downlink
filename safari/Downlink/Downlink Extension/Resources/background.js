@@ -470,7 +470,7 @@ async function getCookieHeaderForUrl(url = '') {
 
 async function loadStoredConfig() {
   let canMigrate = true;
-  const localStored = await storageGet(chrome.storage.local, {}).catch(() => {
+  const localStored = await storageGet(chrome.storage.local, null).catch(() => {
     canMigrate = false;
     return {};
   });
@@ -480,7 +480,7 @@ async function loadStoredConfig() {
   let syncStored = {};
   if (localStored[CONFIG_STORAGE_AREA_KEY] !== 'local') {
     try {
-      syncStored = await storageGet(chrome.storage.sync, {});
+      syncStored = await storageGet(chrome.storage.sync, null);
     } catch {
       canMigrate = false;
     }

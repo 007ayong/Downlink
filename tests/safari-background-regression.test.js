@@ -357,10 +357,12 @@ function loadSafariConfigStorage(local, sync, { failLocalWrite = false, failLoca
     CONFIG_STORAGE_AREA_KEY: '__downlinkConfigStorageArea',
     activeConfigStorageArea: '',
     chrome: { storage: { local, sync } },
-    async storageGet(area) {
+    async storageGet(area, keys) {
       if (failLocalRead && area === local) throw new Error('local read failed');
       if (failSyncRead && area === sync) throw new Error('sync read failed');
-      return { ...area };
+      if (keys == null) return { ...area };
+      return Object.fromEntries(Object.entries(keys).map(([key, fallback]) =>
+        [key, Object.prototype.hasOwnProperty.call(area, key) ? area[key] : fallback]));
     },
     async storageSet(area, values) {
       if (failLocalWrite && area === local) throw new Error('local write failed');

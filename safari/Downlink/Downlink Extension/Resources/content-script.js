@@ -62,7 +62,7 @@
   async function loadStoredCaptureExtensions() {
     let localStored = {};
     try {
-      localStored = await getStoredConfig(chrome.storage.local, {});
+      localStored = await getStoredConfig(chrome.storage.local, null);
     } catch {}
 
     const localHasConfig = Object.prototype.hasOwnProperty.call(localStored, 'captureExtensions');
@@ -73,7 +73,7 @@
     }
 
     try {
-      const syncStored = await getStoredConfig(chrome.storage.sync, {});
+      const syncStored = await getStoredConfig(chrome.storage.sync, null);
       const syncHasConfig = Object.prototype.hasOwnProperty.call(syncStored, 'captureExtensions');
       if (localStored?.[configStorageAreaKey] === 'sync') {
         activeConfigStorageArea = 'sync';

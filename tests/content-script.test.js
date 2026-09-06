@@ -119,12 +119,16 @@ function loadContentScript({
         sync: {
           get(defaults, callback) {
             if (syncGetError) throw new Error('sync unavailable');
-            callback?.({ ...defaults, ...config });
+            callback?.(defaults == null ? { ...config } : Object.fromEntries(
+              Object.entries(defaults).map(([key, fallback]) => [key, Object.prototype.hasOwnProperty.call(config, key) ? config[key] : fallback])
+            ));
           },
         },
         local: {
           get(defaults, callback) {
-            callback?.({ ...defaults, ...localConfig });
+            callback?.(defaults == null ? { ...localConfig } : Object.fromEntries(
+              Object.entries(defaults).map(([key, fallback]) => [key, Object.prototype.hasOwnProperty.call(localConfig, key) ? localConfig[key] : fallback])
+            ));
           },
         },
         onChanged: {
