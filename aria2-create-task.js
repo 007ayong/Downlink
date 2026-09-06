@@ -219,7 +219,11 @@
   chrome.storage.onChanged.addListener((changes, area) => { if (area === 'sync' && (changes.aria2CustomSaveEnabled || changes.aria2SaveLocations)) loadSaveLocations(); });
   $('form').addEventListener('submit', async (event) => {
     event.preventDefault(); const groups = parseGroups(getUris()); if (!groups.length) return toast('请至少输入一个下载链接');
-    const connections = $('connections').value.trim(), options = {}; if (state.selectedPath) options.dir = state.selectedPath; if (connections) options['max-connection-per-server'] = connections;
+    const connections = $('connections').value.trim(), options = {}; if (state.selectedPath) options.dir = state.selectedPath; if ($('connections').validity.badInput || (connections && (!/^\d+$/.test(connections) || Number(connections) < 1 || Number(connections) > 16))) {
+      $('connections').focus();
+      return toast('单任务连接数必须是 1–16 的整数');
+    }
+    if (connections) { options['max-connection-per-server'] = connections; options.split = connections; }
     const submit = $('submit'); submit.disabled = true;
     try { const results = await Promise.allSettled(groups.map((uris) => rpc('addUri', [uris, options]))); const success = results.filter((result) => result.status === 'fulfilled').length; const failed = results.find((result) => result.status === 'rejected'); if (failed) toast(`${success} 个任务已加入；失败：${failed.reason?.message || failed.reason}`); else { toast(`已加入 ${success} 个下载任务`); if (embedded && window.parent !== window) { window.parent.postMessage({ type: 'ARIA2_SHOW_TASKS' }, location.origin); } else { setUris(''); state.selectedPath = state.locations[0]?.path || ''; renderSaveLocations({ aria2CustomSaveEnabled: true, aria2SaveLocations: state.locations }); setTimeout(() => { location.href = chrome.runtime.getURL('aria2-tasks.html'); }, 800); } } } finally { submit.disabled = false; }
   });

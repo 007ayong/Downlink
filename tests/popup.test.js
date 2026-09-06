@@ -561,6 +561,17 @@ test('aria2 pending confirmation can force single threaded download options', ()
     'max-connection-per-server': '1',
     'min-split-size': '1024M',
   });
+
+  popup.renderTasks({}, {
+    task2: { key: 'task2', url: 'https://example.com/next.zip', filename: 'next.zip', addedAt: 2 },
+  });
+  const nextCard = popup.document.getElementById('pendingList').children[0];
+  assert.ok(!nextCard.querySelector('.aria2-single-thread').checked);
+  nextCard.querySelector('.confirm-btn').click();
+  const nextMessage = popup.chrome._sentMessages.at(-1);
+  assert.equal(nextMessage.key, 'task2');
+  assert.deepEqual(JSON.parse(JSON.stringify(nextMessage.opts)), {});
+
 });
 
 test('pending confirmation connection failure shows a localized inline alert', () => {

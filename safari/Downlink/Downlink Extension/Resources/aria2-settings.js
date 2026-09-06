@@ -18,7 +18,7 @@
     aria2SaveLocations: [],
     aria2TrackerSubscriptions: [DEFAULT_ARIA2_TRACKER_SUBSCRIPTION],
     aria2Trackers: [],
-    aria2PanelMaxConcurrent: '',
+    aria2PanelConnections: '',
     aria2PanelDownloadLimit: '',
     aria2PanelUploadLimit: '',
   };
@@ -221,7 +221,7 @@
     renderLocations(normalizeLocations(data.aria2SaveLocations));
     renderTrackerSubscriptions(data.aria2TrackerSubscriptions);
     renderTrackers(data.aria2Trackers);
-    $('concurrent').value = data.aria2PanelMaxConcurrent || '';
+    $('connections').value = data.aria2PanelConnections || '';
     $('downlimit').value = data.aria2PanelDownloadLimit || '0';
     $('uplimit').value = data.aria2PanelUploadLimit || '0';
   }
@@ -316,7 +316,40 @@
     await setStorage(values);
   }
 
-  async function load() { fill(await getConfig()); }
+  async function refreshConnectionsStatus() {
+    const status = $('connectionsStatus');
+    const details = $('connectionsDetails');
+    try {
+      const options = await rpc('getGlobalOption');
+      const perServer = Number(options['max-connection-per-server']);
+      const split = Number(options.split);
+      const known = Number.isSafeInteger(perServer) && perServer > 0 && Number.isSafeInteger(split) && split > 0;
+      status.textContent = known
+        ? `当前单任务连接上限：${Math.min(perServer, split)}（新任务，单服务器）`
+        : '当前单任务连接上限：未知';
+      details.textContent = `aria2 返回值：每服务器连接数 ${options['max-connection-per-server'] || '未知'}，分段连接数 ${options.split || '未知'}。`;
+      return options;
+    } catch (error) {
+      status.textContent = '暂时无法读取当前连接上限，请检查 RPC 连接';
+      details.textContent = `读取失败：${error.message}`;
+      throw error;
+    }
+  }
+
+  async function load() {
+    fill(await getConfig());
+    if (!rpcOnly) await refreshConnectionsStatus().catch(() => {});
+  }
+
+  function validateConnections() {
+    const input = $('connections');
+    const value = input.value.trim();
+    const valid = !input.validity?.badInput && (value === '' || (/^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 16));
+    input.setCustomValidity(valid ? '' : '请输入本页支持的 1–16 整数；留空则保持当前值');
+    return valid;
+  }
+  $('connections').addEventListener('input', validateConnections);
+  $('connections').addEventListener('invalid', validateConnections);
   function toast(message) { const el = $('toast'); el.textContent = message; el.style.opacity = '1'; clearTimeout(toast.timer); toast.timer = setTimeout(() => { el.style.opacity = '0'; }, 2600); }
   function rpc(method, params = []) { return new Promise((resolve, reject) => {
     const runtime = extensionApi?.runtime;
@@ -392,22 +425,34 @@
   });
   $('form').addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (!rpcOnly && !validateConnections()) { $('connections').reportValidity(); return; }
     const locations = rpcOnly ? loadedSettings.aria2SaveLocations : normalizeLocations(editableLocations());
     const customSaveEnabled = rpcOnly ? loadedSettings.aria2CustomSaveEnabled : $('customSaveEnabled').checked;
     const trackerSubscriptions = rpcOnly ? loadedSettings.aria2TrackerSubscriptions : normalizeTrackerSubscriptions(editableTrackerSubscriptions());
     const values = rpcOnly
-      ? { concurrent: loadedSettings.aria2PanelMaxConcurrent, downlimit: loadedSettings.aria2PanelDownloadLimit, uplimit: loadedSettings.aria2PanelUploadLimit }
-      : { concurrent: $('concurrent').value.trim(), downlimit: $('downlimit').value, uplimit: $('uplimit').value };
+      ? { connections: loadedSettings.aria2PanelConnections, downlimit: loadedSettings.aria2PanelDownloadLimit, uplimit: loadedSettings.aria2PanelUploadLimit }
+      : { connections: $('connections').value.trim(), downlimit: $('downlimit').value, uplimit: $('uplimit').value };
     const aria2Rpc = rpcOnly ? buildRpcFromForm() : loadedSettings.aria2Rpc;
     if (!aria2Rpc) return;
     const aria2Secret = rpcOnly ? $('rpcSecret').value.trim() : loadedSettings.aria2Secret;
     const options = { 'max-overall-download-limit': values.downlimit, 'max-overall-upload-limit': values.uplimit };
-    if (!rpcOnly && values.concurrent) options['max-concurrent-downloads'] = values.concurrent;
+    if (!rpcOnly && values.connections) {
+      options['max-connection-per-server'] = values.connections;
+      options.split = values.connections;
+    }
     const save = $('save'); save.disabled = true;
     const trackerSubscriptionsChanged = JSON.stringify(trackerSubscriptions) !== JSON.stringify(loadedSettings.aria2TrackerSubscriptions || []);
     try {
       const disablingCustomLocations = loadedSettings.aria2CustomSaveEnabled && !customSaveEnabled;
-      if (!rpcOnly) await rpc('changeGlobalOption', [options]);
+      if (!rpcOnly) {
+        await rpc('changeGlobalOption', [options]);
+        let applied;
+        try { applied = await refreshConnectionsStatus(); }
+        catch (error) { throw new Error(`已发送设置，但无法确认是否生效：${error.message}`); }
+        if (values.connections && (Number(applied['max-connection-per-server']) !== Number(values.connections) || Number(applied.split) !== Number(values.connections))) {
+          throw new Error(`单任务连接数未生效：请求 ${values.connections}，aria2 返回每服务器 ${applied['max-connection-per-server'] || '未知'}、分段 ${applied.split || '未知'}`);
+        }
+      }
       const nextConfig = {
         ...loadedSettings,
         aria2Rpc,
@@ -415,7 +460,7 @@
         aria2CustomSaveEnabled: customSaveEnabled,
         aria2SaveLocations: locations,
         aria2TrackerSubscriptions: trackerSubscriptions,
-        aria2PanelMaxConcurrent: values.concurrent,
+        aria2PanelConnections: values.connections,
         aria2PanelDownloadLimit: values.downlimit,
         aria2PanelUploadLimit: values.uplimit,
       };
@@ -432,14 +477,14 @@
         aria2CustomSaveEnabled: customSaveEnabled,
         aria2SaveLocations: locations,
         aria2TrackerSubscriptions: trackerSubscriptions,
-        aria2PanelMaxConcurrent: values.concurrent,
+        aria2PanelConnections: values.connections,
         aria2PanelDownloadLimit: values.downlimit,
         aria2PanelUploadLimit: values.uplimit,
       };
       if (rpcOnly) toast('RPC 连接设置已同步');
       else if (customSaveEnabled) toast('RPC 连接与全局设置已同步');
       else if (disablingCustomLocations) toast('已关闭自定义位置；请重启一次 aria2c 以清除旧版本写入的目录');
-      else toast('已使用 aria2c 自身的默认目录');
+      else toast('全局设置已应用并核验；新任务使用 aria2c 默认目录');
     } catch (error) { toast(`操作失败：${error.message}`); } finally { save.disabled = false; }
   });
   load();

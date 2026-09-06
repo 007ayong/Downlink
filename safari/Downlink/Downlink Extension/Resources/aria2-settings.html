@@ -119,9 +119,9 @@
             </section>
 
             <section class="settings-group global-settings-control" id="transferSettingsGroup">
-              <header class="settings-group-head"><h3 class="settings-group-title">队列与传输限制</h3><p class="settings-group-description">这些参数保存时会立即应用到当前正在运行的 aria2c 实例。</p></header>
+              <header class="settings-group-head"><h3 class="settings-group-title">连接与传输限制</h3><p class="settings-group-description">连接数保存后用于新建任务；全局限速立即应用到当前 aria2c 实例。</p></header>
               <div class="settings-group-body transfer-grid">
-                <div class="field"><label for="concurrent">最大并行下载</label><input id="concurrent" type="number" min="1" max="100" inputmode="numeric" placeholder="例如 5"></div>
+                <div class="field"><label for="connections">单任务连接数</label><input id="connections" type="number" min="1" max="16" step="1" inputmode="numeric" placeholder="留空则保持当前值" aria-describedby="connectionsHint connectionsStatus"><small id="connectionsHint">建议先用 4，带宽充足时可尝试 8。本页支持 1–16，留空保持当前设置。仅用于新建 HTTP/HTTPS/FTP 任务，实际连接数可能少于设置值。</small><small id="connectionsStatus" role="status">正在读取当前连接上限…</small><details><summary>连接设置详情</summary><small id="connectionsDetails">正在读取…</small><br><small>此输入框会同时设置分段连接数和每服务器连接数。单服务器下载受两者中较小的值限制；多个镜像服务器可共同使用分段连接数额度。实际连接数还取决于文件大小、最小分片大小和服务器支持。已有任务和 BT 对等连接数不受此设置影响。</small></details></div>
                 <div class="field"><label for="downlimit">全局下载限速</label><select id="downlimit"><option value="0">不限速</option><option value="1048576">1 MB/s</option><option value="5242880">5 MB/s</option><option value="10485760">10 MB/s</option><option value="52428800">50 MB/s</option></select></div>
                 <div class="field"><label for="uplimit">全局上传限速</label><select id="uplimit"><option value="0">不限速</option><option value="524288">512 KB/s</option><option value="1048576">1 MB/s</option><option value="5242880">5 MB/s</option></select></div>
               </div>

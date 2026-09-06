@@ -3080,8 +3080,9 @@ test('Aria2 silent downloads omit dir when custom save locations are disabled', 
   assert.equal(Object.hasOwn(requestBody.params[1], 'dir'), false);
 });
 
-test('Aria2 pending confirmation forwards single threaded override options', async () => {
+test('Aria2 pending confirmation isolates single threaded overrides from the next download', async () => {
   let requestBody = null;
+  const requests = [];
   const background = loadBackgroundRuntime(
     {
       downloaderType: 'aria2',
@@ -3093,6 +3094,7 @@ test('Aria2 pending confirmation forwards single threaded override options', asy
     {
       fetch: async (_url, options) => {
         requestBody = JSON.parse(options.body);
+        requests.push(requestBody);
         return {
           ok: true,
           async json() {
@@ -3134,6 +3136,34 @@ test('Aria2 pending confirmation forwards single threaded override options', asy
     'max-connection-per-server': '1',
     'min-split-size': '1024M',
   });
+
+  const configAfterSingle = (await invokeBackgroundMessage(background, { type: 'GET_STATE' })).config;
+  await invokeDownloadCreated(background, {
+    id: 2,
+    url: 'https://example.com/next.zip',
+    filename: 'next.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+  const nextState = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const nextPending = Object.values(nextState.pending || {});
+  assert.equal(nextPending.length, 1);
+  const nextResult = await invokeBackgroundMessage(background, {
+    type: 'CONFIRM_DOWNLOAD',
+    key: nextPending[0].key,
+    filename: 'next.zip',
+    opts: {},
+  });
+  assert.equal(nextResult.ok, true);
+  assert.deepEqual(requestBody.params[1], { out: 'next.zip' });
+  assert.equal(requests.length, 2);
+  assert.ok(requests.every(request => request.method === 'aria2.addUri'));
+  assert.deepEqual((await invokeBackgroundMessage(background, { type: 'GET_STATE' })).config, configAfterSingle);
+  for (const values of background.chrome._localStorageWrites) {
+    const serialized = JSON.stringify(values);
+    assert.equal(/max-connection-per-server|min-split-size|"split"/.test(serialized), false);
+  }
+
 });
 
 test('NeatDM sends immediately after socket opens and ignores post-open socket errors', async () => {
