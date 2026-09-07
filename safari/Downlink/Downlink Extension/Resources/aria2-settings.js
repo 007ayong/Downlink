@@ -25,6 +25,21 @@
     aria2PanelUploadLimit: '',
   };
   let loadedSettings = { ...storageKeys };
+  let connectionsEdited = false;
+  let connectionsRevision = 0;
+  let connectionsRequest = 0;
+  let connectionTargetRevision = 0;
+
+  function resetConnections() {
+    connectionTargetRevision++;
+    connectionsRequest++;
+    connectionsRevision++;
+    connectionsEdited = false;
+    $('connections').value = '';
+    $('connections').max = '16';
+    $('connections').setCustomValidity('');
+    $('connectionsStatus').textContent = '正在读取…';
+  }
 
   const globalControls = [
     $('saveSettingsGroup'),
@@ -286,7 +301,6 @@
     renderLocations(normalizeLocations(data.aria2SaveLocations));
     renderTrackerSubscriptions(data.aria2TrackerSubscriptions);
     renderTrackers(data.aria2Trackers);
-    $('connections').value = data.aria2PanelConnections || '';
     $('downlimit').value = data.aria2PanelDownloadLimit || '0';
     $('uplimit').value = data.aria2PanelUploadLimit || '0';
   }
@@ -383,20 +397,21 @@
 
   async function refreshConnectionsStatus() {
     const status = $('connectionsStatus');
-    const details = $('connectionsDetails');
+    const request = ++connectionsRequest;
     try {
       const options = await rpc('getGlobalOption');
+      if (request !== connectionsRequest) return options;
       const perServer = Number(options['max-connection-per-server']);
       const split = Number(options.split);
       const known = Number.isSafeInteger(perServer) && perServer > 0 && Number.isSafeInteger(split) && split > 0;
-      status.textContent = known
-        ? `当前单任务连接上限：${Math.min(perServer, split)}（新任务，单服务器）`
-        : '当前单任务连接上限：未知';
-      details.textContent = `aria2 返回值：每服务器连接数 ${options['max-connection-per-server'] || '未知'}，分段连接数 ${options.split || '未知'}。`;
+      if (!connectionsEdited) {
+        $('connections').value = known ? String(Math.min(perServer, split)) : '';
+        $('connections').max = String(known ? Math.max(16, Math.min(perServer, split)) : 16);
+      }
+      status.textContent = known ? '' : '无法读取连接数，可手动填写';
       return options;
     } catch (error) {
-      status.textContent = '暂时无法读取当前连接上限，请检查 RPC 连接';
-      details.textContent = `读取失败：${error.message}`;
+      if (request === connectionsRequest) status.textContent = '暂时无法读取当前连接上限，请检查 RPC 连接';
       throw error;
     }
   }
@@ -409,11 +424,11 @@
   function validateConnections() {
     const input = $('connections');
     const value = input.value.trim();
-    const valid = !input.validity?.badInput && (value === '' || (/^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 16));
-    input.setCustomValidity(valid ? '' : '请输入本页支持的 1–16 整数；留空则保持当前值');
+    const valid = !input.validity?.badInput && (value === '' || (/^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) >= 1 && Number(value) <= Number(input.max || 16)));
+    input.setCustomValidity(valid ? '' : `请输入 1–${input.max || 16} 的整数；留空保持当前值`);
     return valid;
   }
-  $('connections').addEventListener('input', validateConnections);
+  $('connections').addEventListener('input', () => { connectionsEdited = true; connectionsRevision++; validateConnections(); });
   $('connections').addEventListener('invalid', validateConnections);
   function toast(message) { const el = $('toast'); el.textContent = message; el.style.opacity = '1'; clearTimeout(toast.timer); toast.timer = setTimeout(() => { el.style.opacity = '0'; }, 2600); }
   function rpc(method, params = []) { return new Promise((resolve, reject) => {
@@ -468,8 +483,13 @@
   extensionApi?.storage?.onChanged?.addListener(async (changes, area) => {
     if (area !== 'sync' && area !== 'local') return;
     if (changes.aria2Profiles || changes.aria2ActiveProfileId || changes.aria2Rpc || changes.aria2Secret || changes.aria2CustomSaveEnabled || changes.aria2SaveLocations || changes.aria2TrackerSubscriptions || changes.aria2Trackers) {
+      const targetChanged = !!(changes.aria2ActiveProfileId || changes.aria2Rpc || changes.aria2Secret);
+      if (targetChanged) resetConnections();
+      const targetRevision = connectionTargetRevision;
       const data = await getConfig();
+      if (targetRevision !== connectionTargetRevision) return;
       fill(data);
+      if (targetChanged && !rpcOnly) await refreshConnectionsStatus().catch(() => {});
       if (changes.aria2Rpc || changes.aria2Secret) toast('已同步悬浮页中的 RPC 连接设置');
       else if (changes.aria2CustomSaveEnabled?.newValue === false) toast('已关闭自定义位置；新任务将使用 aria2c 自身目录');
       else if (changes.aria2TrackerSubscriptions || changes.aria2Trackers) toast('已同步 Tracker 设置');
@@ -484,6 +504,7 @@
     if (event.origin !== location.origin) return;
     if (event.data?.type === 'ARIA2_SET_SECTION') {
       applySection(event.data.section);
+      if (!rpcOnly) refreshConnectionsStatus().catch(() => {});
       return;
     }
     if (rpcOnly && event.data?.type === 'ARIA2_FOCUS_RPC') $('rpcHost').focus();
@@ -502,20 +523,29 @@
     if (rpcOnly && !captureProfile()) return;
     const aria2Secret = rpcOnly ? $('rpcSecret').value.trim() : loadedSettings.aria2Secret;
     const options = { 'max-overall-download-limit': values.downlimit, 'max-overall-upload-limit': values.uplimit };
-    if (!rpcOnly && values.connections) {
+    const applyConnections = !rpcOnly && connectionsEdited && !!values.connections;
+    if (applyConnections) {
       options['max-connection-per-server'] = values.connections;
       options.split = values.connections;
     }
+    const savedRevision = connectionsRevision;
+    const savedTargetRevision = connectionTargetRevision;
+    const savingGlobal = !rpcOnly;
+    const assertSameTarget = () => {
+      if (savingGlobal && savedTargetRevision !== connectionTargetRevision) throw new Error('连接已切换，请在当前服务端重新保存');
+    };
     const save = $('save'); save.disabled = true;
     const trackerSubscriptionsChanged = JSON.stringify(trackerSubscriptions) !== JSON.stringify(loadedSettings.aria2TrackerSubscriptions || []);
     try {
       const disablingCustomLocations = loadedSettings.aria2CustomSaveEnabled && !customSaveEnabled;
       if (!rpcOnly) {
         await rpc('changeGlobalOption', [options]);
+        assertSameTarget();
         let applied;
         try { applied = await refreshConnectionsStatus(); }
         catch (error) { throw new Error(`已发送设置，但无法确认是否生效：${error.message}`); }
-        if (values.connections && (Number(applied['max-connection-per-server']) !== Number(values.connections) || Number(applied.split) !== Number(values.connections))) {
+        assertSameTarget();
+        if (applyConnections && (Number(applied['max-connection-per-server']) !== Number(values.connections) || Number(applied.split) !== Number(values.connections))) {
           throw new Error(`单任务连接数未生效：请求 ${values.connections}，aria2 返回每服务器 ${applied['max-connection-per-server'] || '未知'}、分段 ${applied.split || '未知'}`);
         }
       }
@@ -537,6 +567,8 @@
           await refreshTrackers({ silent: true });
         } catch (_) {}
       }
+      assertSameTarget();
+      if (savingGlobal && savedRevision === connectionsRevision) connectionsEdited = false;
       loadedSettings = {
         ...loadedSettings,
         ...nextConfig,
