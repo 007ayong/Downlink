@@ -231,3 +231,47 @@ test('Aria2 task actions use an in-page confirmation dialog instead of window.co
   assert.match(html, /<dialog[^>]+id="confirmDialog"/);
   assert.match(html, /id="confirmDialogAccept"/);
 });
+
+test('Polling order stays stable when RPC reverses tasks with the same timestamp', () => {
+  const { sortTasks } = loadAria2TasksRuntime().__aria2TasksTestHooks;
+  const tasks = ['c', 'a', 'b'].map((gid) => ({ gid, status: 'active', addedTime: 123 }));
+  assert.equal(sortTasks([...tasks]).map((task) => task.gid).join(','), 'a,b,c');
+  assert.equal(sortTasks([...tasks].reverse()).map((task) => task.gid).join(','), 'a,b,c');
+});
+
+test('Polling patches progress in place and retains added action elements', () => {
+  const { patchTaskElement } = loadAria2TasksRuntime().__aria2TasksTestHooks;
+  function element(tagName, text = '', attrs = {}, children = []) {
+    const node = {
+      tagName, textContent: text, children, dataset: {},
+      get attributes() { return Object.entries(attrs).map(([name, value]) => ({ name, value })); },
+      get lastElementChild() { return this.children.at(-1); },
+      hasAttribute(name) { return name in attrs; },
+      getAttribute(name) { return attrs[name] ?? null; },
+      setAttribute(name, value) { attrs[name] = value; },
+      removeAttribute(name) { delete attrs[name]; },
+      appendChild(child) {
+        child.remove();
+        child.parent = this;
+        this.children.push(child);
+      },
+      remove() {
+        if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1);
+        this.parent = null;
+      },
+    };
+    children.forEach((child) => { child.parent = node; });
+    return node;
+  }
+  const fill = element('DIV', '', { style: 'width: 10%' });
+  const row = element('DIV', '', {}, [fill]);
+  const action = element('BUTTON', 'Pause');
+  const next = element('DIV', '', {}, [element('DIV', '', { style: 'width: 20%' }), action]);
+  patchTaskElement(row, next);
+  assert.equal(row.children[0], fill);
+  assert.equal(fill.getAttribute('style'), 'width: 20%');
+  assert.equal(row.children[1], action);
+  patchTaskElement(row, element('DIV', '', {}, [element('DIV', '', { style: 'width: 30%' })]));
+  assert.equal(row.children.length, 1);
+  assert.equal(row.children[0], fill);
+});

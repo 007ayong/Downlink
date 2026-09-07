@@ -695,7 +695,7 @@
       if (ga !== gb) return ga - gb;
       const timeA = a.status === 'active' ? (a.addedTime || 0) : (a.completedTime || a.addedTime || 0);
       const timeB = b.status === 'active' ? (b.addedTime || 0) : (b.completedTime || b.addedTime || 0);
-      return timeB - timeA;
+      return timeB - timeA || String(a.gid).localeCompare(String(b.gid));
     });
   }
 
@@ -770,6 +770,7 @@
     const isChecked = state.selectedGids.has(task.gid);
     row.className = `task-row${isDetailSelected ? ' selected' : ''}`;
     row.dataset.gid = task.gid;
+    row.currentTask = task;
 
     const selectLabel = document.createElement('label');
     selectLabel.className = 'task-select';
@@ -887,7 +888,7 @@
     actions.querySelectorAll('.icon-btn').forEach((btn) => {
       btn.addEventListener('click', (event) => {
         event.stopPropagation();
-        handleRowAction(task, btn.dataset.action);
+        handleRowAction(btn.closest('.task-row').currentTask, btn.dataset.action);
       });
     });
     return row;
@@ -952,10 +953,41 @@
     });
   }
 
+  // Keep existing elements attached so polling preserves focus, hover and
+  // progress transitions. Action buttons are matched by action, not position.
+  function patchTaskElement(current, next) {
+    for (const attribute of Array.from(current.attributes)) {
+      if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
+    }
+    for (const attribute of Array.from(next.attributes)) {
+      if (current.getAttribute(attribute.name) !== attribute.value) {
+        current.setAttribute(attribute.name, attribute.value);
+      }
+    }
+    if (current.tagName === 'INPUT') current.checked = next.checked;
+    if (!current.children.length && !next.children.length) {
+      if (current.textContent !== next.textContent) current.textContent = next.textContent;
+      return;
+    }
+    const children = Array.from(next.children);
+    children.forEach((child, index) => {
+      const existing = current.children[index];
+      if (!existing) current.appendChild(child);
+      else if (existing.tagName !== child.tagName || existing.dataset.action !== child.dataset.action) {
+        existing.replaceWith(child);
+      } else patchTaskElement(existing, child);
+    });
+    while (current.children.length > children.length) current.lastElementChild.remove();
+  }
+
   function renderList() {
     const list = $('taskList');
     const items = visibleTasks();
-    list.replaceChildren();
+    const rows = new Map(Array.from(list.children).map((row) => [row.dataset.gid, row]));
+    const visibleGids = new Set(items.map((task) => task.gid));
+    for (const row of Array.from(list.children)) {
+      if (!visibleGids.has(row.dataset.gid)) row.remove();
+    }
 
     if (!items.length) {
       const empty = document.createElement('div');
@@ -971,7 +1003,15 @@
       empty.append(img, title, sub);
       list.appendChild(empty);
     } else {
-      items.forEach((task) => list.appendChild(createTaskRow(task)));
+      items.forEach((task, index) => {
+        const next = createTaskRow(task);
+        const row = rows.get(task.gid) || next;
+        if (row !== next) {
+          row.currentTask = task;
+          patchTaskElement(row, next);
+        }
+        if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
+      });
     }
 
     updateBulkControls();
@@ -1595,6 +1635,9 @@
   }
   globalThis.__aria2TasksTestHooks = {
     getState: () => state,
+    sortTasks,
+    patchTaskElement,
+    renderList,
     normalizeTask,
     buildSnapshot,
     applyTaskStatus,
