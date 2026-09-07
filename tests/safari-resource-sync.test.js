@@ -251,3 +251,30 @@ test('safari:build runs the read-only preflight before xcodebuild', () => {
     /sync-safari-resources\.mjs(?! --check)/,
   );
 });
+
+test('Safari extension bundles every shared top-level resource', async () => {
+  const { SHARED_FILES } = await import(
+    path.join(rootDir, 'scripts/sync-safari-resources.mjs')
+  );
+  const project = fs.readFileSync(
+    path.join(rootDir, 'safari/Downlink/Downlink.xcodeproj/project.pbxproj'), 'utf8',
+  );
+  const phase = project.match(
+    /DD443B183009DC32007F0E9E \/\* Resources \*\/ = \{([\s\S]*?)\n\t\t\};/,
+  )?.[1];
+  assert.ok(phase, 'Safari extension resource build phase exists');
+  for (const file of new Set(SHARED_FILES.map((file) => file.split('/')[0]))) {
+    const reference = project.split('\n').find((line) =>
+      line.includes('isa = PBXFileReference;')
+      && (line.includes('path = "Resources/' + file + '";')
+        || line.includes('path = Resources/' + file + ';')),
+    );
+    assert.ok(reference, file + ' has an Xcode file reference');
+    const referenceId = reference.trim().split(' ')[0];
+    const build = project.split('\n').find((line) =>
+      line.includes('isa = PBXBuildFile; fileRef = ' + referenceId + ' '),
+    );
+    assert.ok(build, file + ' has a build resource entry');
+    assert.ok(phase.includes(build.trim().split(' ')[0]), file + ' is bundled in the extension');
+  }
+});
