@@ -16,6 +16,13 @@
   ]);
   const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi', 'm4v', 'ogv', 'm4s']);
   const AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'oga', 'opus', 'm4s']);
+  const STREAM_MANIFEST_MIME_TYPES = new Map([
+    ['application/vnd.apple.mpegurl', 'hls'],
+    ['application/x-mpegurl', 'hls'],
+    ['audio/mpegurl', 'hls'],
+    ['audio/x-mpegurl', 'hls'],
+    ['application/dash+xml', 'dash'],
+  ]);
   const BLOCKED_MEDIA_SNIFF_EXTENSIONS = new Set(['ts']);
 
   function dirname(filePath = '') {
@@ -164,6 +171,11 @@
       'audio/ogg': 'ogg',
       'audio/opus': 'opus',
       'audio/flac': 'flac',
+      'application/vnd.apple.mpegurl': 'm3u8',
+      'application/x-mpegurl': 'm3u8',
+      'audio/mpegurl': 'm3u8',
+      'audio/x-mpegurl': 'm3u8',
+      'application/dash+xml': 'mpd',
     };
     return map[normalized] || '';
   }
@@ -270,6 +282,16 @@
     return '';
   }
 
+  function streamProtocolOf(url = '', mime = '', filename = '') {
+    const normalizedMime = String(mime).split(';')[0].trim().toLowerCase();
+    const mimeProtocol = STREAM_MANIFEST_MIME_TYPES.get(normalizedMime);
+    if (mimeProtocol) return mimeProtocol;
+    const extension = extOf(url) || extOf(filename);
+    if (extension === 'm3u8') return 'hls';
+    if (extension === 'mpd') return 'dash';
+    return '';
+  }
+
   function isBlockedMediaSniffResource(url = '', mime = '', filename = '') {
     const normalizedMime = String(mime).split(';')[0].trim().toLowerCase();
     if (normalizedMime === 'video/mp2t') return true;
@@ -280,7 +302,7 @@
 
   function isDirectMediaResource(url = '', mime = '', filename = '') {
     if (isBlockedMediaSniffResource(url, mime, filename)) return false;
-    return Boolean(mediaKindOf(url, mime, filename));
+    return Boolean(streamProtocolOf(url, mime, filename) || mediaKindOf(url, mime, filename));
   }
 
   function hashString(str = '') {
@@ -431,6 +453,7 @@
     shouldCaptureByExt,
     shouldCaptureByMime,
     stripHash,
+    streamProtocolOf,
     totalSizeFromHeaders,
     VIDEO_EXTENSIONS,
     AUDIO_EXTENSIONS,

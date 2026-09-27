@@ -147,6 +147,17 @@ Authorization: Bearer <motrixNextSecret>
 
 Rayburst 模式不会进入 Downlink 侧二次确认。服务端会返回带有相同 `id` 的回执，`action` 为 `submitted`、`needs-confirmation` 或 `cancelled`；`submitted` 必须同时返回 `gid`。
 
+### HLS/DASH 流媒体任务
+
+Downlink 嗅探到 HLS (`.m3u8` 或对应 MIME) 和 MPEG-DASH (`.mpd` / `application/dash+xml`) 清单后，不会把清单当成普通文件发送到 `/add`，而是使用 Rayburst 的媒体 API：
+
+1. `GET /media/v2/capabilities` 验证 `hls` / `dash`、请求上下文及协议版本。
+2. `POST /media/v2/probes` 提交清单 URL、页面标题、来源页和经过过滤的请求头。
+3. 轮询 `GET /media/v2/probes/<id>`，等待 Rayburst 完成清单和轨道解析。
+4. `POST /media/v2/probes/<id>/submit`，使用 Rayburst 返回的默认轨道与输出格式创建下载任务。
+
+媒体 API 要求 Rayburst 配置非空扩展 API 密钥。当前 Downlink 版本采用 Rayburst 的默认轨道选择；后续可在扩展侧补充视频、音频、字幕、输出格式和直播录制时长选择。
+
 ### 连接检测
 
 连接检测依次请求：

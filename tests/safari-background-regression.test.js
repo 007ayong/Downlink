@@ -112,6 +112,17 @@ test('Safari disabled badge uses ASCII text', () => {
   assert.doesNotMatch(source, /isCaptureDisabled \? '✕'/);
 });
 
+test('Safari media tasks preserve stream metadata for Rayburst', () => {
+  const source = readSafariBackground();
+  const handler = source.slice(
+    source.indexOf("case 'ADD_MEDIA_TASK'"),
+    source.indexOf("case 'GET_MEDIA_ITEM'")
+  );
+  assert.match(handler, /kind: media\.kind \|\| ''/);
+  assert.match(handler, /streamProtocol: media\.streamProtocol \|\| ''/);
+  assert.match(handler, /pageTitle: media\.pageTitle \|\| ''/);
+});
+
 test('Safari badge updates ignore a closed-tab Promise rejection', async () => {
   const runtime = loadSafariBadgeUpdater('No tab with id: 823017455.');
 

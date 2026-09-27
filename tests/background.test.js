@@ -394,6 +394,14 @@ test('media sniffing still keeps normal direct media resources', () => {
   );
 });
 
+test('media sniffing recognizes HLS and DASH manifests by extension or MIME', () => {
+  const background = loadBackgroundRuntime();
+  assert.equal(background.isDirectMediaResource('https://cdn.example.com/master.m3u8?token=1', '', ''), true);
+  assert.equal(background.isDirectMediaResource('https://cdn.example.com/manifest', 'application/dash+xml', ''), true);
+  assert.equal(background.BackgroundShared.streamProtocolOf('https://cdn.example.com/master.m3u8', '', ''), 'hls');
+  assert.equal(background.BackgroundShared.streamProtocolOf('https://cdn.example.com/manifest', 'application/dash+xml', ''), 'dash');
+});
+
 test('metadata header rule is cleaned up by the background when popup closes early', async () => {
   const timers = [];
   const background = loadBackgroundRuntime({}, {
@@ -3956,6 +3964,131 @@ test('MotrixNext media send includes captured cookie', async () => {
     referer: 'https://example.com/player',
     cookie: 'sid=abc123',
   });
+});
+
+test('Rayburst media send probes and submits HLS with the default selection', async () => {
+  const requests = [];
+  let probeId = '';
+  const defaultSelection = {
+    videoId: 'video-main',
+    audioId: 'audio-main',
+    subtitleId: null,
+    format: 'mp4',
+    recordTimeSeconds: 0,
+    startTimeSeconds: 0,
+    endTimeSeconds: 0,
+  };
+  const background = loadBackgroundRuntime(
+    { downloaderType: 'motrixnext', motrixNextPort: '29110', motrixNextSecret: 'media-secret' },
+    {
+      fetch: async (url, options = {}) => {
+        requests.push({ url, options, body: options.body ? JSON.parse(options.body) : null });
+        if (url.endsWith('/media/v2/capabilities')) {
+          return { ok: true, json: async () => ({ product: 'rayburst', protocolVersion: 2, sourceKinds: ['hls', 'dash'], requestContexts: true }) };
+        }
+        if (url.endsWith('/media/v2/probes')) {
+          probeId = requests.at(-1).body.id;
+          return { ok: true, json: async () => ({ id: probeId, state: 'ready', presentation: { defaults: defaultSelection } }) };
+        }
+        const submissionId = requests.at(-1).body.submissionId;
+        return { ok: true, json: async () => ({ id: probeId, submissionId, gid: 'media-gid-1' }) };
+      },
+    }
+  );
+
+  background.__backgroundTestHooks.mediaManager.clearMediaResources();
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_hls_1',
+    tabId: 1,
+    resourceUrl: 'https://cdn.example.com/live/master.m3u8?token=1',
+    pageUrl: 'https://example.com/watch/live',
+    pageTitle: 'Live event',
+    filename: 'master.m3u8',
+    headers: { cookie: 'sid=abc123', referer: 'https://example.com/watch/live', 'user-agent': 'Browser UA' },
+    mime: 'application/vnd.apple.mpegurl',
+    streamProtocol: 'hls',
+  });
+
+  const result = await invokeBackgroundMessage(background, { type: 'ADD_MEDIA_TASK', id: 'media_hls_1' });
+  assert.equal(result.ok, true);
+  assert.equal(result.gid, 'media-gid-1');
+  assert.equal(result.media, true);
+  assert.equal(requests.length, 3);
+  assert.equal(requests[0].options.headers.Authorization, 'Bearer media-secret');
+  assert.deepEqual(requests[1].body.source, {
+    url: 'https://cdn.example.com/live/master.m3u8?token=1',
+    kind: 'hls',
+    pageUrl: 'https://example.com/watch/live',
+    title: 'Live event',
+    filename: 'master.m3u8',
+    mime: 'application/vnd.apple.mpegurl',
+    requestContexts: [{
+      url: 'https://cdn.example.com/live/master.m3u8?token=1',
+      headers: [
+        { name: 'cookie', value: 'sid=abc123' },
+        { name: 'referer', value: 'https://example.com/watch/live' },
+        { name: 'user-agent', value: 'Browser UA' },
+      ],
+    }],
+    input: { manifests: [], tracks: [], keys: [] },
+  });
+  assert.deepEqual(requests[2].body.selection, defaultSelection);
+});
+
+test('Rayburst media retry reuses probe and submission identities after a lost receipt', async () => {
+  const pending = new Map();
+  const probeIds = [];
+  const submissionIds = [];
+  let submitAttempt = 0;
+  let savedSubmissionId = '';
+  const defaultSelection = {
+    videoId: 'video-main', audioId: null, subtitleId: null, format: 'mp4',
+    recordTimeSeconds: 0, startTimeSeconds: 0, endTimeSeconds: 0,
+  };
+  const background = loadBackgroundRuntime({}, {
+    fetch: async (url, options = {}) => {
+      if (url.endsWith('/media/v2/capabilities')) {
+        return { ok: true, json: async () => ({ product: 'rayburst', protocolVersion: 2, sourceKinds: ['hls'], requestContexts: true }) };
+      }
+      const body = options.body ? JSON.parse(options.body) : null;
+      if (url.endsWith('/media/v2/probes')) {
+        probeIds.push(body.id);
+        if (submitAttempt > 0) {
+          return { ok: true, json: async () => ({ id: body.id, state: 'submitted', submissionId: savedSubmissionId, gid: 'media-replayed' }) };
+        }
+        return { ok: true, json: async () => ({ id: body.id, state: 'ready', presentation: { defaults: defaultSelection } }) };
+      }
+      submissionIds.push(body.submissionId);
+      submitAttempt += 1;
+      throw new Error('response lost');
+    },
+  });
+  const clients = background.BackgroundDownloaders.createClients({
+    getConfig: () => ({ downloaderType: 'motrixnext', motrixNextPort: '29110', motrixNextSecret: 'secret' }),
+    notify() {},
+    async getPendingRayburstRequest(key) { return pending.get(key); },
+    async savePendingRayburstRequest(key, request) {
+      pending.set(key, request);
+      savedSubmissionId = request.submissionId;
+    },
+    async removePendingRayburstRequest(key) { pending.delete(key); },
+  });
+  const task = {
+    url: 'https://cdn.example.com/master.m3u8',
+    filename: 'master.m3u8',
+    mime: 'application/vnd.apple.mpegurl',
+    streamProtocol: 'hls',
+    downloadPage: 'https://example.com/watch',
+  };
+
+  assert.equal((await clients.sendTask(task)).ok, false);
+  assert.equal(pending.size, 1);
+  const replayed = await clients.sendTask(task);
+  assert.equal(replayed.ok, true);
+  assert.equal(replayed.gid, 'media-replayed');
+  assert.deepEqual(probeIds, [probeIds[0], probeIds[0]]);
+  assert.deepEqual(submissionIds, [savedSubmissionId]);
+  assert.equal(pending.size, 0);
 });
 
 test('Gopeed media send includes edited filename and required media headers', async () => {

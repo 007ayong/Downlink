@@ -3280,6 +3280,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           referrer: media.referrer || media.headers?.referer || media.pageUrl || '',
           downloadPage: media.pageUrl || media.referrer || '',
           origin: media.origin || '',
+          kind: media.kind || '',
+          streamProtocol: media.streamProtocol || '',
+          pageTitle: media.pageTitle || '',
           addedAt: Date.now(),
         }, { ...(msg.opts || {}), abDownloadMode: 'headless' }, { openPopupOnFailure: false }));
         break;

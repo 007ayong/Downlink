@@ -415,6 +415,7 @@
         origin: reqHeaders.origin || deriveOrigin(details.url, reqHeaders.referer || ''),
         referrer: reqHeaders.referer || '',
         kind: mediaKindOf(details.url, mime, filename),
+        streamProtocol: global.BackgroundShared.streamProtocolOf(details.url, mime, filename),
         detectedAt: Date.now(),
       });
 
