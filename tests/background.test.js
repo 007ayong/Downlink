@@ -3226,6 +3226,65 @@ test('NeatDM sends immediately after socket opens and ignores post-open socket e
   assert.match(sockets[0].sent[0], /Content-Type: application\/zip\r\n/);
 });
 
+test('NeatDM sends sniffed HLS manifests in hls mode with request context', async () => {
+  const sockets = [];
+  class MockWebSocket {
+    constructor(url, protocol) {
+      this.url = url;
+      this.protocol = protocol;
+      this.sent = [];
+      sockets.push(this);
+      setTimeout(() => this.onopen?.(), 0);
+    }
+    send(message) { this.sent.push(message); }
+    close() {}
+  }
+  const background = loadBackgroundRuntime(
+    { downloaderType: 'neatdm' },
+    { WebSocket: MockWebSocket }
+  );
+  background.__backgroundTestHooks.mediaManager.clearMediaResources();
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_hls_neatdm',
+    tabId: 1,
+    resourceUrl: 'https://cdn.example.com/live/master?token=1',
+    pageUrl: 'https://example.com/watch/live#player',
+    pageTitle: 'Live event',
+    filename: 'Live event.m3u8',
+    headers: {
+      cookie: 'sid=abc123',
+      referer: 'https://example.com/watch/live#player',
+      'user-agent': 'Browser UA',
+      authorization: 'Bearer stream-token',
+      accept: 'application/vnd.apple.mpegurl',
+      range: 'bytes=0-',
+    },
+    mime: 'application/vnd.apple.mpegurl',
+    streamProtocol: 'hls',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_MEDIA_TASK',
+    id: 'media_hls_neatdm',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(sockets.length, 1);
+  const message = sockets[0].sent[0];
+  assert.match(message, /^1:GET\r\n2:https:\/\/cdn\.example\.com\/live\/master\?token=1\r\n6:hls\r\n4:Live event\r\n/);
+  assert.doesNotMatch(message, /Origin:/);
+  assert.match(message, /Referer: https:\/\/example\.com\/watch\/live\r\n/);
+  assert.match(message, /5:https:\/\/example\.com\/watch\/live\r\n/);
+  assert.match(message, /Cookie: sid=abc123\r\n/);
+  assert.match(message, /User-Agent: Browser UA\r\n/);
+  assert.match(message, /Authorization: Bearer stream-token\r\n/);
+  assert.match(message, /Accept: application\/vnd\.apple\.mpegurl\r\n/);
+  assert.doesNotMatch(message, /Range:/);
+  assert.doesNotMatch(message, /Content-Type:/);
+  assert.doesNotMatch(message, /Content-Disposition:/);
+  assert.doesNotMatch(message, /8:application\/vnd\.apple\.mpegurl/);
+});
+
 test('NeatDM response capture waits for browser download cancel before sending', async () => {
   const sockets = [];
   class MockWebSocket {

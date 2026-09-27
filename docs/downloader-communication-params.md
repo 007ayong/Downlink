@@ -410,7 +410,7 @@ Content-Disposition: attachment; filename="file.zip"
 | `2:<url>` | `taskInfo.url` | 是 | 下载地址 |
 | `6:<mode>` | 任务类型推断 | 是 | `normal`、`media` 或 `hls` |
 | `4:<filename>` | `taskInfo.filename` | 是 | 文件名；媒体扩展名会被去掉后发送 |
-| `Origin` | `taskInfo.origin` 或 URL 推断 | 否 | 来源 Origin |
+| `Origin` | 捕获到的请求头；普通任务可从 URL 推断 | 否 | HLS 不会在浏览器未发送 Origin 时凭 CDN URL 伪造该字段 |
 | `Referer` | `taskInfo.downloadPage` 或 `taskInfo.referrer` | 否 | 来源页 |
 | `5:<downloadPage>` | `taskInfo.downloadPage` 或 `taskInfo.referrer` | 否 | 下载页面 |
 | `Cookie` | 请求头 `cookie` | 否 | 站点 Cookie |
@@ -418,7 +418,7 @@ Content-Disposition: attachment; filename="file.zip"
 | `Content-Disposition` | 任务信息、请求头或生成值 | 否 | 媒体扩展名被去掉时不发送 |
 | `8:<mime>` | 请求头或 `taskInfo.mime` | 否 | 默认 `application/octet-stream`，媒体扩展名被去掉时不发送 |
 | `7:<size>` | `taskInfo.size` | 否 | 文件大小 |
-| `x-*` 请求头 | 请求头缓存 | 否 | 仅透传以 `x-` 开头的自定义头 |
+| 安全请求头 | 请求头缓存 | 否 | 透传 `Accept`、`Accept-Language`、`Authorization`、`User-Agent`、DNT、Client Hints、Fetch Metadata 和 `x-*` 自定义头；不透传 Range、Host、条件请求与逐跳头 |
 
 已知限制：NeatDM 在默认 `normal` 类型下可能不采用 `4:<filename>` 里的自定义文件名，也就是扩展侧传了自定义文件名参数，NeatDM 端仍可能按 URL 或响应头自行命名。
 
@@ -426,6 +426,7 @@ Content-Disposition: attachment; filename="file.zip"
 
 - 如果任务显式带 `neatdmMode`，直接使用该值。
 - URL 或 MIME 推断扩展名为 `m3u8` 时使用 `hls`。
+- 媒体嗅探已明确标记 `streamProtocol: "hls"` 时使用 `hls`；发送文件名时移除 `.m3u8`，避免 NeatDM 把清单扩展名当作最终输出格式。
 - 视频、音频或媒体资源使用 `media`。
 - 其他任务使用 `normal`。
 
