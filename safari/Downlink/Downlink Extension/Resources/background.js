@@ -102,7 +102,7 @@ const DEFAULT_CONFIG = {
   aria2Trackers: [],
   aria2TrackersUpdatedAt: 0,
   useMotrixNext: false,
-  motrixNextPort: '16801',
+  motrixNextPort: '29110',
   motrixNextSecret: '',
   gopeedApi: 'http://127.0.0.1:9999',
   gopeedToken: '',
@@ -238,6 +238,7 @@ function storageSet(area, values) {
 const ARIA2_ORIGINAL_URI_STORAGE_KEY = 'aria2OriginalUris';
 const MAX_ARIA2_ORIGINAL_URI_RECORDS = 2000;
 const ARIA2_TASK_META_STORAGE_KEY = 'aria2TaskMeta';
+const RAYBURST_PENDING_STORAGE_KEY = 'rayburstPendingRequests';
 const MAX_ARIA2_TASK_META_RECORDS = 2000;
 const ARIA2_MANAGER_METHODS = new Set([
   'getGlobalStat',
@@ -258,6 +259,33 @@ const ARIA2_MANAGER_METHODS = new Set([
   'addUri',
   'getOption',
 ]);
+
+function getRayburstStorageArea() {
+  return chrome.storage.session || chrome.storage.local;
+}
+
+async function readPendingRayburstRequests() {
+  const stored = await storageGet(getRayburstStorageArea(), { [RAYBURST_PENDING_STORAGE_KEY]: {} });
+  const requests = stored?.[RAYBURST_PENDING_STORAGE_KEY];
+  return requests && typeof requests === 'object' ? requests : {};
+}
+
+async function getPendingRayburstRequest(fingerprint) {
+  return (await readPendingRayburstRequests())[fingerprint] || null;
+}
+
+async function savePendingRayburstRequest(fingerprint, request) {
+  const requests = await readPendingRayburstRequests();
+  requests[fingerprint] = request;
+  await storageSet(getRayburstStorageArea(), { [RAYBURST_PENDING_STORAGE_KEY]: requests });
+}
+
+async function removePendingRayburstRequest(fingerprint) {
+  const requests = await readPendingRayburstRequests();
+  if (!Object.prototype.hasOwnProperty.call(requests, fingerprint)) return;
+  delete requests[fingerprint];
+  await storageSet(getRayburstStorageArea(), { [RAYBURST_PENDING_STORAGE_KEY]: requests });
+}
 const ARIA2_REMOVE_METHODS = new Set(['remove', 'forceRemove', 'removeDownloadResult']);
 const ARIA2_TASK_RESULT_METHODS = new Set(['tellActive', 'tellWaiting', 'tellStopped', 'tellStatus']);
 let aria2OriginalUris = {};
@@ -1069,6 +1097,7 @@ function normalizeConfig(nextConfig = {}) {
       : normalizeAria2TrackerSubscriptions(nextConfig.aria2TrackerSubscriptions),
     aria2Trackers: normalizeAria2Trackers(nextConfig.aria2Trackers),
     aria2TrackersUpdatedAt: Math.max(0, Number(nextConfig.aria2TrackersUpdatedAt) || 0),
+    motrixNextPort: String(nextConfig.motrixNextPort || '29110').trim() || '29110',
     externalLauncherName: 'AB DM',
     externalLauncherHost: 'localhost',
     mediaSniffingBlacklist: nextConfig.mediaSniffing === false
@@ -2391,7 +2420,7 @@ function notify(title, message) {
 }
 
 function buildMotrixNextDeepLink() {
-  return 'motrixnext://';
+  return 'rayburst://';
 }
 
 function buildMotrixNextBridgeUrl() {
@@ -2521,6 +2550,9 @@ const downloaderClients = downloaders.createClients({
     delete hiddenTaskGids[gid];
     broadcastUpdate();
   },
+  getPendingRayburstRequest,
+  savePendingRayburstRequest,
+  removePendingRayburstRequest,
 });
 
 const {

@@ -1,11 +1,11 @@
 ﻿(function initMotrixOpenPage() {
   const AUTO_CLOSE_DELAY_MS = 800;
-  const deepLink = 'motrixnext://';
+  const deepLink = 'rayburst://';
 
   const isZh = (navigator.language || '').toLowerCase().includes('zh');
   const text = isZh
     ? {
-      title: '正在唤起 MotrixNext',
+      title: '正在唤起 Rayburst',
       desc: '如果浏览器弹出“打开外部应用”提示，请勾选“始终允许”并确认。',
       targetLabel: '目标协议：',
       launch: '再次唤起',
@@ -13,7 +13,7 @@
       hint: '若未自动唤起，可点击“再次唤起”。此页面会自动关闭。',
     }
     : {
-      title: 'Launching MotrixNext',
+      title: 'Launching Rayburst',
       desc: 'If the browser asks to open an external app, allow it and enable always allow.',
       targetLabel: 'Target protocol:',
       launch: 'Try again',

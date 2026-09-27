@@ -23,7 +23,7 @@ const POPUP_DEFAULT_CONFIG = {
   aria2CustomSaveEnabled: false,
   aria2SaveLocations: [],
   useMotrixNext: false,
-  motrixNextPort: '16801',
+  motrixNextPort: '29110',
   motrixNextSecret: '',
   gopeedApi: 'http://127.0.0.1:9999',
   gopeedToken: '',
@@ -47,6 +47,7 @@ function normalizePopupConfig(cfg = {}) {
     : String(next.aria2Rpc || POPUP_DEFAULT_CONFIG.aria2Rpc).trim() || POPUP_DEFAULT_CONFIG.aria2Rpc;
   next.aria2CustomSaveEnabled = !!next.aria2CustomSaveEnabled;
   next.aria2SaveLocations = normalizeAria2SaveLocations(next.aria2SaveLocations);
+  next.motrixNextPort = String(next.motrixNextPort || '29110').trim() || '29110';
   next.externalLauncherHost = 'localhost';
   delete next.skipSmallDownloads;
   delete next.smallDownloadThresholdBytes;

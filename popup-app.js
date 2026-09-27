@@ -783,7 +783,7 @@ function getConnectionCheckSignature(cfg = currentConfig) {
   if (cfg.downloaderType === 'motrixnext') {
     return [
       'motrixnext',
-      cfg.motrixNextPort || '16801',
+      cfg.motrixNextPort || '29110',
       cfg.motrixNextSecret || '',
     ].join('|');
   }

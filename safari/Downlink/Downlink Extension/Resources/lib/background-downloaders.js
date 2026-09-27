@@ -24,13 +24,22 @@
   const ARIA2_RPC_TIMEOUT_MS = 3000;
   const DOWNLOADERS = {
     aria2: { label: (cfg) => cfg.aria2Label || 'Aria2' },
-    motrixnext: { label: () => 'MotrixNext' },
+    motrixnext: { label: () => 'Rayburst (Motrix Next)' },
     gopeed: { label: () => 'Gopeed' },
     abdownload: { label: () => 'AB DM' },
     neatdm: { label: () => 'NeatDM' },
   };
 
-  function createClients({ getConfig, notify, onBeforeAria2Send, onAria2TaskQueued, onGopeedTaskQueued }) {
+  function createClients({
+    getConfig,
+    notify,
+    onBeforeAria2Send,
+    onAria2TaskQueued,
+    onGopeedTaskQueued,
+    getPendingRayburstRequest,
+    savePendingRayburstRequest,
+    removePendingRayburstRequest,
+  }) {
     let rpcId = 1;
     const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
     const CONNECTION_FAILURE_NOTIFY_COOLDOWN_MS = 30000;
@@ -173,10 +182,10 @@
 
     function buildMotrixNextEndpoint(overrideConfig, pathOverride = '/add') {
       const config = overrideConfig || getConfig();
-      const port = String(config.motrixNextPort || '16801').trim() || '16801';
+      const port = String(config.motrixNextPort || '29110').trim() || '29110';
       const path = String(pathOverride || '/add').trim() || '/add';
       const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-      return `http://localhost:${port}${normalizedPath}`;
+      return `http://127.0.0.1:${port}${normalizedPath}`;
     }
 
     function buildGopeedEndpoint(overrideConfig, pathOverride = '/api/v1/tasks') {
@@ -250,34 +259,94 @@
       }
     }
 
-    function buildMotrixNextRequest(taskInfo) {
+    function sanitizeRayburstHeaderValue(value) {
+      return String(value ?? '').replace(/[\u0000-\u0008\u000a-\u001f\u007f]/g, ' ').trim();
+    }
+
+    function buildMotrixNextRequest(taskInfo, id) {
       const headers = normalizeRequestHeaders(taskInfo.headers || {});
-      const payload = { url: taskInfo.url || '' };
+      const payload = { id, url: taskInfo.url || '' };
       const referer = taskInfo.referrer || taskInfo.downloadPage || headers.referer || '';
       const cookie = headers.cookie || '';
-      if (taskInfo.filename) payload.filename = taskInfo.filename;
-      if (referer) payload.referer = referer;
-      if (cookie) payload.cookie = cookie;
+      const userAgent = headers['user-agent'] || '';
+      const allowedHeaders = new Set([
+        'accept', 'accept-language', 'dnt', 'origin', 'sec-ch-ua', 'sec-ch-ua-mobile',
+        'sec-ch-ua-platform', 'sec-fetch-dest', 'sec-fetch-mode', 'sec-fetch-site',
+        'sec-fetch-user', 'upgrade-insecure-requests',
+      ]);
+      const requestHeaders = Object.entries(headers)
+        .map(([name, value]) => ({ name: String(name).toLowerCase(), value: sanitizeRayburstHeaderValue(value) }))
+        .filter(({ name, value }) => value && allowedHeaders.has(name));
+      if (taskInfo.finalUrl && taskInfo.finalUrl !== taskInfo.url) payload.finalUrl = taskInfo.finalUrl;
+      if (taskInfo.filename) {
+        payload.filename = taskInfo.filename;
+        payload.filenameSource = taskInfo.captureSource === 'browser-download' ? 'browser' : 'suggested';
+      }
+      if (referer) payload.referer = sanitizeRayburstHeaderValue(referer);
+      if (cookie) payload.cookie = sanitizeRayburstHeaderValue(cookie);
+      if (userAgent) payload.userAgent = sanitizeRayburstHeaderValue(userAgent);
+      if (requestHeaders.length) payload.requestHeaders = requestHeaders;
       return payload;
+    }
+
+    function rayburstRequestFingerprint(taskInfo) {
+      return JSON.stringify(buildMotrixNextRequest(taskInfo, ''));
+    }
+
+    async function getOrCreateRayburstRequest(taskInfo) {
+      const fingerprint = rayburstRequestFingerprint(taskInfo);
+      const saved = await getPendingRayburstRequest?.(fingerprint);
+      if (saved?.id && saved?.url === taskInfo.url) return { fingerprint, request: saved };
+      const id = globalThis.crypto?.randomUUID?.()
+        || `downlink-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const request = buildMotrixNextRequest(taskInfo, id);
+      await savePendingRayburstRequest?.(fingerprint, request);
+      return { fingerprint, request };
     }
 
     async function sendToMotrixNext(taskInfo) {
       try {
         const config = getConfig();
         const endpoint = buildMotrixNextEndpoint(config, '/add');
-        const headers = { 'Content-Type': 'application/json' };
+        const headers = {
+          'Content-Type': 'application/json',
+          'X-Rayburst-Client': 'rayburst-connect',
+        };
         if (config.motrixNextSecret) {
           headers.Authorization = `Bearer ${config.motrixNextSecret}`;
         }
+        const capabilitiesRes = await fetchWithTimeout(
+          buildMotrixNextEndpoint(config, '/downloads/capabilities'),
+          { method: 'GET', headers },
+        );
+        if (!capabilitiesRes.ok) throw new Error(`HTTP ${capabilitiesRes.status}`);
+        const capabilities = await capabilitiesRes.json();
+        if (capabilities?.product !== 'rayburst' || capabilities?.protocolVersion !== 2 || capabilities?.filenameHints !== true) {
+          throw new Error('Unsupported Rayburst download protocol');
+        }
+        const { fingerprint, request } = await getOrCreateRayburstRequest(taskInfo);
         const res = await fetchWithTimeout(endpoint, {
           method: 'POST',
           headers,
-          body: JSON.stringify(buildMotrixNextRequest(taskInfo)),
+          body: JSON.stringify(request),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const receipt = await res.json();
+        if (receipt?.id !== request.id || !['submitted', 'needs-confirmation', 'cancelled'].includes(receipt?.action)) {
+          throw new Error('Invalid Rayburst download receipt');
+        }
+        if (receipt.action === 'submitted' && !receipt.gid) throw new Error('Missing Rayburst task id');
+        await removePendingRayburstRequest?.(fingerprint);
         clearConnectionFailureNotificationCooldown('motrixnext');
+        if (receipt.action === 'cancelled') {
+          return { ok: false, cancelled: true, error: 'Rayburst 已取消下载' };
+        }
+        if (receipt.action === 'needs-confirmation') {
+          notify('Rayburst 等待确认', taskInfo.filename || taskInfo.url.slice(0, 80));
+          return { ok: true, pending: true, action: receipt.action };
+        }
         notify(t('sentToLabel', [getDownloaderLabel('motrixnext')], `已发送到 ${getDownloaderLabel('motrixnext')}`), taskInfo.filename || taskInfo.url.slice(0, 80));
-        return { ok: true };
+        return { ok: true, gid: receipt.gid, action: receipt.action };
       } catch (err) {
         const message = notifyConnectionFailure('motrixnext');
         return { ok: false, error: message };
@@ -286,17 +355,26 @@
 
     async function testMotrixNextConnection(overrideConfig) {
       try {
-        const addEndpoint = buildMotrixNextEndpoint(overrideConfig, '/add');
+        const pingEndpoint = buildMotrixNextEndpoint(overrideConfig, '/ping');
         const statEndpoint = buildMotrixNextEndpoint(overrideConfig, '/stat');
-        const headers = {};
+        const capabilitiesEndpoint = buildMotrixNextEndpoint(overrideConfig, '/downloads/capabilities');
+        const headers = { 'X-Rayburst-Client': 'rayburst-connect' };
         if (overrideConfig?.motrixNextSecret) {
           headers.Authorization = `Bearer ${overrideConfig.motrixNextSecret}`;
         }
-        const addRes = await fetchWithTimeout(addEndpoint, { method: 'OPTIONS', headers }, EXTERNAL_LAUNCHER_TIMEOUT_MS);
-        if (addRes.status === 404) throw new Error(`HTTP ${addRes.status}`);
+        const pingRes = await fetchWithTimeout(pingEndpoint, { method: 'GET' }, EXTERNAL_LAUNCHER_TIMEOUT_MS);
+        if (!pingRes.ok) throw new Error(`HTTP ${pingRes.status}`);
+        const ping = await pingRes.json();
+        if (ping?.product !== 'rayburst' || ping?.status !== 'ok' || !ping?.version) throw new Error('Unsupported product');
         const statRes = await fetchWithTimeout(statEndpoint, { headers }, EXTERNAL_LAUNCHER_TIMEOUT_MS);
         if (!statRes.ok) throw new Error(`HTTP ${statRes.status}`);
-        return { ok: true, mode: 'motrixnext', message: t('connectedToEndpoint', [addEndpoint], `已连接 ${addEndpoint}`) };
+        const capabilitiesRes = await fetchWithTimeout(capabilitiesEndpoint, { headers }, EXTERNAL_LAUNCHER_TIMEOUT_MS);
+        if (!capabilitiesRes.ok) throw new Error(`HTTP ${capabilitiesRes.status}`);
+        const capabilities = await capabilitiesRes.json();
+        if (capabilities?.product !== 'rayburst' || capabilities?.protocolVersion !== 2 || capabilities?.filenameHints !== true) {
+          throw new Error('Unsupported protocol');
+        }
+        return { ok: true, mode: 'motrixnext', message: t('connectedToEndpoint', [pingEndpoint], `已连接 ${pingEndpoint}`) };
       } catch {
         return { ok: false, mode: 'motrixnext', error: buildConnectionFailureText('MotrixNext') };
       }

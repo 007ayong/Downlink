@@ -652,7 +652,7 @@ test('motrixnext view action opens extension bridge page', async () => {
   const result = await background.openMotrixNextView();
   assert.equal(result.ok, true);
   assert.equal(openedUrl, 'chrome-extension://test/motrix-open.html');
-  assert.equal(result.target, 'motrixnext://');
+  assert.equal(result.target, 'rayburst://');
 });
 
 test('motrixnext view falls back to direct deep link when bridge page fails', async () => {
@@ -666,7 +666,7 @@ test('motrixnext view falls back to direct deep link when bridge page fails', as
   const result = await background.openMotrixNextView();
   assert.equal(result.ok, true);
   assert.equal(result.mode, 'direct-fallback');
-  assert.deepEqual(openedUrls, ['chrome-extension://test/motrix-open.html', 'motrixnext://']);
+  assert.deepEqual(openedUrls, ['chrome-extension://test/motrix-open.html', 'rayburst://']);
 });
 
 test('motrixnext view returns error and notifies when both bridge and direct open fail', async () => {
@@ -1436,9 +1436,10 @@ test('direct response capture cancels before browser filename prompt after send 
       captureExtensions: 'zip',
     },
     {
-      fetch: async (_url, options) => {
+      fetch: async (requestUrl, options = {}) => {
+        if (requestUrl.endsWith('/downloads/capabilities')) return { ok: true, json: async () => ({ product: 'rayburst', protocolVersion: 2, filenameHints: true }) };
         requestBody = JSON.parse(options.body);
-        return { ok: true, json: async () => ({}) };
+        return { ok: true, json: async () => ({ id: requestBody.id, action: 'submitted', gid: 'gid-1' }) };
       },
     }
   );
@@ -1465,6 +1466,9 @@ test('direct response capture cancels before browser filename prompt after send 
   });
 
   assert.equal(suggested, false);
+  for (let attempt = 0; attempt < 5 && !requestBody; attempt += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
   assert.equal(requestBody.url, url);
   assert.deepEqual(background.chrome._downloadCalls.cancel, [25]);
   assert.deepEqual(background.chrome._downloadCalls.erase.map(item => ({ ...item })), [{ id: 25 }]);
@@ -3653,11 +3657,12 @@ test('MotrixNext sends direct /add request with referer and cookie', async () =>
       motrixNextSecret: 'next-secret',
     },
     {
-      fetch: async (url, options) => {
+      fetch: async (url, options = {}) => {
+        if (url.endsWith('/downloads/capabilities')) return { ok: true, status: 200, json: async () => ({ product: 'rayburst', protocolVersion: 2, filenameHints: true }) };
         requestedUrl = url;
         requestHeaders = options.headers;
         requestBody = JSON.parse(options.body);
-        return { ok: true, status: 200 };
+        return { ok: true, status: 200, json: async () => ({ id: requestBody.id, action: 'submitted', gid: 'gid-1' }) };
       },
     }
   );
@@ -3673,14 +3678,114 @@ test('MotrixNext sends direct /add request with referer and cookie', async () =>
   });
 
   assert.equal(result.ok, true);
-  assert.equal(requestedUrl, 'http://localhost:16888/add');
+  assert.equal(requestedUrl, 'http://127.0.0.1:16888/add');
   assert.equal(requestHeaders.Authorization, 'Bearer next-secret');
+  assert.equal(requestHeaders['X-Rayburst-Client'], 'rayburst-connect');
+  assert.ok(requestBody.id);
+  delete requestBody.id;
   assert.deepEqual(requestBody, {
     url: 'https://example.com/file.zip',
     filename: 'custom.zip',
+    filenameSource: 'suggested',
     referer: 'https://example.com/page',
     cookie: 'sid=abc123',
   });
+});
+
+test('Rayburst retries an unresolved request with the same id', async () => {
+  const pending = new Map();
+  const postedIds = [];
+  let postAttempt = 0;
+  const background = loadBackgroundRuntime({}, {
+    fetch: async (url, options = {}) => {
+      if (url.endsWith('/downloads/capabilities')) {
+        return { ok: true, json: async () => ({ product: 'rayburst', protocolVersion: 2, filenameHints: true }) };
+      }
+      const body = JSON.parse(options.body);
+      postedIds.push(body.id);
+      postAttempt += 1;
+      if (postAttempt === 1) throw new Error('response lost');
+      return { ok: true, json: async () => ({ id: body.id, action: 'submitted', gid: 'gid-replayed' }) };
+    },
+  });
+  const clients = background.BackgroundDownloaders.createClients({
+    getConfig: () => ({ downloaderType: 'motrixnext', motrixNextPort: '29110' }),
+    notify() {},
+    async getPendingRayburstRequest(key) { return pending.get(key); },
+    async savePendingRayburstRequest(key, request) { pending.set(key, request); },
+    async removePendingRayburstRequest(key) { pending.delete(key); },
+  });
+
+  const task = { url: 'https://example.com/file.zip', filename: 'file.zip' };
+  assert.equal((await clients.sendTask(task)).ok, false);
+  assert.equal(pending.size, 1);
+  const replayed = await clients.sendTask(task);
+  assert.equal(replayed.ok, true);
+  assert.equal(replayed.gid, 'gid-replayed');
+  assert.deepEqual(postedIds, [postedIds[0], postedIds[0]]);
+  assert.equal(pending.size, 0);
+});
+
+test('Rayburst forwards only sanitized allowlisted headers and marks browser filenames', async () => {
+  let requestBody;
+  const background = loadBackgroundRuntime({}, {
+    fetch: async (url, options = {}) => {
+      if (url.endsWith('/downloads/capabilities')) {
+        return { ok: true, json: async () => ({ product: 'rayburst', protocolVersion: 2, filenameHints: true }) };
+      }
+      requestBody = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ id: requestBody.id, action: 'submitted', gid: 'gid-headers' }) };
+    },
+  });
+  const clients = background.BackgroundDownloaders.createClients({
+    getConfig: () => ({ downloaderType: 'motrixnext', motrixNextPort: '29110' }),
+    notify() {},
+  });
+
+  const result = await clients.sendTask({
+    url: 'https://example.com/file.zip',
+    filename: 'browser-file.zip',
+    captureSource: 'browser-download',
+    headers: {
+      accept: 'application/zip\r\nInjected: true',
+      'accept-encoding': 'br',
+      'sec-fetch-site': 'same-origin',
+      'x-private-header': 'secret',
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requestBody.filenameSource, 'browser');
+  assert.deepEqual(requestBody.requestHeaders, [
+    { name: 'accept', value: 'application/zip  Injected: true' },
+    { name: 'sec-fetch-site', value: 'same-origin' },
+  ]);
+});
+
+test('Rayburst cancelled receipt is not reported as a successful submission', async () => {
+  const background = loadBackgroundRuntime({}, {
+    fetch: async (url, options = {}) => {
+      if (url.endsWith('/downloads/capabilities')) {
+        return { ok: true, json: async () => ({ product: 'rayburst', protocolVersion: 2, filenameHints: true }) };
+      }
+      const body = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ id: body.id, action: 'cancelled' }) };
+    },
+  });
+  const clients = background.BackgroundDownloaders.createClients({
+    getConfig: () => ({ downloaderType: 'motrixnext', motrixNextPort: '29110' }),
+    notify() {},
+  });
+
+  const result = await clients.sendTask({ url: 'https://example.com/file.zip' });
+  assert.equal(result.ok, false);
+  assert.equal(result.cancelled, true);
+});
+
+test('Rayburst permits an explicit custom port matching the legacy default', async () => {
+  const background = loadBackgroundRuntime({ motrixNextPort: '16801' });
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.config.motrixNextPort, '16801');
 });
 
 test('MotrixNext intercepted downloads send immediately without pending confirmation', async () => {
@@ -3693,9 +3798,11 @@ test('MotrixNext intercepted downloads send immediately without pending confirma
       captureExtensions: 'zip',
     },
     {
-      fetch: async (url) => {
+      fetch: async (url, options = {}) => {
+        if (url.endsWith('/downloads/capabilities')) return { ok: true, status: 200, json: async () => ({ product: 'rayburst', protocolVersion: 2, filenameHints: true }) };
         requestedUrl = url;
-        return { ok: true, status: 200 };
+        const body = JSON.parse(options.body);
+        return { ok: true, status: 200, json: async () => ({ id: body.id, action: 'submitted', gid: 'gid-1' }) };
       },
     }
   );
@@ -3708,7 +3815,7 @@ test('MotrixNext intercepted downloads send immediately without pending confirma
     totalBytes: 1024,
   });
 
-  assert.equal(requestedUrl, 'http://localhost:16888/add');
+  assert.equal(requestedUrl, 'http://127.0.0.1:16888/add');
   assert.equal(background.chrome._actionCalls.openPopup, 0);
 
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
@@ -3726,9 +3833,11 @@ test('MotrixNext response claim does not open popup after successful direct send
       captureMime: true,
     },
     {
-      fetch: async (url) => {
+      fetch: async (url, options = {}) => {
+        if (url.endsWith('/downloads/capabilities')) return { ok: true, status: 200, json: async () => ({ product: 'rayburst', protocolVersion: 2, filenameHints: true }) };
         requestedUrl = url;
-        return { ok: true, status: 200 };
+        const body = JSON.parse(options.body);
+        return { ok: true, status: 200, json: async () => ({ id: body.id, action: 'submitted', gid: 'gid-1' }) };
       },
     }
   );
@@ -3753,7 +3862,7 @@ test('MotrixNext response claim does not open popup after successful direct send
     totalBytes: 1024,
   });
 
-  assert.equal(requestedUrl, 'http://localhost:16888/add');
+  assert.equal(requestedUrl, 'http://127.0.0.1:16888/add');
   assert.equal(background.chrome._actionCalls.openPopup, 0);
   const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
   assert.equal(Object.values(state.pending || {}).length, 0);
@@ -3767,9 +3876,10 @@ test('MotrixNext media send falls back to page URL as referer', async () => {
       motrixNextPort: '16888',
     },
     {
-      fetch: async (_url, options) => {
+      fetch: async (url, options = {}) => {
+        if (url.endsWith('/downloads/capabilities')) return { ok: true, status: 200, json: async () => ({ product: 'rayburst', protocolVersion: 2, filenameHints: true }) };
         requestBody = JSON.parse(options.body);
-        return { ok: true, status: 200 };
+        return { ok: true, status: 200, json: async () => ({ id: requestBody.id, action: 'submitted', gid: 'gid-1' }) };
       },
     }
   );
@@ -3791,9 +3901,12 @@ test('MotrixNext media send falls back to page URL as referer', async () => {
   });
 
   assert.equal(result.ok, true);
+  assert.ok(requestBody.id);
+  delete requestBody.id;
   assert.deepEqual(requestBody, {
     url: 'https://cdn.example.com/video.mp4',
     filename: 'video-title.mp4',
+    filenameSource: 'suggested',
     referer: 'https://example.com/watch/123',
   });
 });
@@ -3806,9 +3919,10 @@ test('MotrixNext media send includes captured cookie', async () => {
       motrixNextPort: '16888',
     },
     {
-      fetch: async (_url, options) => {
+      fetch: async (url, options = {}) => {
+        if (url.endsWith('/downloads/capabilities')) return { ok: true, status: 200, json: async () => ({ product: 'rayburst', protocolVersion: 2, filenameHints: true }) };
         requestBody = JSON.parse(options.body);
-        return { ok: true, status: 200 };
+        return { ok: true, status: 200, json: async () => ({ id: requestBody.id, action: 'submitted', gid: 'gid-1' }) };
       },
     }
   );
@@ -3833,9 +3947,12 @@ test('MotrixNext media send includes captured cookie', async () => {
   });
 
   assert.equal(result.ok, true);
+  assert.ok(requestBody.id);
+  delete requestBody.id;
   assert.deepEqual(requestBody, {
     url: 'https://cdn.example.com/video.mp4',
     filename: 'video-title.mp4',
+    filenameSource: 'suggested',
     referer: 'https://example.com/player',
     cookie: 'sid=abc123',
   });
@@ -4771,19 +4888,22 @@ test('MotrixNext connection test validates the incoming secret through stat endp
   const background = loadBackgroundRuntime(
     {
       downloaderType: 'motrixnext',
-      motrixNextPort: '16801',
+      motrixNextPort: '29110',
       motrixNextSecret: 'saved-secret',
     },
     {
       fetch: async (url, options = {}) => {
         requests.push({ url, headers: options.headers || {}, method: options.method || 'GET' });
-        if (url === 'http://localhost:17001/add') {
-          return { ok: true, status: 204 };
+        if (url === 'http://127.0.0.1:17001/ping') {
+          return { ok: true, status: 200, json: async () => ({ product: 'rayburst', status: 'ok', version: '4.0.0' }) };
         }
-        if (url === 'http://localhost:17001/stat') {
+        if (url === 'http://127.0.0.1:17001/stat') {
           return options.headers?.Authorization === 'Bearer live-secret'
             ? { ok: true, status: 200 }
             : { ok: false, status: 401 };
+        }
+        if (url === 'http://127.0.0.1:17001/downloads/capabilities') {
+          return { ok: true, status: 200, json: async () => ({ product: 'rayburst', protocolVersion: 2, filenameHints: true }) };
         }
         return { ok: false, status: 404 };
       },
@@ -4802,14 +4922,19 @@ test('MotrixNext connection test validates the incoming secret through stat endp
   assert.equal(result.ok, true);
   assert.deepEqual(JSON.parse(JSON.stringify(requests)), [
     {
-      url: 'http://localhost:17001/add',
-      method: 'OPTIONS',
-      headers: { Authorization: 'Bearer live-secret' },
+      url: 'http://127.0.0.1:17001/ping',
+      method: 'GET',
+      headers: {},
     },
     {
-      url: 'http://localhost:17001/stat',
+      url: 'http://127.0.0.1:17001/stat',
       method: 'GET',
-      headers: { Authorization: 'Bearer live-secret' },
+      headers: { 'X-Rayburst-Client': 'rayburst-connect', Authorization: 'Bearer live-secret' },
+    },
+    {
+      url: 'http://127.0.0.1:17001/downloads/capabilities',
+      method: 'GET',
+      headers: { 'X-Rayburst-Client': 'rayburst-connect', Authorization: 'Bearer live-secret' },
     },
   ]);
 });
@@ -4818,13 +4943,13 @@ test('MotrixNext connection test fails when incoming secret is rejected', async 
   const background = loadBackgroundRuntime(
     {
       downloaderType: 'motrixnext',
-      motrixNextPort: '16801',
+      motrixNextPort: '29110',
       motrixNextSecret: 'saved-secret',
     },
     {
       fetch: async (url) => {
-        if (url === 'http://localhost:17001/add') return { ok: true, status: 204 };
-        if (url === 'http://localhost:17001/stat') return { ok: false, status: 401 };
+        if (url === 'http://127.0.0.1:17001/ping') return { ok: true, status: 200, json: async () => ({ product: 'rayburst', status: 'ok', version: '4.0.0' }) };
+        if (url === 'http://127.0.0.1:17001/stat') return { ok: false, status: 401 };
         return { ok: false, status: 404 };
       },
     }
@@ -5492,7 +5617,7 @@ test('rapid auto capture shortcut presses are applied sequentially', async () =>
 test('saved connection settings survive restart with stale or empty sync storage', async () => {
   for (const failSyncSave of [false, true]) {
     const localValues = {};
-    let syncValues = { motrixNextPort: '16801' };
+    let syncValues = { motrixNextPort: '29110' };
     const storage = {
       local: {
         get(defaults, callback) { callback({ ...defaults, ...localValues }); },
@@ -5516,7 +5641,7 @@ test('saved connection settings survive restart with stale or empty sync storage
     };
     const first = loadBackgroundRuntime({}, { storage });
     assert.equal((await invokeBackgroundMessage(first, { type: 'SAVE_CONFIG', config: saved })).ok, true);
-    for (const staleSync of [{}, { motrixNextPort: '16801' }]) {
+    for (const staleSync of [{}, { motrixNextPort: '29110' }]) {
       syncValues = staleSync;
       const restarted = loadBackgroundRuntime({}, { storage });
       const state = await invokeBackgroundMessage(restarted, { type: 'GET_STATE' });
@@ -5551,7 +5676,7 @@ test('incoming sync updates and removals remain effective after restart', async 
   background = loadBackgroundRuntime({}, { storage });
   for (const newValue of ['17000', undefined]) {
     await background.chrome._listeners.storageOnChanged({ motrixNextPort: { newValue } }, 'sync');
-    const expected = newValue ?? '16801';
+    const expected = newValue ?? '29110';
     assert.equal((await invokeBackgroundMessage(background, { type: 'GET_STATE' })).config.motrixNextPort, expected);
     background = loadBackgroundRuntime({}, { storage });
     assert.equal((await invokeBackgroundMessage(background, { type: 'GET_STATE' })).config.motrixNextPort, expected);

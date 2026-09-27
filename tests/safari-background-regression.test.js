@@ -353,7 +353,7 @@ test('Safari DNR bridge reuses the deduplicated URL capture path', () => {
 function loadSafariConfigStorage(local, sync, { failLocalWrite = false, failLocalRead = false, failSyncRead = false } = {}) {
   const source = readSafariBackground();
   const context = {
-    DEFAULT_CONFIG: { downloaderType: 'aria2', aria2Rpc: 'http://localhost:6800/jsonrpc', motrixNextPort: '16801' },
+    DEFAULT_CONFIG: { downloaderType: 'aria2', aria2Rpc: 'http://localhost:6800/jsonrpc', motrixNextPort: '29110' },
     CONFIG_STORAGE_AREA_KEY: '__downlinkConfigStorageArea',
     activeConfigStorageArea: '',
     chrome: { storage: { local, sync } },
@@ -376,7 +376,7 @@ function loadSafariConfigStorage(local, sync, { failLocalWrite = false, failLoca
 
 test('Safari restores local connection settings over stale sync after restart', async () => {
   const local = {};
-  const sync = { motrixNextPort: '16801' };
+  const sync = { motrixNextPort: '29110' };
   const first = loadSafariConfigStorage(local, sync);
   await first.loadStoredConfig();
   await first.saveStoredConfig({ motrixNextPort: '16999', aria2Rpc: 'http://localhost:7777/jsonrpc' });
@@ -391,7 +391,7 @@ test('Safari restores local connection settings over stale sync after restart', 
 test('Safari migrates old sync-marked local backups without replacing saved ports', async () => {
   for (const marker of ['sync', undefined]) {
     const local = { __downlinkConfigStorageArea: marker, motrixNextPort: '16999' };
-    const runtime = loadSafariConfigStorage(local, { motrixNextPort: '16801' });
+    const runtime = loadSafariConfigStorage(local, { motrixNextPort: '29110' });
     assert.equal((await runtime.loadStoredConfig()).motrixNextPort, '16999');
     assert.equal(local.__downlinkConfigStorageArea, 'local');
   }

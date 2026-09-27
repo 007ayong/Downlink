@@ -6,7 +6,7 @@
   const DEFAULT_LOGO = global.PopupUI?.DEFAULT_HEADER_LOGO || 'icons/icon48.png';
   const DOWNLOADER_ICONS = {
     aria2: DEFAULT_LOGO,
-    motrixnext: 'assets/provider-icons/motrixnext.png',
+    motrixnext: 'assets/provider-icons/rayburst.png',
     gopeed: 'assets/provider-icons/gopeed.png',
     abdownload: 'assets/provider-icons/abdownload.png',
     neatdm: 'assets/provider-icons/neatdm.png',

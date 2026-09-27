@@ -1158,7 +1158,7 @@ test('MotrixNext header logo uses packaged provider icon', () => {
   const popup = loadPopupRuntime();
   assert.equal(
     popup.getHeaderLogoSrc({ downloaderType: 'motrixnext' }),
-    'assets/provider-icons/motrixnext.png'
+    'assets/provider-icons/rayburst.png'
   );
 });
 
@@ -1189,7 +1189,7 @@ test('aria2 test connection sends the current form config', () => {
     aria2CustomSaveEnabled: false,
     aria2SaveLocations: [],
     useMotrixNext: false,
-    motrixNextPort: '16801',
+    motrixNextPort: '29110',
     motrixNextSecret: '',
     gopeedApi: 'http://127.0.0.1:9999',
     gopeedToken: '',
@@ -1230,7 +1230,7 @@ test('AB DM test connection sends the current form config', () => {
     aria2CustomSaveEnabled: false,
     aria2SaveLocations: [],
     useMotrixNext: false,
-    motrixNextPort: '16801',
+    motrixNextPort: '29110',
     motrixNextSecret: '',
     gopeedApi: 'http://127.0.0.1:9999',
     gopeedToken: '',
@@ -1620,7 +1620,7 @@ test('settings load defaults keep MotrixNext port and autosave secret fields', a
     downloaderType: 'aria2',
     language: 'auto',
     aria2Rpc: 'http://localhost:6800/jsonrpc',
-    motrixNextPort: '16801',
+    motrixNextPort: '29110',
     motrixNextSecret: '',
     gopeedApi: 'http://127.0.0.1:9999',
     externalLauncherHost: 'legacy-host',
@@ -1654,7 +1654,7 @@ test('settings load defaults keep MotrixNext port and autosave secret fields', a
   });
 
   controller.loadSettings({});
-  assert.equal(context.document.getElementById('cfgMotrixNextPort').value, '16801');
+  assert.equal(context.document.getElementById('cfgMotrixNextPort').value, '29110');
   assert.equal(context.document.getElementById('cfgGopeedApi').value, 'http://127.0.0.1:9999');
   assert.equal(context.document.getElementById('cfgLauncherPort').value, '15151');
   assert.equal(context.document.getElementById('cfgMediaSniffingBlacklist').value, 'x.com,youtube.com');

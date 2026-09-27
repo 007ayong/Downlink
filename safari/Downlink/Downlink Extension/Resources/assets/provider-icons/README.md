@@ -5,7 +5,7 @@
 当前代码约定的文件名如下：
 
 - `abdownload.png`
-- `motrixnext.png`
+- `rayburst.png`
 - `neatdm.png`
 
 说明：

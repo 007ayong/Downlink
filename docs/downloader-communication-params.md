@@ -7,7 +7,7 @@
 | 下载器 | 协议 | 默认地址 | 可配置项 | 鉴权 | 任务发送方式 |
 | --- | --- | --- | --- | --- | --- |
 | Aria2 | HTTP JSON-RPC | `http://localhost:6800/jsonrpc` | RPC 地址、RPC 密钥 | JSON-RPC params 中的 `token:<secret>` | `aria2.addUri` |
-| MotrixNext | HTTP | `http://localhost:16801/add` | 端口、密钥 | `Authorization: Bearer <secret>` | `POST /add` |
+| Rayburst（原 MotrixNext） | HTTP | `http://127.0.0.1:29110/add` | 端口、密钥 | `Authorization: Bearer <secret>` | 协议能力检查后 `POST /add` |
 | Gopeed | HTTP API | `http://127.0.0.1:9999/api/v1/tasks` | API 地址、Token | `X-Api-Token: <token>` | `POST /api/v1/tasks` |
 | AB DM | HTTP | `http://localhost:15151/start-headless-download` 或 `/add` | 主机、端口、静默模式 | 无 | `POST /add` 或 `POST /start-headless-download` |
 | NeatDM | WebSocket | `ws://127.0.0.1:10007/download` | 不开放配置 | WebSocket 子协议 `neatextension.v1` | 发送文本协议消息 |
@@ -87,23 +87,32 @@ Content-Type: application/json
 
 连接检测调用 `aria2.getGlobalStat`。任务进度查询调用 `aria2.tellStatus`。
 
-## MotrixNext
+## Rayburst（原 MotrixNext）
 
 ### 配置参数
 
 | 配置字段 | 默认值 | 说明 |
 | --- | --- | --- |
 | `downloaderType` | `motrixnext` | 选择 MotrixNext 适配器 |
-| `motrixNextPort` | `16801` | 本机 HTTP 接收服务端口 |
-| `motrixNextSecret` | 空 | MotrixNext `extensionApiSecret`，可不填 |
+| `motrixNextPort` | `29110` | Rayburst 本机 HTTP API 端口 |
+| `motrixNextSecret` | 空 | Rayburst 扩展 API 密钥，可不填 |
 
 ### 请求格式
 
 发送任务固定访问本机：
 
 ```http
-POST http://localhost:<motrixNextPort>/add
+GET http://127.0.0.1:<motrixNextPort>/downloads/capabilities
+X-Rayburst-Client: rayburst-connect
+Authorization: Bearer <motrixNextSecret>
+```
+
+能力响应必须声明 `product: "rayburst"`、`protocolVersion: 2` 和 `filenameHints: true`。随后发送任务：
+
+```http
+POST http://127.0.0.1:<motrixNextPort>/add
 Content-Type: application/json
+X-Rayburst-Client: rayburst-connect
 Authorization: Bearer <motrixNextSecret>
 ```
 
@@ -111,10 +120,14 @@ Authorization: Bearer <motrixNextSecret>
 
 ```json
 {
+  "id": "550e8400-e29b-41d4-a716-446655440000",
   "url": "https://example.com/file.zip",
   "filename": "file.zip",
+  "filenameSource": "suggested",
   "referer": "https://example.com/page",
-  "cookie": "sid=abc"
+  "cookie": "sid=abc",
+  "userAgent": "Mozilla/5.0 ...",
+  "requestHeaders": [{ "name": "accept", "value": "*/*" }]
 }
 ```
 
@@ -122,28 +135,37 @@ Authorization: Bearer <motrixNextSecret>
 
 | 字段 | 来源 | 是否必传 | 说明 |
 | --- | --- | --- | --- |
+| `id` | 扩展生成 | 是 | 单次提交标识；用于校验服务端回执和避免不确定交付 |
 | `url` | `taskInfo.url` | 是 | 下载地址 |
+| `finalUrl` | `taskInfo.finalUrl` | 否 | 发生跳转时的最终地址 |
 | `filename` | `taskInfo.filename` | 否 | 文件名 |
+| `filenameSource` | 固定 `suggested` | 与 `filename` 同时 | 表示由 Downlink 建议的文件名 |
 | `referer` | `taskInfo.referrer`、`taskInfo.downloadPage` 或请求头 `referer` | 否 | 防盗链来源页 |
 | `cookie` | 请求头 `cookie` | 否 | 站点 Cookie |
+| `userAgent` | 请求头 `user-agent` | 否 | 浏览器 User-Agent |
+| `requestHeaders` | 过滤后的请求头 | 否 | 不包含 Cookie、Referer、Range、条件请求和逐跳请求头 |
 
-MotrixNext 模式不会进入扩展侧二次确认，也不使用扩展侧暂停、继续或进度控制。
+Rayburst 模式不会进入 Downlink 侧二次确认。服务端会返回带有相同 `id` 的回执，`action` 为 `submitted`、`needs-confirmation` 或 `cancelled`；`submitted` 必须同时返回 `gid`。
 
 ### 连接检测
 
-连接检测会先请求：
+连接检测依次请求：
 
 ```http
-OPTIONS http://localhost:<motrixNextPort>/add
+GET http://127.0.0.1:<motrixNextPort>/ping
 ```
 
 再请求：
 
 ```http
-GET http://localhost:<motrixNextPort>/stat
+GET http://127.0.0.1:<motrixNextPort>/stat
 ```
 
-如果配置了密钥，两次请求都会带 `Authorization: Bearer <motrixNextSecret>`。
+```http
+GET http://127.0.0.1:<motrixNextPort>/downloads/capabilities
+```
+
+`/ping` 用于验证产品身份且不带鉴权；其余请求必须带服务端要求的 `X-Rayburst-Client: rayburst-connect`，配置密钥时再带 `Authorization: Bearer <motrixNextSecret>`。
 
 ## Gopeed
 
