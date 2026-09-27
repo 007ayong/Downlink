@@ -4,21 +4,45 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function loadAria2TasksRuntime() {
-  const makeElement = () => ({
-    classList: {
-      add() {},
-      remove() {},
-      toggle() {},
-      contains() { return false; },
-    },
+function loadAria2TasksRuntime(options = {}) {
+  const control = {
+    backgroundConfig: { aria2Rpc: 'http://localhost:6800/jsonrpc', aria2Secret: '' },
+    localConfig: { aria2Rpc: 'http://localhost:6800/jsonrpc', aria2Secret: '' },
+    rpcError: '',
+    deferRpc: false,
+    pendingRpc: [],
+    storageListener: null,
+    ...options,
+  };
+  const makeElement = () => {
+    const classes = new Set();
+    const children = [];
+    const element = {
+      classList: {
+        add(...names) { names.forEach((name) => classes.add(name)); },
+        remove(...names) { names.forEach((name) => classes.delete(name)); },
+        toggle(name, force) {
+          const enabled = force === undefined ? !classes.has(name) : !!force;
+          if (enabled) classes.add(name); else classes.delete(name);
+          return enabled;
+        },
+        contains(name) { return classes.has(name); },
+      },
     dataset: {},
     style: {},
-    append() {},
-    appendChild() {},
-    replaceChildren() {},
+    children,
+    attributes: [],
+    append(...nodes) { children.push(...nodes); },
+    appendChild(node) { children.push(node); return node; },
+    insertBefore(node, before) {
+      const index = before ? children.indexOf(before) : -1;
+      if (index < 0) children.push(node); else children.splice(index, 0, node);
+      return node;
+    },
+    replaceChildren(...nodes) { children.splice(0, children.length, ...nodes); },
     addEventListener() {},
     removeEventListener() {},
+    remove() {},
     setAttribute() {},
     removeAttribute() {},
     getAttribute() { return ''; },
@@ -29,14 +53,28 @@ function loadAria2TasksRuntime() {
     scrollIntoView() {},
     textContent: '',
     value: '',
-  });
+    };
+    Object.defineProperty(element, 'className', {
+      get() { return Array.from(classes).join(' '); },
+      set(value) {
+        classes.clear();
+        String(value || '').split(/\s+/).filter(Boolean).forEach((name) => classes.add(name));
+      },
+    });
+    return element;
+  };
+  const elements = new Map();
   const document = {
     title: '',
     body: makeElement(),
     activeElement: null,
-    getElementById() { return makeElement(); },
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, makeElement());
+      return elements.get(id);
+    },
     querySelectorAll() { return []; },
     createElement() { return makeElement(); },
+    createDocumentFragment() { return makeElement(); },
     addEventListener() {},
   };
   const window = {
@@ -61,13 +99,31 @@ function loadAria2TasksRuntime() {
     clearInterval() {},
     chrome: {
       storage: {
+        local: {
+          get(defaults, callback) { callback({ ...defaults, ...control.localConfig }); },
+        },
         sync: {
           get(defaults, callback) { callback({ ...defaults }); },
+        },
+        onChanged: {
+          addListener(listener) { control.storageListener = listener; },
         },
       },
       runtime: {
         lastError: null,
         sendMessage(message, callback) {
+          if (message.type === 'GET_STATE') {
+            callback({ config: { ...control.backgroundConfig } });
+            return;
+          }
+          if (control.deferRpc) {
+            control.pendingRpc.push({ message, callback });
+            return;
+          }
+          if (control.rpcError) {
+            callback({ ok: false, error: control.rpcError });
+            return;
+          }
           const result = message.method === 'getGlobalStat' ? {} : [];
           callback({ ok: true, result });
         },
@@ -80,6 +136,8 @@ function loadAria2TasksRuntime() {
     context,
     { filename: 'aria2-tasks.js' },
   );
+  context.__control = control;
+  context.__elements = elements;
   return context;
 }
 
@@ -230,6 +288,59 @@ test('Aria2 task actions use an in-page confirmation dialog instead of window.co
   assert.match(script, /confirmAction\s*\(/);
   assert.match(html, /<dialog[^>]+id="confirmDialog"/);
   assert.match(html, /id="confirmDialogAccept"/);
+});
+
+test('Aria2 connection status reads the committed storage target and reacts to later failures', async () => {
+  const runtime = loadAria2TasksRuntime();
+  await new Promise((resolve) => setImmediate(resolve));
+  const { __control: control, __elements: elements } = runtime;
+
+  assert.equal(elements.get('statusDot').classList.contains('ok'), true);
+  control.backgroundConfig.aria2Rpc = 'http://stale.example:6800/jsonrpc';
+  control.localConfig.aria2Rpc = 'http://nas.example:6800/jsonrpc';
+  control.rpcError = 'connection refused';
+  control.storageListener({ aria2Rpc: { newValue: control.localConfig.aria2Rpc } }, 'local');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(elements.get('rpcEndpoint').textContent, /nas\.example/);
+  assert.equal(elements.get('statusDot').classList.contains('bad'), true);
+  assert.equal(elements.get('alert').classList.contains('show'), true);
+
+  control.localConfig.aria2Rpc = 'http://localhost:6800/jsonrpc';
+  control.rpcError = '';
+  control.storageListener({ aria2Rpc: { newValue: control.localConfig.aria2Rpc } }, 'local');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(elements.get('statusDot').classList.contains('ok'), true);
+  assert.equal(elements.get('alert').classList.contains('show'), false);
+});
+
+test('an older RPC result cannot overwrite the status of a newly selected connection', async () => {
+  const runtime = loadAria2TasksRuntime();
+  await new Promise((resolve) => setImmediate(resolve));
+  const { __control: control, __elements: elements } = runtime;
+  control.deferRpc = true;
+
+  control.localConfig.aria2Rpc = 'http://old-nas.example:6800/jsonrpc';
+  control.storageListener({ aria2Rpc: { newValue: control.localConfig.aria2Rpc } }, 'local');
+  await new Promise((resolve) => setImmediate(resolve));
+  const oldRequests = control.pendingRpc.splice(0);
+  assert.equal(oldRequests.length, 4);
+
+  control.localConfig.aria2Rpc = 'http://new-nas.example:6800/jsonrpc';
+  control.storageListener({ aria2Rpc: { newValue: control.localConfig.aria2Rpc } }, 'local');
+  oldRequests.forEach(({ message, callback }) => {
+    callback({ ok: true, result: message.method === 'getGlobalStat' ? {} : [] });
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const newRequests = control.pendingRpc.splice(0);
+  assert.equal(newRequests.length, 4);
+  newRequests.forEach(({ callback }) => callback({ ok: false, error: 'new target unavailable' }));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(elements.get('rpcEndpoint').textContent, /new-nas\.example/);
+  assert.equal(elements.get('statusDot').classList.contains('bad'), true);
 });
 
 test('Polling order stays stable when RPC reverses tasks with the same timestamp', () => {

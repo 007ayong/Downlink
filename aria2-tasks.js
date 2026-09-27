@@ -288,6 +288,8 @@
     selectedGids: new Set(),
     loaded: false,
     loading: false,
+    refreshQueued: false,
+    connectionRevision: 0,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -374,26 +376,41 @@
     return FILE_ICON_MAP.default;
   }
 
-  function getConfig() {
+  function getConfig(preferredArea = '') {
     return new Promise((resolve) => {
       const extensionApi = globalThis.chrome;
-      if (!extensionApi?.storage?.sync?.get) {
-        resolve({ aria2Rpc: DEFAULT_RPC, aria2Secret: '', aria2PanelDownloadDir: '', aria2PanelMaxConcurrent: '' });
+      const defaults = { aria2Rpc: DEFAULT_RPC, aria2Secret: '', aria2PanelDownloadDir: '', aria2PanelMaxConcurrent: '' };
+      const normalize = (stored) => ({
+        aria2Rpc: String(stored?.aria2Rpc || DEFAULT_RPC).trim() || DEFAULT_RPC,
+        aria2Secret: String(stored?.aria2Secret || ''),
+        aria2PanelDownloadDir: String(stored?.aria2PanelDownloadDir || ''),
+        aria2PanelMaxConcurrent: String(stored?.aria2PanelMaxConcurrent || ''),
+      });
+      const readStorage = (areaName = preferredArea) => {
+        const preferredStorage = extensionApi?.storage?.[areaName];
+        const storage = preferredStorage?.get
+          ? preferredStorage
+          : (extensionApi?.storage?.local?.get ? extensionApi.storage.local : extensionApi?.storage?.sync);
+        if (!storage?.get) {
+          resolve(normalize(defaults));
+          return;
+        }
+        storage.get(defaults, (stored) => resolve(normalize(stored)));
+      };
+      // A storage change must be read back from the area that emitted it. During
+      // SAVE_CONFIG the background's in-memory config can still be one await behind.
+      if (preferredArea) {
+        readStorage(preferredArea);
         return;
       }
-      extensionApi.storage.sync.get({
-        aria2Rpc: DEFAULT_RPC,
-        aria2Secret: '',
-        aria2PanelDownloadDir: '',
-        aria2PanelMaxConcurrent: '',
-      }, (stored) => {
-        resolve({
-          aria2Rpc: String(stored?.aria2Rpc || DEFAULT_RPC).trim() || DEFAULT_RPC,
-          aria2Secret: String(stored?.aria2Secret || ''),
-          aria2PanelDownloadDir: String(stored?.aria2PanelDownloadDir || ''),
-          aria2PanelMaxConcurrent: String(stored?.aria2PanelMaxConcurrent || ''),
+      if (extensionApi?.runtime?.sendMessage) {
+        extensionApi.runtime.sendMessage({ type: 'GET_STATE' }, (response) => {
+          if (!extensionApi.runtime.lastError && response?.config) resolve(normalize(response.config));
+          else readStorage();
         });
-      });
+        return;
+      }
+      readStorage();
     });
   }
 
@@ -656,8 +673,12 @@
   }
 
   async function loadSnapshot() {
-    if (state.loading) return;
+    if (state.loading) {
+      state.refreshQueued = true;
+      return;
+    }
     state.loading = true;
+    const revision = state.connectionRevision;
     try {
       const [stat, active, waiting, stopped, taskMeta] = await Promise.all([
         rpc('getGlobalStat'),
@@ -666,6 +687,7 @@
         rpc('tellStopped', [0, HISTORY_LIMIT]),
         getTaskMeta(),
       ]);
+      if (revision !== state.connectionRevision) return;
       state.snapshot = buildSnapshot(active, waiting, stopped, stat, taskMeta);
       state.tasks = sortTasks(state.snapshot.all);
       const validGids = new Set(state.tasks.map((task) => task.gid));
@@ -675,15 +697,37 @@
       if (state.detailGid && !validGids.has(state.detailGid)) state.detailGid = '';
       state.loaded = true;
       setStatus(true);
+      hideAlert();
       setRpcEndpoint(state.config?.aria2Rpc || DEFAULT_RPC);
       render();
     } catch (error) {
-      if (!state.loaded) {
+      if (revision === state.connectionRevision) {
         setStatus(false);
         showAlert(T.loadFailed.replace('$1', error?.message || String(error)));
       }
     } finally {
       state.loading = false;
+      if (state.refreshQueued) {
+        state.refreshQueued = false;
+        void loadSnapshot();
+      }
+    }
+  }
+
+  async function refreshConnectionConfig(storageArea = '') {
+    state.connectionRevision++;
+    state.refreshQueued = true;
+    const revision = state.connectionRevision;
+    const config = await getConfig(storageArea);
+    if (revision !== state.connectionRevision) return;
+    state.config = config;
+    setRpcEndpoint(config.aria2Rpc);
+    const dot = $('statusDot');
+    dot.className = 'status-dot checking';
+    $('statusText').textContent = T.statusChecking;
+    if (!state.loading) {
+      state.refreshQueued = false;
+      await loadSnapshot();
     }
   }
 
@@ -1549,6 +1593,12 @@
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) loadSnapshot();
     });
+    globalThis.chrome?.storage?.onChanged?.addListener((changes, area) => {
+      if ((area === 'sync' || area === 'local')
+        && (changes.aria2Rpc || changes.aria2Secret || changes.aria2ActiveProfileId || changes.aria2Profiles)) {
+        void refreshConnectionConfig(area);
+      }
+    });
   }
 
   function openSettingsSection(section) {
@@ -1641,6 +1691,8 @@
     normalizeTask,
     buildSnapshot,
     applyTaskStatus,
+    loadSnapshot,
+    refreshConnectionConfig,
     isMagnetMetadataTask,
     taskUriEntries,
     T,
