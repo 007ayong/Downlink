@@ -1704,7 +1704,7 @@ async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false, 
   const message = result?.error || buildConnectionFailureText(getDownloaderLabel(config.downloaderType));
   if (shouldReportFailure()) {
     setUiAlert({
-      type: 'connection-failure',
+      type: result?.unsupported ? 'unsupported' : 'connection-failure',
       downloaderLabel: getDownloaderLabel(config.downloaderType),
       message,
     });

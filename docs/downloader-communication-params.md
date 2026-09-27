@@ -227,14 +227,23 @@ X-Api-Token: <gopeedToken>
 | 字段 | 来源 | 是否必传 | 说明 |
 | --- | --- | --- | --- |
 | `req.url` | `taskInfo.url` | 是 | 下载地址 |
-| `req.extra.header` | 请求头缓存和任务信息 | 是 | 会补充 `accept-encoding: identity` |
+| `req.extra.header` | 请求头缓存和任务信息 | 是 | 普通文件任务会补充 `accept-encoding: identity`；HLS 使用下述安全白名单 |
 | `req.extra.method` | `taskInfo.method` | 否 | 非 GET 时传递大写方法名 |
 | `req.extra.body` | `taskInfo.body` | 否 | 手动任务可传请求体 |
 | `req.labels` | `taskInfo.labels` | 否 | 手动任务标签 |
 | `opts.name` | `taskInfo.filename` | 否 | 文件名 |
 | `opts.extra.connections` | 确认面板选项 | 否 | 勾选单线程不分片下载时传 `1` |
 
-Gopeed 请求头处理规则：
+### HLS 流媒体任务
+
+- 仅接受 `streamProtocol: "hls"` 且 URL 路径以 `.m3u8` 结尾的任务；DASH 和无 `.m3u8` 后缀的 HLS 入口会返回不支持，避免 Gopeed 将清单当作普通文件保存。
+- 发送前请求 `GET /api/v1/info`，要求 Gopeed 版本不低于 `2.0.0-beta.3`。
+- HLS 任务不传 `opts.name`，由 Gopeed 根据实际媒体容器确定合并后的扩展名。
+- HLS 请求头会被 Gopeed 继续用于子清单、分片和密钥请求，因此 Downlink 仅保留 `accept`、语言、认证、Cookie、实际捕获的 Origin、Referer、User-Agent、Fetch Metadata 及 `x-*` 请求头；不传 `range`、`content-type`、`content-disposition` 等文件请求元数据。
+- 未捕获到 Referer 时仍会使用页面地址补齐，但不会凭空生成 Origin。
+- Gopeed 当前原生 HLS 实现只支持点播清单；直播清单会由 Gopeed 拒绝，Downlink 不伪装为普通文件任务。
+
+普通文件任务的 Gopeed 请求头处理规则：
 
 - 删除 `accept-encoding`、`connection`、`content-length`、`host`、`if-range`、`range`。
 - 如果没有 `referer`，会从 `taskInfo.referrer` 或 `taskInfo.downloadPage` 补充。

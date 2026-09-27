@@ -221,6 +221,8 @@ Downlink 会直接向本机 MotrixNext HTTP 接收服务发送 `POST /add`，请
 
 Downlink 会通过 Gopeed HTTP API 发送 `POST /api/v1/tasks`。浏览器拦截到的普通下载默认会先进入确认面板；如需自动开始下载，可在设置中开启“普通任务静默下载”。只有在确认面板勾选“单线程不分片下载”时才会传递 `opts.extra.connections = 1`，否则不传递连接数参数。扩展不会向 Gopeed 指定保存路径，由 Gopeed 端控制下载位置。
 
+媒体面板中的 HLS 清单可交给 Gopeed 原生流媒体下载器处理。该功能需要 Gopeed `2.0.0-beta.3` 或更高版本，并且清单 URL 的路径需要以 `.m3u8` 结尾；Downlink 会先读取 `/api/v1/info` 校验版本，再发送任务。HLS 请求仅透传播放所需的安全请求头，并由 Gopeed 决定合并后的文件名和扩展名。Gopeed 当前原生实现只处理点播 HLS；DASH、直播 HLS 或无 `.m3u8` 后缀入口仍受 Gopeed 能力限制，其中能在发送前判定的输入会明确报错，不会退化成只下载清单文件。
+
 ### AB DM
 
 需要填写：

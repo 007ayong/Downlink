@@ -1335,10 +1335,41 @@ test('connection failure alert is localized in the popup from its semantic paylo
       message: 'Failed to connect to Aria2. Check whether Aria2 is running.',
     },
   });
-
   assert.equal(
     popup.document.getElementById('taskAlert').textContent,
     '与 Aria2 连接失败，检查 Aria2 是否正在运行'
+  );
+});
+
+test('unsupported downloader alert preserves its actionable message', () => {
+  const popup = loadPopupRuntime({
+    state: {
+      tasks: {},
+      pending: {},
+      media: {},
+      config: { language: 'zh-CN' },
+      hiddenTaskGids: [],
+      uiAlert: {
+        type: 'unsupported',
+        downloaderLabel: 'Gopeed',
+        message: 'Gopeed 暂不支持 DASH 流媒体下载',
+      },
+    },
+  });
+  popup.renderState({
+    tasks: {},
+    pending: {},
+    media: {},
+    uiAlert: {
+      type: 'unsupported',
+      downloaderLabel: 'Gopeed',
+      message: 'Gopeed 暂不支持 DASH 流媒体下载',
+    },
+  });
+
+  assert.equal(
+    popup.document.getElementById('mediaAlert').textContent,
+    'Gopeed 暂不支持 DASH 流媒体下载'
   );
 });
 

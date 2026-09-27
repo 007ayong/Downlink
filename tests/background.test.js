@@ -4213,6 +4213,198 @@ test('Gopeed media send includes edited filename and required media headers', as
   assert.equal(Object.hasOwn(requestBody.req.extra.header, 'range'), false);
 });
 
+test('Gopeed HLS send checks native support and forwards safe playlist headers', async () => {
+  const requests = [];
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'gopeed',
+      gopeedApi: 'http://127.0.0.1:9999',
+      gopeedToken: 'gopeed-token',
+    },
+    {
+      fetch: async (url, options = {}) => {
+        requests.push({ url, options, body: options.body ? JSON.parse(options.body) : null });
+        return {
+          ok: true,
+          async json() {
+            if (url.endsWith('/api/v1/info')) return { code: 0, data: { version: '2.0.0-beta.3' } };
+            return { code: 0, data: 'gopeed-hls-1' };
+          },
+        };
+      },
+    }
+  );
+
+  background.__backgroundTestHooks.mediaManager.clearMediaResources();
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_gopeed_hls',
+    tabId: 1,
+    resourceUrl: 'https://cdn.example.com/live/master.m3u8?token=1',
+    pageUrl: 'https://example.com/watch/live',
+    filename: 'Live event.m3u8',
+    headers: {
+      accept: 'application/vnd.apple.mpegurl',
+      authorization: 'Bearer stream-token',
+      cookie: 'sid=abc123',
+      origin: 'https://example.com',
+      referer: 'https://example.com/player',
+      range: 'bytes=0-',
+      'content-type': 'application/vnd.apple.mpegurl',
+      'content-disposition': 'attachment; filename="master.m3u8"',
+      'user-agent': 'Browser UA',
+      'x-playback-token': 'playback-token',
+    },
+    mime: 'application/vnd.apple.mpegurl',
+    streamProtocol: 'hls',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_MEDIA_TASK',
+    id: 'media_gopeed_hls',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.gid, 'gopeed-hls-1');
+  assert.equal(requests.length, 2);
+  assert.match(requests[0].url, /\/api\/v1\/info$/);
+  assert.equal(requests[0].options.headers['X-Api-Token'], 'gopeed-token');
+  assert.match(requests[1].url, /\/api\/v1\/tasks$/);
+  assert.deepEqual(requests[1].body, {
+    req: {
+      url: 'https://cdn.example.com/live/master.m3u8?token=1',
+      extra: {
+        header: {
+          accept: 'application/vnd.apple.mpegurl',
+          authorization: 'Bearer stream-token',
+          cookie: 'sid=abc123',
+          origin: 'https://example.com',
+          referer: 'https://example.com/player',
+          'user-agent': 'Browser UA',
+          'x-playback-token': 'playback-token',
+        },
+      },
+    },
+  });
+});
+
+test('Gopeed HLS send rejects versions without native HLS support', async () => {
+  const requests = [];
+  const background = loadBackgroundRuntime(
+    { downloaderType: 'gopeed' },
+    {
+      fetch: async (url, options = {}) => {
+        requests.push({ url, options });
+        return { ok: true, json: async () => ({ code: 0, data: { version: '1.9.3' } }) };
+      },
+    }
+  );
+
+  const result = await background.BackgroundDownloaders.createClients({
+    getConfig: () => ({ downloaderType: 'gopeed', gopeedApi: 'http://127.0.0.1:9999' }),
+    notify() {},
+  }).sendTask({
+    url: 'https://cdn.example.com/master.m3u8',
+    filename: 'master.m3u8',
+    mime: 'application/vnd.apple.mpegurl',
+    streamProtocol: 'hls',
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.unsupported, true);
+  assert.match(result.error, /2\.0\.0-beta\.3/);
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].url, /\/api\/v1\/info$/);
+});
+
+test('Gopeed HLS version check follows semver prerelease ordering', async () => {
+  async function tryVersion(version) {
+    let requestCount = 0;
+    const clients = loadBackgroundRuntime(
+      { downloaderType: 'gopeed' },
+      {
+        fetch: async (url) => {
+          requestCount += 1;
+          if (url.endsWith('/api/v1/info')) {
+            return { ok: true, json: async () => ({ code: 0, data: { version } }) };
+          }
+          return { ok: true, json: async () => ({ code: 0, data: `task-${version}` }) };
+        },
+      }
+    ).BackgroundDownloaders.createClients({
+      getConfig: () => ({ downloaderType: 'gopeed', gopeedApi: 'http://127.0.0.1:9999' }),
+      notify() {},
+    });
+    const result = await clients.sendTask({
+      url: 'https://cdn.example.com/master.m3u8',
+      streamProtocol: 'hls',
+    });
+    return { result, requestCount };
+  }
+
+  for (const version of ['2.0.0-beta.3', '2.0.0-beta.4', '2.0.0-rc.1', '2.0.0', '2.0.1-alpha.1', 'v3.0.0']) {
+    const outcome = await tryVersion(version);
+    assert.equal(outcome.result.ok, true, version);
+    assert.equal(outcome.requestCount, 2, version);
+  }
+  for (const version of ['1.9.9', '2.0.0-alpha.9', '2.0.0-beta', '2.0.0-beta.2']) {
+    const outcome = await tryVersion(version);
+    assert.equal(outcome.result.unsupported, true, version);
+    assert.equal(outcome.requestCount, 1, version);
+  }
+});
+
+test('Gopeed rejects unsupported stream inputs before creating a normal file task', async () => {
+  let requestCount = 0;
+  const clients = loadBackgroundRuntime(
+    { downloaderType: 'gopeed' },
+    { fetch: async () => { requestCount += 1; throw new Error('must not request'); } }
+  ).BackgroundDownloaders.createClients({
+    getConfig: () => ({ downloaderType: 'gopeed', gopeedApi: 'http://127.0.0.1:9999' }),
+    notify() {},
+  });
+
+  const extensionless = await clients.sendTask({
+    url: 'https://cdn.example.com/playback?id=1',
+    mime: 'application/vnd.apple.mpegurl',
+    streamProtocol: 'hls',
+  });
+  const dash = await clients.sendTask({
+    url: 'https://cdn.example.com/manifest.mpd',
+    mime: 'application/dash+xml',
+    streamProtocol: 'dash',
+  });
+
+  assert.equal(extensionless.unsupported, true);
+  assert.match(extensionless.error, /\.m3u8/);
+  assert.equal(dash.unsupported, true);
+  assert.match(dash.error, /DASH/);
+  assert.equal(requestCount, 0);
+});
+
+test('Gopeed unsupported media failures retain their actionable alert type and message', async () => {
+  const background = loadBackgroundRuntime({ downloaderType: 'gopeed' });
+  background.__backgroundTestHooks.mediaManager.clearMediaResources();
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_gopeed_dash',
+    tabId: 1,
+    resourceUrl: 'https://cdn.example.com/manifest.mpd',
+    filename: 'manifest.mpd',
+    mime: 'application/dash+xml',
+    streamProtocol: 'dash',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_MEDIA_TASK',
+    id: 'media_gopeed_dash',
+  });
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+
+  assert.equal(result.unsupported, true);
+  assert.match(result.error, /DASH/);
+  assert.equal(state.uiAlert?.type, 'unsupported');
+  assert.equal(state.uiAlert?.message, result.error);
+});
+
 test('Gopeed media send falls back to page URL as referer', async () => {
   let requestBody = null;
   const background = loadBackgroundRuntime(
