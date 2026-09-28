@@ -204,7 +204,11 @@
       const normalizedPath = path.startsWith('/') ? path : `/${path}`;
       const folder = extraOpts.dir || '';
       const downloadPage = taskInfo.downloadPage || taskInfo.referrer || '';
-      const headers = normalizeRequestHeaders(taskInfo.headers || {});
+      const streamProtocol = taskInfo.streamProtocol || streamProtocolOf(taskInfo.url, taskInfo.mime, taskInfo.filename);
+      const isHls = streamProtocol === 'hls';
+      const headers = isHls
+        ? buildStreamingRequestHeaders(taskInfo)
+        : normalizeRequestHeaders(taskInfo.headers || {});
 
       if (normalizedPath === '/add') {
         const payload = { link: taskInfo.url || '' };
@@ -218,10 +222,15 @@
           link: taskInfo.url || '',
         },
       };
+      if (isHls) payload.downloadSource.type = 'hls';
       if (Object.keys(headers).length) payload.downloadSource.headers = headers;
       if (downloadPage) payload.downloadSource.downloadPage = downloadPage;
       if (folder) payload.folder = folder;
-      if (taskInfo.filename) payload.name = taskInfo.filename;
+      if (taskInfo.filename) {
+        payload.name = isHls
+          ? taskInfo.filename.replace(/(?:\.[^.]+)?$/, '.ts')
+          : taskInfo.filename;
+      }
       if (typeof extraOpts.queueId === 'number') payload.queueId = extraOpts.queueId;
       return payload;
     }
@@ -235,21 +244,39 @@
     }
 
     async function sendToExternalLauncher(taskInfo, extraOpts = {}) {
+      const streamProtocol = taskInfo.streamProtocol || streamProtocolOf(taskInfo.url, taskInfo.mime, taskInfo.filename);
+      if (streamProtocol && streamProtocol !== 'hls') {
+        return {
+          ok: false,
+          unsupported: true,
+          error: `AB DM 暂不支持 ${streamProtocol.toUpperCase()} 流媒体下载`,
+        };
+      }
       try {
-        const path = getAbDownloadPath(extraOpts);
+        const effectiveOpts = streamProtocol === 'hls'
+          ? { ...extraOpts, abDownloadMode: 'headless' }
+          : extraOpts;
+        const path = getAbDownloadPath(effectiveOpts);
         const endpoint = buildExternalEndpoint(undefined, path);
-        const payload = buildAbDownloadRequest(taskInfo, extraOpts);
+        const payload = buildAbDownloadRequest(taskInfo, effectiveOpts);
         let res = await fetchWithTimeout(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        if (!res.ok && res.status === 500 && endpoint.endsWith('/start-headless-download')) {
+        if (!res.ok && res.status === 500 && endpoint.endsWith('/start-headless-download') && streamProtocol !== 'hls') {
           res = await fetchWithTimeout(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(buildAbDownloadFallbackRequest(taskInfo)),
           });
+        }
+        if (!res.ok && streamProtocol === 'hls') {
+          return {
+            ok: false,
+            unsupported: true,
+            error: 'AB DM 未接受 HLS 任务；请使用 1.7.0 或更高版本，并选择非加密、TS 分片的媒体清单',
+          };
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         clearConnectionFailureNotificationCooldown('abdownload');
@@ -537,7 +564,7 @@
       return taskInfo.streamProtocol || streamProtocolOf(taskInfo.url, taskInfo.mime, taskInfo.filename);
     }
 
-    function buildGopeedHlsHeaders(taskInfo) {
+    function buildStreamingRequestHeaders(taskInfo) {
       const headers = normalizeRequestHeaders(taskInfo.headers || {});
       const allowedNames = new Set([
         'accept',
@@ -606,7 +633,7 @@
 
     function buildGopeedRequest(taskInfo, extraOpts = {}) {
       const isHls = getGopeedStreamProtocol(taskInfo) === 'hls';
-      const requestHeaders = isHls ? buildGopeedHlsHeaders(taskInfo) : buildGopeedHeaders(taskInfo);
+      const requestHeaders = isHls ? buildStreamingRequestHeaders(taskInfo) : buildGopeedHeaders(taskInfo);
       const payload = {
         req: {
           url: taskInfo.url || '',

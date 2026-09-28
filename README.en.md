@@ -233,6 +233,8 @@ Required fields:
 In most cases, you should verify that the port configured in the extension matches the actual port used by the application.
 Normal tasks use `/add` by default; enable the silent normal download option in settings to start them automatically. Media resources always use `/start-headless-download` so video filenames stay correct. Both browser interception and the right-click menu send directly to AB DM without the extension's confirmation panel.
 
+HLS entries from the media panel are sent as AB DM native `type: "hls"` download sources, with the output extension changed to `.ts`. This requires AB DM `1.7.0` or later and supports only unencrypted HLS media playlists containing TS segments; master playlists, fMP4 HLS, and DASH are currently unsupported. A rejected HLS task is never retried as a regular file download, preventing accidental `.m3u8` manifest downloads.
+
 ### NeatDM
 
 The extension currently connects through the default WebSocket endpoint:

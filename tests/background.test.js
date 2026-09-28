@@ -4575,6 +4575,125 @@ test('AB DM media sends always use headless endpoint with filename', async () =>
   });
 });
 
+test('AB DM HLS media uses the native HLS source without manifest fallback', async () => {
+  const requests = [];
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+      abDownloadSilent: false,
+    },
+    {
+      fetch: async (url, options) => {
+        requests.push({ url, body: JSON.parse(options.body) });
+        return { ok: true, status: 200 };
+      },
+    }
+  );
+
+  background.__backgroundTestHooks.mediaManager.clearMediaResources();
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_abdm_hls',
+    tabId: 1,
+    resourceUrl: 'https://cdn.example.com/quality/index.m3u8?token=1',
+    pageUrl: 'https://example.com/watch/live',
+    filename: 'Live event.m3u8',
+    headers: {
+      accept: 'application/vnd.apple.mpegurl',
+      authorization: 'Bearer stream-token',
+      cookie: 'sid=abc123',
+      origin: 'https://example.com',
+      referer: 'https://example.com/player',
+      range: 'bytes=0-',
+      'content-type': 'application/vnd.apple.mpegurl',
+      'content-disposition': 'attachment; filename="index.m3u8"',
+      'user-agent': 'Browser UA',
+      'x-playback-token': 'playback-token',
+    },
+    mime: 'application/vnd.apple.mpegurl',
+    streamProtocol: 'hls',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_MEDIA_TASK',
+    id: 'media_abdm_hls',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'http://localhost:15151/start-headless-download');
+  assert.deepEqual(requests[0].body, {
+    downloadSource: {
+      link: 'https://cdn.example.com/quality/index.m3u8?token=1',
+      type: 'hls',
+      headers: {
+        accept: 'application/vnd.apple.mpegurl',
+        authorization: 'Bearer stream-token',
+        cookie: 'sid=abc123',
+        origin: 'https://example.com',
+        referer: 'https://example.com/player',
+        'user-agent': 'Browser UA',
+        'x-playback-token': 'playback-token',
+      },
+      downloadPage: 'https://example.com/watch/live',
+    },
+    name: 'Live event.ts',
+  });
+});
+
+test('AB DM HLS rejection does not retry as a normal manifest download', async () => {
+  let requestCount = 0;
+  const clients = loadBackgroundRuntime(
+    { downloaderType: 'abdownload' },
+    {
+      fetch: async () => {
+        requestCount += 1;
+        return { ok: false, status: 500 };
+      },
+    }
+  ).BackgroundDownloaders.createClients({
+    getConfig: () => ({
+      downloaderType: 'abdownload',
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+      abDownloadSilent: false,
+    }),
+    notify() {},
+  });
+
+  const result = await clients.sendTask({
+    url: 'https://cdn.example.com/quality/index.m3u8',
+    filename: 'index.m3u8',
+    streamProtocol: 'hls',
+  });
+
+  assert.equal(result.unsupported, true);
+  assert.match(result.error, /1\.7\.0/);
+  assert.equal(requestCount, 1);
+});
+
+test('AB DM rejects DASH before creating a normal manifest task', async () => {
+  let requestCount = 0;
+  const clients = loadBackgroundRuntime(
+    { downloaderType: 'abdownload' },
+    { fetch: async () => { requestCount += 1; throw new Error('must not request'); } }
+  ).BackgroundDownloaders.createClients({
+    getConfig: () => ({ downloaderType: 'abdownload' }),
+    notify() {},
+  });
+
+  const result = await clients.sendTask({
+    url: 'https://cdn.example.com/manifest.mpd',
+    filename: 'manifest.mpd',
+    streamProtocol: 'dash',
+  });
+
+  assert.equal(result.unsupported, true);
+  assert.match(result.error, /DASH/);
+  assert.equal(requestCount, 0);
+});
+
 test('user-triggered send failure only exposes task alert', async () => {
   const background = loadBackgroundRuntime(
     {
