@@ -1704,7 +1704,7 @@ async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false, 
   const message = result?.error || buildConnectionFailureText(getDownloaderLabel(config.downloaderType));
   if (shouldReportFailure()) {
     setUiAlert({
-      type: result?.unsupported ? 'unsupported' : 'connection-failure',
+      type: result?.unsupported ? 'unsupported' : result?.actionable ? 'downloader-error' : 'connection-failure',
       downloaderLabel: getDownloaderLabel(config.downloaderType),
       message,
     });
@@ -2257,6 +2257,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           origin: media.origin || '',
           kind: media.kind || '',
           streamProtocol: media.streamProtocol || '',
+          isLive: typeof media.isLive === 'boolean' ? media.isLive : undefined,
           pageTitle: media.pageTitle || '',
           addedAt: Date.now(),
         }, { ...(msg.opts || {}), abDownloadMode: 'headless' }, { openPopupOnFailure: false }));

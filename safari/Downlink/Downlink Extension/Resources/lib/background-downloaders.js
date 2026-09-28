@@ -222,7 +222,10 @@
           link: taskInfo.url || '',
         },
       };
-      if (isHls) payload.downloadSource.type = 'hls';
+      if (isHls) {
+        payload.downloadSource.type = 'hls';
+        payload.startDownload = true;
+      }
       if (Object.keys(headers).length) payload.downloadSource.headers = headers;
       if (downloadPage) payload.downloadSource.downloadPage = downloadPage;
       if (folder) payload.folder = folder;
@@ -252,6 +255,13 @@
           error: `AB DM 暂不支持 ${streamProtocol.toUpperCase()} 流媒体下载`,
         };
       }
+      if (streamProtocol === 'hls' && taskInfo.isLive === true) {
+        return {
+          ok: false,
+          unsupported: true,
+          error: 'AB DM 暂不支持直播 HLS 录制',
+        };
+      }
       try {
         const effectiveOpts = streamProtocol === 'hls'
           ? { ...extraOpts, abDownloadMode: 'headless' }
@@ -272,10 +282,32 @@
           });
         }
         if (!res.ok && streamProtocol === 'hls') {
+          const status = res.status;
+          if ([400, 415, 422].includes(status)) {
+            return {
+              ok: false,
+              unsupported: true,
+              error: `AB DM 未接受 HLS 任务（HTTP ${status}）；请确认使用 1.7.0 或更高版本，以及非加密、TS 分片的媒体清单`,
+            };
+          }
+          if (status === 401 || status === 403) {
+            return {
+              ok: false,
+              actionable: true,
+              error: `AB DM 拒绝访问（HTTP ${status}），请检查 API 密钥或访问配置`,
+            };
+          }
+          if (status === 404) {
+            return {
+              ok: false,
+              actionable: true,
+              error: 'AB DM HLS 接口不存在（HTTP 404），请检查服务地址和 AB DM 版本',
+            };
+          }
           return {
             ok: false,
-            unsupported: true,
-            error: 'AB DM 未接受 HLS 任务；请使用 1.7.0 或更高版本，并选择非加密、TS 分片的媒体清单',
+            actionable: true,
+            error: `AB DM 处理 HLS 任务失败（HTTP ${status}）`,
           };
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

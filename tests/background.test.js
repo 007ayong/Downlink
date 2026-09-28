@@ -4640,6 +4640,7 @@ test('AB DM HLS media uses the native HLS source without manifest fallback', asy
       downloadPage: 'https://example.com/watch/live',
     },
     name: 'Live event.ts',
+    startDownload: true,
   });
 });
 
@@ -4669,9 +4670,64 @@ test('AB DM HLS rejection does not retry as a normal manifest download', async (
     streamProtocol: 'hls',
   });
 
-  assert.equal(result.unsupported, true);
-  assert.match(result.error, /1\.7\.0/);
+  assert.equal(result.actionable, true);
+  assert.equal(result.unsupported, undefined);
+  assert.match(result.error, /HTTP 500/);
   assert.equal(requestCount, 1);
+});
+
+test('AB DM HLS HTTP errors distinguish unsupported input from service configuration failures', async () => {
+  const cases = [
+    { status: 400, unsupported: true, pattern: /HTTP 400/ },
+    { status: 401, actionable: true, pattern: /API 密钥/ },
+    { status: 404, actionable: true, pattern: /接口不存在/ },
+    { status: 503, actionable: true, pattern: /HTTP 503/ },
+  ];
+
+  for (const expected of cases) {
+    const clients = loadBackgroundRuntime(
+      { downloaderType: 'abdownload' },
+      { fetch: async () => ({ ok: false, status: expected.status }) }
+    ).BackgroundDownloaders.createClients({
+      getConfig: () => ({ downloaderType: 'abdownload' }),
+      notify() {},
+    });
+    const result = await clients.sendTask({
+      url: 'https://cdn.example.com/quality/index.m3u8',
+      streamProtocol: 'hls',
+    });
+
+    assert.equal(result.unsupported, expected.unsupported);
+    assert.equal(result.actionable, expected.actionable);
+    assert.match(result.error, expected.pattern);
+  }
+});
+
+test('AB DM rejects live HLS before creating a finite playlist task', async () => {
+  let requestCount = 0;
+  const background = loadBackgroundRuntime(
+    { downloaderType: 'abdownload' },
+    { fetch: async () => { requestCount += 1; throw new Error('must not request'); } }
+  );
+
+  background.__backgroundTestHooks.mediaManager.clearMediaResources();
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'media_abdm_live_hls',
+    tabId: 1,
+    resourceUrl: 'https://cdn.example.com/live/index.m3u8',
+    filename: 'live.m3u8',
+    streamProtocol: 'hls',
+    isLive: true,
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_MEDIA_TASK',
+    id: 'media_abdm_live_hls',
+  });
+
+  assert.equal(result.unsupported, true);
+  assert.match(result.error, /直播 HLS/);
+  assert.equal(requestCount, 0);
 });
 
 test('AB DM rejects DASH before creating a normal manifest task', async () => {

@@ -1550,7 +1550,7 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
           btn.textContent = getSendLabel(currentConfig);
           const downloaderLabel = getDownloaderName(currentConfig);
           currentState.uiAlert = {
-            type: res?.unsupported ? 'unsupported' : 'connection-failure',
+            type: res?.unsupported ? 'unsupported' : res?.actionable ? 'downloader-error' : 'connection-failure',
             downloaderLabel,
             message: res?.error || '',
           };

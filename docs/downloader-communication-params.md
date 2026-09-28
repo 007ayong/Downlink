@@ -354,11 +354,13 @@ Content-Type: application/json
 | `folder` | `/start-headless-download` | `extraOpts.dir` | 否 | 目标目录 |
 | `name` | `/start-headless-download` | `taskInfo.filename` | 否 | 文件名 |
 | `queueId` | `/start-headless-download` | `extraOpts.queueId` | 否 | AB DM 队列 ID |
+| `startDownload` | `/start-headless-download` | HLS 任务固定为 `true` | 否 | 让原生 HLS 任务创建后立即开始 |
 
 ### HLS 流媒体任务
 
-- HLS 媒体任务固定使用 `/start-headless-download`，并在 `downloadSource` 中传递 `type: "hls"`，使 AB DM 选择原生 HLS 下载器。
+- HLS 媒体任务固定使用 `/start-headless-download`，在 `downloadSource` 中传递 `type: "hls"`，并设置 `startDownload: true`，使 AB DM 选择原生 HLS 下载器并立即开始。
 - 要求 AB DM `1.7.0` 或更高版本；当前仅支持非加密、以 `.ts` 为分片的媒体清单，不支持主清单、fMP4 分片或 DASH。
+- AB DM 当前只读取一次媒体清单，直播 HLS 会在发送前明确拒绝，避免把仍在更新的直播误当成完整点播任务。
 - 输出文件名统一改为 `.ts`，因为 AB DM 当前执行 TS 分片拼接而非 MP4 重封装。
 - 请求头使用流媒体安全白名单，保留认证、Cookie、实际捕获的 Origin、Referer、User-Agent、Fetch Metadata 和 `x-*` 请求头；不传 `range`、`content-type`、`content-disposition`。
 - DASH 会在发送前返回不支持。HLS 端点返回错误时不执行旧版 headless 降级请求，避免去掉 `type: "hls"` 后只下载 `.m3u8` 清单。
@@ -376,7 +378,8 @@ Content-Type: application/json
     },
     "downloadPage": "https://example.com/watch"
   },
-  "name": "video.ts"
+  "name": "video.ts",
+  "startDownload": true
 }
 ```
 

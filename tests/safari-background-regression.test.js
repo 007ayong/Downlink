@@ -120,6 +120,7 @@ test('Safari media tasks preserve stream metadata for Rayburst', () => {
   );
   assert.match(handler, /kind: media\.kind \|\| ''/);
   assert.match(handler, /streamProtocol: media\.streamProtocol \|\| ''/);
+  assert.match(handler, /isLive: typeof media\.isLive === 'boolean' \? media\.isLive : undefined/);
   assert.match(handler, /pageTitle: media\.pageTitle \|\| ''/);
 });
 
