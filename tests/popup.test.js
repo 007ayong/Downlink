@@ -1242,6 +1242,23 @@ test('aria2 test connection sends the current form config', () => {
     popup.document.getElementById('connResult').textContent,
     '与 Aria2 连接失败，检查 Aria2 是否正在运行'
   );
+  assert.equal(popup.headerStatusState.state, 'offline');
+  assert.equal(popup.headerStatusState.cfg.aria2Secret, 'bad-secret');
+});
+
+test('manual connection success updates the header status with returned stats', () => {
+  const popup = loadPopupRuntime({
+    testConnectionResult: {
+      ok: true,
+      stat: { downloadSpeed: '2048', numActive: '1', numWaiting: '2', numStopped: '3' },
+    },
+  });
+
+  popup.document.getElementById('cfgDownloaderType').value = 'aria2';
+  popup.document.getElementById('testConnBtn').click();
+
+  assert.equal(popup.headerStatusState.state, 'online');
+  assert.equal(popup.headerStatusState.stat.downloadSpeed, '2048');
 });
 
 test('AB DM test connection sends the current form config', () => {

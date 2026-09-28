@@ -1730,10 +1730,17 @@ function getTestConnectionConfig() {
 document.getElementById('testConnBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResult');
   const testConfig = getTestConnectionConfig();
+  updateHeaderStatusDisplay({ cfg: testConfig, state: 'checking' });
   resultEl.className = 'conn-result';
   resultEl.textContent = popupAppT('downloaderConnecting', ['Aria2'], 'Aria2 连接中…');
   resultEl.style.display = 'block';
   chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: testConfig }, (res) => {
+    updateHeaderStatusDisplay({
+      cfg: testConfig,
+      state: res?.ok ? 'online' : 'offline',
+      stat: res?.stat,
+      message: res?.message || '',
+    });
     if (res?.ok) {
       const stat = res.stat;
       resultEl.className = 'conn-result ok';
@@ -1748,10 +1755,17 @@ document.getElementById('testConnBtn').addEventListener('click', () => {
 document.getElementById('testLauncherBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResultLauncher');
   const testConfig = getTestConnectionConfig();
+  updateHeaderStatusDisplay({ cfg: testConfig, state: 'checking' });
   resultEl.className = 'conn-result';
   resultEl.textContent = popupAppT('readInProgress', undefined, '读取中…');
   resultEl.style.display = 'block';
   chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: testConfig }, (res) => {
+    updateHeaderStatusDisplay({
+      cfg: testConfig,
+      state: res?.ok ? 'online' : 'offline',
+      stat: res?.stat,
+      message: res?.message || '',
+    });
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
       resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('interfaceConfigured', undefined, '接口已配置')], `${res.message || '接口已配置'}`);
@@ -1765,10 +1779,17 @@ document.getElementById('testLauncherBtn').addEventListener('click', () => {
 document.getElementById('testMotrixNextBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResultMotrixNext');
   const testConfig = getTestConnectionConfig();
+  updateHeaderStatusDisplay({ cfg: testConfig, state: 'checking' });
   resultEl.className = 'conn-result';
   resultEl.textContent = popupAppT('downloaderConnecting', ['MotrixNext'], 'MotrixNext 连接中…');
   resultEl.style.display = 'block';
   chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: testConfig }, (res) => {
+    updateHeaderStatusDisplay({
+      cfg: testConfig,
+      state: res?.ok ? 'online' : 'offline',
+      stat: res?.stat,
+      message: res?.message || '',
+    });
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
       resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('motrixNextReady', undefined, 'MotrixNext 已就绪')], `${res.message || 'MotrixNext 已就绪'}`);
@@ -1782,10 +1803,17 @@ document.getElementById('testMotrixNextBtn').addEventListener('click', () => {
 document.getElementById('testGopeedBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResultGopeed');
   const testConfig = getTestConnectionConfig();
+  updateHeaderStatusDisplay({ cfg: testConfig, state: 'checking' });
   resultEl.className = 'conn-result';
   resultEl.textContent = popupAppT('downloaderConnecting', ['Gopeed'], 'Gopeed 连接中…');
   resultEl.style.display = 'block';
   chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: testConfig }, (res) => {
+    updateHeaderStatusDisplay({
+      cfg: testConfig,
+      state: res?.ok ? 'online' : 'offline',
+      stat: res?.stat,
+      message: res?.message || '',
+    });
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
       resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('gopeedReady', undefined, 'Gopeed 已就绪')], `${res.message || 'Gopeed 已就绪'}`);
@@ -1799,10 +1827,17 @@ document.getElementById('testGopeedBtn').addEventListener('click', () => {
 document.getElementById('testNeatdmBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('connResultNeatdm');
   const testConfig = getTestConnectionConfig();
+  updateHeaderStatusDisplay({ cfg: testConfig, state: 'checking' });
   resultEl.className = 'conn-result';
   resultEl.textContent = popupAppT('downloaderConnecting', ['NeatDM'], 'NeatDM 连接中…');
   resultEl.style.display = 'block';
   chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: testConfig }, (res) => {
+    updateHeaderStatusDisplay({
+      cfg: testConfig,
+      state: res?.ok ? 'online' : 'offline',
+      stat: res?.stat,
+      message: res?.message || '',
+    });
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
       resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('neatdmReady', undefined, 'NeatDM 已就绪')], `${res.message || 'NeatDM 已就绪'}`);
