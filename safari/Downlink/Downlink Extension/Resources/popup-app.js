@@ -1305,6 +1305,10 @@ function loadMediaMetadata(item, card) {
       const width = mediaEl.videoWidth || 0;
       const height = mediaEl.videoHeight || 0;
       const inferredKind = inferMediaKindFromMetadata(item, { loaded: true, width, height });
+      const duration = mediaEl.duration;
+      const liveState = duration === Infinity
+        ? { isLive: true }
+        : Number.isFinite(duration) && duration > 0 ? { isLive: false } : {};
       const resolutionEl = card.querySelector('.media-resolution');
       if (resolutionEl && width && height) resolutionEl.textContent = `${width}×${height}`;
       chrome.runtime.sendMessage({
@@ -1313,8 +1317,8 @@ function loadMediaMetadata(item, card) {
         width,
         height,
         kind: inferredKind,
-        duration: Number.isFinite(mediaEl.duration) ? mediaEl.duration : 0,
-        isLive: mediaEl.duration === Infinity,
+        duration: Number.isFinite(duration) ? duration : 0,
+        ...liveState,
         metadataFailed: false,
       });
     }
@@ -1339,6 +1343,12 @@ function loadMediaMetadata(item, card) {
       const width = Number(result.width) || 0;
       const height = Number(result.height) || 0;
       const inferredKind = result.kind || inferMediaKindFromMetadata(item, { loaded: true, width, height });
+      const duration = Number(result.duration) || 0;
+      const liveState = typeof result.isLive === 'boolean'
+        ? { isLive: result.isLive }
+        : result.duration === Infinity
+          ? { isLive: true }
+          : Number.isFinite(result.duration) && result.duration > 0 ? { isLive: false } : {};
       const resolutionEl = card.querySelector('.media-resolution');
       if (resolutionEl && width && height) resolutionEl.textContent = `${width}×${height}`;
       chrome.runtime.sendMessage({
@@ -1347,8 +1357,8 @@ function loadMediaMetadata(item, card) {
         width,
         height,
         kind: inferredKind,
-        duration: Number(result.duration) || 0,
-        isLive: result.isLive === true || result.duration === Infinity,
+        duration,
+        ...liveState,
         metadataFailed: false,
       }, () => {});
       removeMediaEl();

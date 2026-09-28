@@ -1006,6 +1006,28 @@ test('Safari probes media metadata in the source tab before using extension requ
   });
 });
 
+test('unknown media duration does not mark a stream as non-live', async () => {
+  const popup = loadPopupRuntime({
+    runtimeUrl: 'safari-web-extension://test/',
+    tabMessageResponse: { ok: true, width: 0, height: 0, duration: 0, kind: 'video' },
+  });
+  const card = popup.document.createElement('div');
+
+  popup.loadMediaMetadata({
+    id: 'media_unknown_duration',
+    tabId: 7,
+    resourceUrl: 'https://cdn.example.com/live.m3u8',
+    filename: 'live.m3u8',
+    kind: 'video',
+    streamProtocol: 'hls',
+  }, card);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const update = popup.chrome._sentMessages.find((message) => message?.type === 'UPDATE_MEDIA_METADATA');
+  assert.equal(update.duration, 0);
+  assert.equal(Object.hasOwn(update, 'isLive'), false);
+});
+
 test('Safari MP4 metadata probe parses duration together with track dimensions', async () => {
   const popup = loadPopupRuntime();
   const buffer = new ArrayBuffer(256);

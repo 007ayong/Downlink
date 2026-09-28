@@ -407,12 +407,16 @@
     mediaEl.addEventListener('loadedmetadata', () => {
       const width = Number(mediaEl.videoWidth) || 0;
       const height = Number(mediaEl.videoHeight) || 0;
+      const duration = mediaEl.duration;
+      const liveState = duration === Infinity
+        ? { isLive: true }
+        : Number.isFinite(duration) && duration > 0 ? { isLive: false } : {};
       finish({
         ok: true,
         width,
         height,
-        duration: Number.isFinite(mediaEl.duration) ? mediaEl.duration : 0,
-        isLive: mediaEl.duration === Infinity,
+        duration: Number.isFinite(duration) ? duration : 0,
+        ...liveState,
         kind: width && height ? 'video' : 'audio',
       });
     }, { once: true });
