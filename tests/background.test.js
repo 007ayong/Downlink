@@ -392,6 +392,7 @@ test('media sniffing still keeps normal direct media resources', () => {
     background.isDirectMediaResource('https://cdn.example.com/video.mp4', 'video/mp4', 'video.mp4'),
     true
   );
+  assert.equal(background.isDirectMediaResource('https://cdn.example.com/live.flv', 'video/x-flv', ''), true);
 });
 
 test('media sniffing recognizes HLS and DASH manifests by extension or MIME', () => {

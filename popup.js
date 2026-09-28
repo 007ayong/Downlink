@@ -105,6 +105,7 @@ const {
   handleTaskIconError,
   inferMediaKindFromMetadata,
   mediaDurationLabel,
+  mediaDisplayKind,
   mediaKindLabel,
   mediaResolutionLabel,
   shouldAutoSwitchToMediaPanel,
@@ -215,6 +216,7 @@ globalThis.getStateLabel = getStateLabel;
 globalThis.handleTaskIconError = handleTaskIconError;
 globalThis.inferMediaKindFromMetadata = inferMediaKindFromMetadata;
 globalThis.mediaDurationLabel = mediaDurationLabel;
+globalThis.mediaDisplayKind = mediaDisplayKind;
 globalThis.mediaKindLabel = mediaKindLabel;
 globalThis.mediaResolutionLabel = mediaResolutionLabel;
 globalThis.openPreviewTab = openPreviewTab;

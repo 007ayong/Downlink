@@ -578,8 +578,9 @@ function createMediaFact(iconName, text, className = '') {
 }
 
 function createMediaCard(item, { iconSrc, durationText, resolutionText, displayFilename }) {
+  const displayKind = mediaDisplayKind(item);
   const card = document.createElement('div');
-  card.className = `media-card media-card-${item.kind || 'media'}`;
+  card.className = `media-card media-card-${displayKind}`;
   card.dataset.mediaId = item.id;
 
   const top = document.createElement('div');
@@ -610,7 +611,7 @@ function createMediaCard(item, { iconSrc, durationText, resolutionText, displayF
   titleRow.appendChild(nameEl);
   titleRow.appendChild(nameInput);
   titleRow.appendChild(editBtn);
-  titleRow.appendChild(createTextElement('span', `media-chip media-kind kind-${item.kind || 'video'}`, mediaKindLabel(item.kind)));
+  titleRow.appendChild(createTextElement('span', `media-chip media-kind kind-${displayKind}`, mediaKindLabel(displayKind)));
 
   const urlEl = createTextElement('div', 'media-url', item.resourceUrl || '');
   const meta = document.createElement('div');
@@ -1313,6 +1314,7 @@ function loadMediaMetadata(item, card) {
         height,
         kind: inferredKind,
         duration: Number.isFinite(mediaEl.duration) ? mediaEl.duration : 0,
+        isLive: mediaEl.duration === Infinity,
         metadataFailed: false,
       });
     }
@@ -1346,6 +1348,7 @@ function loadMediaMetadata(item, card) {
         height,
         kind: inferredKind,
         duration: Number(result.duration) || 0,
+        isLive: result.isLive === true || result.duration === Infinity,
         metadataFailed: false,
       }, () => {});
       removeMediaEl();

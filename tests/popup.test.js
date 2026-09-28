@@ -799,6 +799,16 @@ test('ambiguous media kind is not mislabeled as video before metadata arrives', 
   assert.equal(popup.mediaKindLabel('media'), '待识别');
 });
 
+test('FLV and M3U8 media distinguish live streams from finite videos', () => {
+  const popup = loadPopupRuntime();
+  assert.equal(popup.mediaDisplayKind({ filename: 'stream.flv', kind: 'video', size: 1024 }), 'live');
+  assert.equal(popup.mediaDisplayKind({ filename: 'movie.flv', kind: 'video', duration: 120 }), 'video');
+  assert.equal(popup.mediaDisplayKind({ resourceUrl: 'https://cdn.example.com/live.m3u8', streamProtocol: 'hls', kind: 'video' }), 'live');
+  assert.equal(popup.mediaDisplayKind({ filename: 'episode.m3u8', streamProtocol: 'hls', kind: 'video', duration: 120 }), 'video');
+  assert.equal(popup.mediaDisplayKind({ filename: 'live.m3u8', streamProtocol: 'hls', kind: 'video', duration: 120, isLive: true }), 'live');
+  assert.equal(popup.mediaKindLabel('live'), '直播');
+});
+
 test('media duration label formats finite positive durations', () => {
   const popup = loadPopupRuntime();
   assert.equal(popup.mediaDurationLabel(65.4), '1:05');
@@ -991,6 +1001,7 @@ test('Safari probes media metadata in the source tab before using extension requ
     height: 1080,
     kind: 'video',
     duration: 65,
+    isLive: false,
     metadataFailed: false,
   });
 });

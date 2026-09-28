@@ -400,6 +400,8 @@
 
       const tabSnapshot = await getTabSnapshot(details.tabId);
       const reqHeaders = getRequestHeaders(details.url);
+      const streamProtocol = global.BackgroundShared.streamProtocolOf(details.url, mime, filename);
+      const detectedKind = mediaKindOf(details.url, mime, filename);
       const mediaResult = upsertMediaResource({
         id: `media_${details.tabId}_${hashString(details.url)}`,
         tabId: details.tabId,
@@ -414,8 +416,8 @@
         headers: reqHeaders,
         origin: reqHeaders.origin || deriveOrigin(details.url, reqHeaders.referer || ''),
         referrer: reqHeaders.referer || '',
-        kind: mediaKindOf(details.url, mime, filename),
-        streamProtocol: global.BackgroundShared.streamProtocolOf(details.url, mime, filename),
+        kind: detectedKind || (streamProtocol ? 'video' : ''),
+        streamProtocol,
         detectedAt: Date.now(),
       });
 

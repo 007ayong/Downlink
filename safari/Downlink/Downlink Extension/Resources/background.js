@@ -3370,6 +3370,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'UPDATE_MEDIA_METADATA': {
         const updated = mediaManager.updateMediaMetadata(msg.id, {
           duration: typeof msg.duration === 'number' ? msg.duration : undefined,
+          isLive: typeof msg.isLive === 'boolean' ? msg.isLive : undefined,
           width: typeof msg.width === 'number' ? msg.width : undefined,
           height: typeof msg.height === 'number' ? msg.height : undefined,
           kind: ['audio', 'video', 'media'].includes(msg.kind) ? msg.kind : undefined,

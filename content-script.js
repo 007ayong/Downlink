@@ -412,6 +412,7 @@
         width,
         height,
         duration: Number.isFinite(mediaEl.duration) ? mediaEl.duration : 0,
+        isLive: mediaEl.duration === Infinity,
         kind: width && height ? 'video' : 'audio',
       });
     }, { once: true });

@@ -72,6 +72,18 @@
     return normalized.split('.').pop();
   }
 
+  function mediaDisplayKind(item = {}) {
+    if (item.isLive === true) return 'live';
+    if (item.isLive === false) return item.kind || 'video';
+    const source = `${item.filename || ''} ${item.resourceUrl || ''}`.toLowerCase();
+    const isHls = item.streamProtocol === 'hls' || /\.m3u8(?:[?#\s]|$)/.test(source);
+    const isFlv = /\.flv(?:[?#\s]|$)/.test(source) || String(item.mime || '').toLowerCase().startsWith('video/x-flv');
+    const hasFiniteDuration = Number.isFinite(Number(item.duration)) && Number(item.duration) > 0;
+    if (isHls) return hasFiniteDuration ? 'video' : 'live';
+    if (isFlv) return hasFiniteDuration ? 'video' : 'live';
+    return item.kind || 'media';
+  }
+
   function getFileCategory({ name = '', mime = '', kind = '' } = {}) {
     if (kind === 'video') return 'video';
     if (kind === 'audio') return 'audio';
@@ -173,6 +185,7 @@
   function mediaKindLabel(kind) {
     if (kind === 'audio') return t('mediaKindAudio', undefined, '音频');
     if (kind === 'video') return t('mediaKindVideo', undefined, '视频');
+    if (kind === 'live') return t('mediaKindLive', undefined, '直播');
     return t('mediaKindUnknown', undefined, '待识别');
   }
 
@@ -224,6 +237,8 @@
       item.width,
       item.height,
       item.duration,
+      item.isLive,
+      item.streamProtocol,
       item.metadataFailed,
     ].join('|')).join('||');
   }
@@ -244,6 +259,7 @@
     handleTaskIconError,
     inferMediaKindFromMetadata,
     mediaDurationLabel,
+    mediaDisplayKind,
     mediaKindLabel,
     mediaResolutionLabel,
     shouldAutoSwitchToMediaPanel,

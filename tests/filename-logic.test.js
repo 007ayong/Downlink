@@ -100,5 +100,6 @@ test('falls back to page title and inferred extension when media filename is low
 
 test('detects media kind from Chinese filenames and mime', () => {
   assert.equal(mediaKindOf('https://example.com/%E4%B8%AD%E6%96%87.mp4', ''), 'video');
+  assert.equal(mediaKindOf('https://example.com/live.flv', ''), 'video');
   assert.equal(mediaKindOf('https://example.com/stream', 'audio/mpeg'), 'audio');
 });

@@ -5,7 +5,7 @@
   }
   root.FilenameLogic = factory();
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
-  const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi', 'm4v', 'ogv', 'm4s']);
+  const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi', 'm4v', 'ogv', 'm4s', 'flv']);
   const AUDIO_EXTENSIONS = new Set(['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'oga', 'opus', 'm4s']);
 
   function decodeBase64(payload) {
