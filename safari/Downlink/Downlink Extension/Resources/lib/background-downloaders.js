@@ -40,8 +40,10 @@
     getPendingRayburstRequest,
     savePendingRayburstRequest,
     removePendingRayburstRequest,
+    fetchRequest = fetch,
   }) {
     let rpcId = 1;
+    const pendingRayburstMemory = new Map();
     const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
     const CONNECTION_FAILURE_NOTIFY_COOLDOWN_MS = 30000;
     const lastConnectionFailureNotifiedAt = {};
@@ -72,17 +74,62 @@
       delete lastConnectionFailureNotifiedAt[type];
     }
 
+    function logRayburstCacheFailure(operation, error) {
+      globalThis.writeProbeLog?.('Rayburst retry cache unavailable', {
+        operation,
+        error: error?.message || String(error || ''),
+      });
+    }
+
+    async function readPendingRayburstRequest(fingerprint) {
+      if (pendingRayburstMemory.has(fingerprint)) return pendingRayburstMemory.get(fingerprint);
+      try {
+        const request = await getPendingRayburstRequest?.(fingerprint);
+        if (request) pendingRayburstMemory.set(fingerprint, request);
+        return request || null;
+      } catch (error) {
+        logRayburstCacheFailure('read', error);
+        return null;
+      }
+    }
+
+    async function persistPendingRayburstRequest(fingerprint, request) {
+      pendingRayburstMemory.set(fingerprint, request);
+      try {
+        await savePendingRayburstRequest?.(fingerprint, request);
+      } catch (error) {
+        logRayburstCacheFailure('write', error);
+      }
+    }
+
+    async function clearPendingRayburstRequest(fingerprint) {
+      pendingRayburstMemory.delete(fingerprint);
+      try {
+        await removePendingRayburstRequest?.(fingerprint);
+      } catch (error) {
+        logRayburstCacheFailure('remove', error);
+      }
+    }
+
     async function fetchWithTimeout(url, options = {}, timeoutMs = EXTERNAL_LAUNCHER_TIMEOUT_MS) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        return await fetch(url, {
+        return await fetchRequest(url, {
           ...options,
           signal: controller.signal,
         });
       } finally {
         clearTimeout(timer);
       }
+    }
+
+    async function httpError(response) {
+      let detail = '';
+      try {
+        detail = String(await response.text()).trim().slice(0, 500);
+      } catch {}
+      return new Error(detail ? `HTTP ${response.status}: ${detail}` : `HTTP ${response.status}`);
     }
 
     function endpointForLog(value = '') {
@@ -362,6 +409,7 @@
       const headers = normalizeRequestHeaders(taskInfo.headers || {});
       const pageUrl = stripHash(taskInfo.downloadPage || taskInfo.referrer || headers.referer || '')
         || deriveOrigin(taskInfo.url, '');
+      const filename = taskInfo.filename || '';
       const allowedHeaders = new Set([
         'accept', 'accept-language', 'authorization', 'cookie', 'dnt', 'origin', 'referer',
         'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform', 'sec-fetch-dest',
@@ -379,8 +427,10 @@
           url: taskInfo.url || '',
           kind: protocol,
           pageUrl,
-          title: taskInfo.pageTitle || '',
-          filename: taskInfo.filename || '',
+          // Rayburst prefers title over filename as its output hint. When the
+          // list has an explicit (possibly edited) filename, let it win.
+          title: filename ? '' : (taskInfo.pageTitle || ''),
+          filename,
           mime: taskInfo.mime || '',
           requestContexts: [{ url: taskInfo.url || '', headers: requestHeaders }],
           input: { manifests: [], tracks: [], keys: [] },
@@ -399,7 +449,7 @@
 
     async function getOrCreateRayburstMediaRequest(taskInfo, protocol) {
       const fingerprint = rayburstMediaFingerprint(taskInfo, protocol);
-      const saved = await getPendingRayburstRequest?.(fingerprint);
+      const saved = await readPendingRayburstRequest(fingerprint);
       if (saved?.id && saved?.submissionId && saved?.source?.url === taskInfo.url) {
         return { fingerprint, request: saved };
       }
@@ -407,19 +457,22 @@
         ...buildRayburstMediaRequest(taskInfo, newRayburstMediaId(), protocol),
         submissionId: newRayburstMediaId(),
       };
-      await savePendingRayburstRequest?.(fingerprint, request);
+      await persistPendingRayburstRequest(fingerprint, request);
       return { fingerprint, request };
     }
 
-    async function sendMediaToRayburst(taskInfo, protocol) {
-      const config = getConfig();
+    async function sendMediaToRayburst(taskInfo, protocol, overrideConfig) {
+      const config = { ...getConfig(), ...(overrideConfig || {}) };
+      if (!String(config.motrixNextSecret || '').trim()) {
+        throw new Error('Rayburst 媒体 API 要求配置扩展 API 密钥；普通下载成功不代表媒体 API 已授权');
+      }
       const headers = buildRayburstMediaHeaders(config);
       const basePath = '/media/v2';
       const capabilitiesRes = await fetchWithTimeout(
         buildMotrixNextEndpoint(config, `${basePath}/capabilities`),
         { method: 'GET', headers },
       );
-      if (!capabilitiesRes.ok) throw new Error(`HTTP ${capabilitiesRes.status}`);
+      if (!capabilitiesRes.ok) throw await httpError(capabilitiesRes);
       const capabilities = await capabilitiesRes.json();
       if (capabilities?.product !== 'rayburst'
         || capabilities?.protocolVersion !== 2
@@ -434,13 +487,13 @@
       const createRes = await fetchWithTimeout(buildMotrixNextEndpoint(config, `${basePath}/probes`), {
         method: 'POST', headers, body: JSON.stringify(probeRequest),
       });
-      if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
+      if (!createRes.ok) throw await httpError(createRes);
       let probe = await createRes.json();
       if (probe?.state === 'submitted') {
         if (probe?.id !== id || probe?.submissionId !== submissionId || !probe?.gid) {
           throw new Error('Invalid Rayburst media receipt');
         }
-        await removePendingRayburstRequest?.(fingerprint);
+        await clearPendingRayburstRequest(fingerprint);
         clearConnectionFailureNotificationCooldown('motrixnext');
         return { ok: true, gid: probe.gid, media: true };
       }
@@ -449,14 +502,14 @@
         const statusRes = await fetchWithTimeout(buildMotrixNextEndpoint(config, `${basePath}/probes/${id}`), {
           method: 'GET', headers,
         });
-        if (!statusRes.ok) throw new Error(`HTTP ${statusRes.status}`);
+        if (!statusRes.ok) throw await httpError(statusRes);
         probe = await statusRes.json();
       }
       if (probe?.state === 'probing') {
         return { ok: false, pending: true, error: 'Rayburst 仍在解析媒体，请稍后重试' };
       }
       if (probe?.state === 'failed' || probe?.state === 'cancelled') {
-        await removePendingRayburstRequest?.(fingerprint);
+        await clearPendingRayburstRequest(fingerprint);
       }
       if (probe?.state !== 'ready' || !probe?.presentation?.defaults) {
         throw new Error(probe?.error || 'Rayburst media probe did not become ready');
@@ -466,12 +519,12 @@
         headers,
         body: JSON.stringify({ submissionId, selection: probe.presentation.defaults }),
       }, 5000);
-      if (!submitRes.ok) throw new Error(`HTTP ${submitRes.status}`);
+      if (!submitRes.ok) throw await httpError(submitRes);
       const receipt = await submitRes.json();
       if (receipt?.id !== id || receipt?.submissionId !== submissionId || !receipt?.gid) {
         throw new Error('Invalid Rayburst media receipt');
       }
-      await removePendingRayburstRequest?.(fingerprint);
+      await clearPendingRayburstRequest(fingerprint);
       clearConnectionFailureNotificationCooldown('motrixnext');
       notify(t('sentToLabel', [getDownloaderLabel('motrixnext')], `已发送到 ${getDownloaderLabel('motrixnext')}`), taskInfo.filename || taskInfo.url.slice(0, 80));
       return { ok: true, gid: receipt.gid, media: true };
@@ -483,20 +536,20 @@
 
     async function getOrCreateRayburstRequest(taskInfo) {
       const fingerprint = rayburstRequestFingerprint(taskInfo);
-      const saved = await getPendingRayburstRequest?.(fingerprint);
+      const saved = await readPendingRayburstRequest(fingerprint);
       if (saved?.id && saved?.url === taskInfo.url) return { fingerprint, request: saved };
       const id = globalThis.crypto?.randomUUID?.()
         || `downlink-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const request = buildMotrixNextRequest(taskInfo, id);
-      await savePendingRayburstRequest?.(fingerprint, request);
+      await persistPendingRayburstRequest(fingerprint, request);
       return { fingerprint, request };
     }
 
-    async function sendToMotrixNext(taskInfo) {
+    async function sendToMotrixNext(taskInfo, overrideConfig) {
       try {
         const streamProtocol = taskInfo.streamProtocol || streamProtocolOf(taskInfo.url, taskInfo.mime, taskInfo.filename);
-        if (streamProtocol) return await sendMediaToRayburst(taskInfo, streamProtocol);
-        const config = getConfig();
+        if (streamProtocol) return await sendMediaToRayburst(taskInfo, streamProtocol, overrideConfig);
+        const config = { ...getConfig(), ...(overrideConfig || {}) };
         const endpoint = buildMotrixNextEndpoint(config, '/add');
         const headers = {
           'Content-Type': 'application/json',
@@ -526,7 +579,7 @@
           throw new Error('Invalid Rayburst download receipt');
         }
         if (receipt.action === 'submitted' && !receipt.gid) throw new Error('Missing Rayburst task id');
-        await removePendingRayburstRequest?.(fingerprint);
+        await clearPendingRayburstRequest(fingerprint);
         clearConnectionFailureNotificationCooldown('motrixnext');
         if (receipt.action === 'cancelled') {
           return { ok: false, cancelled: true, error: 'Rayburst 已取消下载' };
@@ -539,7 +592,14 @@
         return { ok: true, gid: receipt.gid, action: receipt.action };
       } catch (err) {
         const message = notifyConnectionFailure('motrixnext');
-        return { ok: false, error: message };
+        const detail = err?.message || String(err || '');
+        const probe = globalThis.writeProbeLog;
+        if (probe) probe('Rayburst send failed', {
+          url: endpointForLog(taskInfo.url),
+          streamProtocol: taskInfo.streamProtocol || streamProtocolOf(taskInfo.url, taskInfo.mime, taskInfo.filename),
+          error: detail,
+        });
+        return { ok: false, error: detail ? `${message}：${detail}` : message };
       }
     }
 
@@ -984,7 +1044,7 @@
       const config = getConfig();
       const normalizedTask = normalizeTaskInfo(taskInfo, extraOpts);
       if (config.downloaderType === 'abdownload') return sendToExternalLauncher(normalizedTask, extraOpts);
-      if (config.downloaderType === 'motrixnext') return sendToMotrixNext(normalizedTask);
+      if (config.downloaderType === 'motrixnext') return sendToMotrixNext(normalizedTask, extraOpts.connectionConfig);
       if (config.downloaderType === 'gopeed') return sendToGopeed(normalizedTask, extraOpts);
       if (config.downloaderType === 'neatdm') return sendToNeatdm(normalizedTask);
       onBeforeAria2Send?.();

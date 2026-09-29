@@ -48,10 +48,39 @@ const safariHostScriptPath = path.join(
   'Resources',
   'Script.js'
 );
+const safariPopupPath = path.join(
+  __dirname,
+  '..',
+  'safari',
+  'Downlink',
+  'Downlink Extension',
+  'Resources',
+  'popup.js'
+);
+const safariHandlerPath = path.join(
+  __dirname,
+  '..',
+  'safari',
+  'Downlink',
+  'Downlink Extension',
+  'SafariWebExtensionHandler.swift'
+);
 
 function readSafariBackground() {
   return fs.readFileSync(safariBackgroundPath, 'utf8');
 }
+
+test('Safari sends local downloader HTTP requests through the native loopback bridge', () => {
+  const background = readSafariBackground();
+  const handler = fs.readFileSync(safariHandlerPath, 'utf8');
+  assert.match(background, /async function safariLocalServiceFetch/);
+  assert.match(background, /'127\.0\.0\.1', 'localhost', '\[::1\]'/);
+  assert.match(background, /type: 'LOCAL_HTTP_REQUEST'/);
+  assert.match(background, /fetchRequest: safariLocalServiceFetch/);
+  assert.match(handler, /LOCAL_HTTP_REQUEST/);
+  assert.match(handler, /"127\.0\.0\.1", "localhost", "::1"/);
+  assert.match(handler, /URLSession\.shared\.dataTask/);
+});
 
 function loadSafariRedirectPatternBuilder() {
   const source = readSafariBackground();
@@ -75,7 +104,7 @@ function loadSafariBridgeMessageValidator() {
   return context.validate;
 }
 
-function loadSafariBadgeUpdater(badgeError) {
+function loadSafariBadgeUpdater(badgeError, synchronouslyThrowingOperation = '') {
   const source = readSafariBackground();
   const functionSource = source.slice(
     source.indexOf('function observeTabScopedActionCall'),
@@ -85,6 +114,7 @@ function loadSafariBadgeUpdater(badgeError) {
   const warnings = [];
   const rejectBadgeUpdate = (operation, payload) => {
     calls.push({ operation, payload });
+    if (operation === synchronouslyThrowingOperation) throw new Error(badgeError);
     return Promise.reject(new Error(badgeError));
   };
   const context = {
@@ -122,6 +152,31 @@ test('Safari media tasks preserve stream metadata for Rayburst', () => {
   assert.match(handler, /streamProtocol: media\.streamProtocol \|\| ''/);
   assert.match(handler, /isLive: typeof media\.isLive === 'boolean' \? media\.isLive : undefined/);
   assert.match(handler, /pageTitle: media\.pageTitle \|\| ''/);
+  assert.match(handler, /connectionConfig: msg\.connectionConfig/);
+  const sendWrapper = source.slice(
+    source.indexOf('async function hydrateSafariTaskRequestContext'),
+    source.indexOf('async function pollTasks')
+  );
+  assert.match(sendWrapper, /await getCookieHeaderForUrl\(taskInfo\.url\)/);
+  assert.match(sendWrapper, /if \(cookieHeader\) headers\.cookie = cookieHeader/);
+  assert.match(sendWrapper, /headers\['user-agent'\] = navigator\.userAgent/);
+  assert.match(sendWrapper, /sendTaskToDownloader\(hydratedTaskInfo, extraOpts\)/);
+});
+
+test('Safari popup exposes the media display classifier used by media cards', () => {
+  const source = fs.readFileSync(safariPopupPath, 'utf8');
+  assert.match(source, /const \{[\s\S]*\bmediaDisplayKind,[\s\S]*\} = popupUi;/);
+  assert.match(source, /globalThis\.mediaDisplayKind = mediaDisplayKind;/);
+});
+
+test('Safari popup leaves preview header preparation to the preview page', () => {
+  const source = fs.readFileSync(safariPopupPath, 'utf8');
+  const start = source.indexOf('function openPreviewTab');
+  const end = source.indexOf('\nglobalThis.DEFAULT_HEADER_LOGO', start);
+  const openPreviewFunction = source.slice(start, end);
+
+  assert.match(openPreviewFunction, /chrome\.tabs\.create/);
+  assert.doesNotMatch(openPreviewFunction, /PREPARE_MEDIA_PREVIEW/);
 });
 
 test('Safari badge updates ignore a closed-tab Promise rejection', async () => {
@@ -143,6 +198,61 @@ test('Safari badge updates report unexpected Promise rejections', async () => {
   assert.equal(runtime.calls.length, 3);
   assert.equal(runtime.warnings.length, 3);
   assert.ok(runtime.warnings.every((args) => args[0] === '[Downlink][badge] failed to update tab badge'));
+});
+
+test('Safari badge text still updates when a badge color API throws synchronously', () => {
+  const runtime = loadSafariBadgeUpdater('Unsupported API', 'setBadgeBackgroundColor');
+
+  runtime.updateBadge(12, 2);
+
+  assert.deepEqual(runtime.calls.map((call) => call.operation), [
+    'setBadgeBackgroundColor',
+    'setBadgeTextColor',
+    'setBadgeText',
+  ]);
+  assert.equal(runtime.calls.at(-1).payload.text, '2');
+});
+
+test('Safari content script parses finite HLS manifests before media-element probing', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'content-script.js'), 'utf8');
+  assert.match(source, /const parseHlsManifestMetadata/);
+  assert.match(source, /#EXTINF:/);
+  assert.match(source, /RESOLUTION/);
+  assert.match(source, /#EXT-X-ENDLIST/);
+  assert.match(source, /isLive: hlsMetadata\.isLive/);
+});
+
+test('Safari background metadata probing uses the Promise form of tabs.sendMessage', () => {
+  const source = readSafariBackground();
+  const start = source.indexOf('function probeMediaMetadataInTab');
+  const end = source.indexOf('\nconst mediaManager =', start);
+  const probeFunction = source.slice(start, end);
+
+  assert.match(probeFunction, /const request = chrome\.tabs\.sendMessage/);
+  assert.match(probeFunction, /request\.then\(finish/);
+  assert.doesNotMatch(probeFunction, /chrome\.tabs\.sendMessage\([\s\S]*?\},\s*\(result\)/);
+});
+
+test('Safari resets media before navigation instead of after early HLS responses', () => {
+  const source = readSafariBackground();
+  const committedHandler = source.slice(
+    source.indexOf("chrome.webNavigation?.onCommitted?.addListener?."),
+    source.indexOf("chrome.webNavigation?.onCreatedNavigationTarget?.addListener?.")
+  );
+  const beforeNavigateHandler = source.slice(
+    source.indexOf("chrome.webNavigation?.onBeforeNavigate?.addListener?."),
+    source.indexOf("chrome.webNavigation?.onErrorOccurred?.addListener?.")
+  );
+  const updatedHandler = source.slice(
+    source.indexOf("chrome.tabs.onUpdated.addListener"),
+    source.indexOf("chrome.runtime.onStartup.addListener")
+  );
+
+  assert.doesNotMatch(committedHandler, /clearTabState|clearPreviewRule/);
+  assert.match(committedHandler, /syncMediaSniffingStateForTab\(details\.tabId, details\.url\)/);
+  assert.match(beforeNavigateHandler, /mediaManager\.clearTabState\(details\.tabId\)/);
+  assert.match(beforeNavigateHandler, /mediaManager\.clearPreviewRule\(details\.tabId\)/);
+  assert.doesNotMatch(updatedHandler, /clearTabState|clearPreviewRule/);
 });
 
 test('Safari config saves synchronize DNR rules directly', () => {

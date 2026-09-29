@@ -227,6 +227,32 @@ test('Resolved magnet task uses torrent payload lengths for progress', () => {
   assert.equal(task.downloadProgressAvailable, true);
 });
 
+test('Download speed maps to turtle, rabbit, and rocket indicators', () => {
+  const runtime = loadAria2TasksRuntime();
+  const speedIndicator = runtime.__aria2TasksTestHooks.speedIndicator;
+
+  assert.equal(speedIndicator(256 * 1024).icon, '🐢');
+  assert.equal(speedIndicator(2 * 1024 * 1024).icon, '🐇');
+  assert.equal(speedIndicator(12 * 1024 * 1024).icon, '🚀');
+  assert.equal(speedIndicator(1024 * 1024).icon, '🐇');
+  assert.equal(speedIndicator(10 * 1024 * 1024).icon, '🚀');
+});
+
+test('Detail progress bar places the live speed marker at the progress endpoint', () => {
+  const runtime = loadAria2TasksRuntime();
+  const card = runtime.__aria2TasksTestHooks.createProgressBar(
+    'Download progress', 100, '1 GB / 1 GB', false, true, 12 * 1024 * 1024, true,
+  );
+  const track = card.children[0].children[1];
+  const marker = track.children[1];
+
+  assert.equal(track.className, 'detail-progress-track');
+  assert.equal(track.children[0].style.width, '100%');
+  assert.equal(marker.style.left, '100%');
+  assert.ok(marker.classList.contains('very-fast'));
+  assert.equal(marker.children[0].textContent, '🚀');
+});
+
 test('Completed magnet metadata bootstrap is omitted after aria2 creates its payload task', () => {
   const runtime = loadAria2TasksRuntime();
   const snapshot = runtime.__aria2TasksTestHooks.buildSnapshot(
@@ -348,6 +374,14 @@ test('Polling order stays stable when RPC reverses tasks with the same timestamp
   const tasks = ['c', 'a', 'b'].map((gid) => ({ gid, status: 'active', addedTime: 123 }));
   assert.equal(sortTasks([...tasks]).map((task) => task.gid).join(','), 'a,b,c');
   assert.equal(sortTasks([...tasks].reverse()).map((task) => task.gid).join(','), 'a,b,c');
+});
+
+test('Empty task lists receive the dedicated fill layout state', () => {
+  const runtime = loadAria2TasksRuntime();
+  runtime.__aria2TasksTestHooks.getState().tasks = [];
+  runtime.__aria2TasksTestHooks.renderList();
+
+  assert.equal(runtime.__elements.get('taskList').classList.contains('is-empty'), true);
 });
 
 test('Polling patches progress in place and retains added action elements', () => {

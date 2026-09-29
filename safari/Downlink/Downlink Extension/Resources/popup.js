@@ -105,6 +105,7 @@ const {
   handleTaskIconError,
   inferMediaKindFromMetadata,
   mediaDurationLabel,
+  mediaDisplayKind,
   mediaKindLabel,
   mediaResolutionLabel,
   shouldAutoSwitchToMediaPanel,
@@ -157,26 +158,12 @@ function openPreviewTab(item) {
       showToast(chrome.runtime.lastError.message || t('openPreviewFailed', undefined, '打开预览页失败'));
       return;
     }
-    const previewTabId = tab?.id;
-    if (typeof previewTabId !== 'number') {
-      showToast(item.kind === 'audio'
-        ? t('previewOpenedAudio', undefined, '已打开音频预览页')
-        : t('previewOpenedVideo', undefined, '已打开视频预览页'));
-      return;
-    }
-    chrome.runtime.sendMessage({ type: 'PREPARE_MEDIA_PREVIEW', id: item.id, tabId: previewTabId }, (res) => {
-      if (!res?.ok) {
-        showToast(res?.error || t('previewPatchFailed', undefined, '预览请求补头失败'));
-        return;
-      }
-      const applied = Array.isArray(res.headersApplied) && res.headersApplied.length
-        ? t('previewHeadersApplied', [res.headersApplied.join(', ')], `，已补头：${res.headersApplied.join(', ')}`)
-        : '';
-      const openedText = item.kind === 'audio'
-        ? t('previewOpenedAudio', undefined, '已打开音频预览页')
-        : t('previewOpenedVideo', undefined, '已打开视频预览页');
-      showToast(`${openedText}${applied}`);
-    });
+    // The preview page installs its own tab-scoped header rule before mounting
+    // the player. Installing it here as well causes two sequential DNR updates
+    // in Safari and delays HLS startup.
+    showToast(item.kind === 'audio'
+      ? t('previewOpenedAudio', undefined, '已打开音频预览页')
+      : t('previewOpenedVideo', undefined, '已打开视频预览页'));
   });
 }
 
@@ -215,6 +202,7 @@ globalThis.getStateLabel = getStateLabel;
 globalThis.handleTaskIconError = handleTaskIconError;
 globalThis.inferMediaKindFromMetadata = inferMediaKindFromMetadata;
 globalThis.mediaDurationLabel = mediaDurationLabel;
+globalThis.mediaDisplayKind = mediaDisplayKind;
 globalThis.mediaKindLabel = mediaKindLabel;
 globalThis.mediaResolutionLabel = mediaResolutionLabel;
 globalThis.openPreviewTab = openPreviewTab;

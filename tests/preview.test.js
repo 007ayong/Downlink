@@ -185,4 +185,18 @@ test('Safari preview streams authenticated media through its source tab', async 
   assert.equal(players.length, 1);
   assert.equal(players[0].src, 'blob:safari-authenticated-preview');
   assert.notEqual(players[0].src, media.resourceUrl);
+
+  const hlsUrl = 'https://cdn.example.com/live/master.m3u8';
+  const callsBeforeHls = scriptingCalls.length;
+  await context.mountPlayer({
+    ...media,
+    id: 'media_hls',
+    resourceUrl: hlsUrl,
+    filename: 'master.m3u8',
+    mime: 'application/vnd.apple.mpegurl',
+    streamProtocol: 'hls',
+  });
+
+  assert.equal(scriptingCalls.length, callsBeforeHls);
+  assert.equal(players.at(-1).src, hlsUrl);
 });

@@ -156,6 +156,7 @@ const ARIA2_ORIGINAL_URI_STORAGE_KEY = 'aria2OriginalUris';
 const MAX_ARIA2_ORIGINAL_URI_RECORDS = 2000;
 const ARIA2_TASK_META_STORAGE_KEY = 'aria2TaskMeta';
 const RAYBURST_PENDING_STORAGE_KEY = 'rayburstPendingRequests';
+const MAX_RAYBURST_PENDING_REQUESTS = 20;
 const MAX_ARIA2_TASK_META_RECORDS = 2000;
 const ARIA2_TASK_RESULT_METHODS = new Set(['tellActive', 'tellWaiting', 'tellStopped', 'tellStatus']);
 let aria2OriginalUris = {};
@@ -182,7 +183,14 @@ async function getPendingRayburstRequest(fingerprint) {
 async function savePendingRayburstRequest(fingerprint, request) {
   const requests = await readPendingRayburstRequests();
   requests[fingerprint] = request;
-  await storageSet(getRayburstStorageArea(), { [RAYBURST_PENDING_STORAGE_KEY]: requests });
+  const entries = Object.entries(requests).slice(-MAX_RAYBURST_PENDING_REQUESTS);
+  const storageArea = getRayburstStorageArea();
+  try {
+    await storageSet(storageArea, { [RAYBURST_PENDING_STORAGE_KEY]: Object.fromEntries(entries) });
+  } catch (error) {
+    await storageSet(storageArea, { [RAYBURST_PENDING_STORAGE_KEY]: {} }).catch(() => {});
+    throw error;
+  }
 }
 
 async function removePendingRayburstRequest(fingerprint) {
@@ -1367,6 +1375,10 @@ function describeBrowserDownloadItem(item = {}) {
   };
 }
 
+function isInvalidDownloadIdError(error) {
+  return /\bInvalid downloadId\b/i.test(error?.message || String(error || ''));
+}
+
 function eraseBrowserDownloadItem(downloadId, reason = '') {
   console.info('[Downlink][browser-download] erase browser download record', {
     id: downloadId,
@@ -1422,7 +1434,12 @@ function cancelBrowserDownloadItem(item = {}, reason = 'captured-download') {
             reason,
           });
         }
-        eraseBrowserDownloadItem(item.id, reason);
+        // The record is already gone when Chromium reports Invalid
+        // downloadId. Calling erase with the same id creates another
+        // runtime.lastError and can surface as an unchecked console error.
+        if (!isInvalidDownloadIdError(ignoredError)) {
+          eraseBrowserDownloadItem(item.id, reason);
+        }
         resolve({ cancelled: !ignoredError, error: ignoredError?.message || '' });
       });
     };
@@ -1454,7 +1471,9 @@ function cancelBrowserDownloadItem(item = {}, reason = 'captured-download') {
           found: Boolean(current),
           reason,
         });
-        eraseBrowserDownloadItem(item.id, `${reason}:not-active-on-recheck`);
+        // A missing search result means there is nothing left to erase.
+        // Completed/interrupted records still exist and should be removed.
+        if (current) eraseBrowserDownloadItem(item.id, `${reason}:not-active-on-recheck`);
         resolve({ cancelled: false, reason: 'not-active-on-recheck' });
         return;
       }
@@ -1734,18 +1753,18 @@ function observeTabScopedActionCall(result, operation, tabId) {
 
 function updateActionBadgeForTab(tabId, count, isPaused = false) {
   if (typeof tabId !== 'number' || tabId < 0) return;
+  const isCaptureDisabled = !config.autoCapture;
   try {
-    const isCaptureDisabled = !config.autoCapture;
     observeTabScopedActionCall(
       chrome.action.setBadgeBackgroundColor({ color: isCaptureDisabled || isPaused ? '#6b7280' : '#e05c2a', tabId }),
       'setBadgeBackgroundColor',
       tabId
     );
-    observeTabScopedActionCall(
-      chrome.action.setBadgeTextColor?.({ color: '#ffffff', tabId }),
-      'setBadgeTextColor',
-      tabId
-    );
+  } catch {}
+  try {
+    observeTabScopedActionCall(chrome.action.setBadgeTextColor?.({ color: '#ffffff', tabId }), 'setBadgeTextColor', tabId);
+  } catch {}
+  try {
     observeTabScopedActionCall(
       chrome.action.setBadgeText({ text: isCaptureDisabled ? '✕' : (count > 0 ? String(Math.min(count, 99)) : ''), tabId }),
       'setBadgeText',
@@ -1818,6 +1837,36 @@ function getTabSnapshot(tabId) {
   });
 }
 
+function probeMediaMetadataInTab(media, timeoutMs = 12500) {
+  if (!chrome.tabs?.sendMessage || !Number.isInteger(media?.tabId)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(result?.ok ? result : null);
+    };
+    const timeout = setTimeout(() => finish(null), timeoutMs);
+    try {
+      chrome.tabs.sendMessage(media.tabId, {
+        type: 'PROBE_MEDIA_METADATA_IN_PAGE',
+        resourceUrl: media.resourceUrl,
+        kind: media.kind,
+        streamProtocol: media.streamProtocol,
+      }, (result) => {
+        if (chrome.runtime.lastError) {
+          finish(null);
+          return;
+        }
+        finish(result);
+      });
+    } catch {
+      finish(null);
+    }
+  });
+}
+
 const mediaManager = mediaModule.createMediaManager({
   fallbackMediaFilename,
   escapeRegex: shared.escapeRegex,
@@ -1829,6 +1878,8 @@ const mediaManager = mediaModule.createMediaManager({
   broadcastUpdate,
   getRequestHeaders: (url) => requestHeadersCache.get(url)?.headers || {},
   getTabSnapshot,
+  probeMediaMetadata: probeMediaMetadataInTab,
+  canAutoProbeMediaMetadata: Boolean(chrome.tabs?.sendMessage),
 });
 
 async function pollTasks() {
@@ -2260,7 +2311,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           isLive: typeof media.isLive === 'boolean' ? media.isLive : undefined,
           pageTitle: media.pageTitle || '',
           addedAt: Date.now(),
-        }, { ...(msg.opts || {}), abDownloadMode: 'headless' }, { openPopupOnFailure: false }));
+        }, { ...(msg.opts || {}), connectionConfig: msg.connectionConfig, abDownloadMode: 'headless' }, { openPopupOnFailure: false }));
         break;
       }
       case 'GET_MEDIA_ITEM': {
@@ -2350,7 +2401,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           width: typeof msg.width === 'number' ? msg.width : undefined,
           height: typeof msg.height === 'number' ? msg.height : undefined,
           kind: ['audio', 'video', 'media'].includes(msg.kind) ? msg.kind : undefined,
+          variantUrls: Array.isArray(msg.variantUrls)
+            ? msg.variantUrls.filter((url) => /^https?:\/\//i.test(String(url || ''))).slice(0, 50)
+            : undefined,
           metadataFailed: typeof msg.metadataFailed === 'boolean' ? msg.metadataFailed : undefined,
+          metadataProbed: typeof msg.metadataProbed === 'boolean' ? msg.metadataProbed : undefined,
         });
         if (!updated) {
           sendResponse({ ok: false });

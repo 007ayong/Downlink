@@ -616,7 +616,11 @@ function createMediaCard(item, { iconSrc, durationText, resolutionText, displayF
   const urlEl = createTextElement('div', 'media-url', item.resourceUrl || '');
   const meta = document.createElement('div');
   meta.className = 'media-meta';
-  meta.appendChild(createMediaFact('size', item.size ? fmt(item.size) : popupAppT('unknownSize', undefined, '大小未知')));
+  // Manifest Content-Length is only the playlist text size, not the media
+  // payload size, so do not present it as a downloadable file size.
+  if (!item.streamProtocol) {
+    meta.appendChild(createMediaFact('size', item.size ? fmt(item.size) : popupAppT('unknownSize', undefined, '大小未知')));
+  }
   if (resolutionText) meta.appendChild(createMediaFact('resolution', resolutionText, 'media-resolution'));
   if (durationText) meta.appendChild(createMediaFact('duration', durationText));
 
@@ -1126,6 +1130,34 @@ function probeMediaMetadataInMainWorld(resourceUrl) {
           finish({ ok: false, error: 'metadata-range-oversized' });
           return;
         }
+        let manifest = '';
+        try {
+          manifest = new TextDecoder('utf-8').decode(new Uint8Array(xhr.response));
+        } catch {}
+        if (/^\s*#EXTM3U\b/i.test(manifest)) {
+          const lines = manifest.split(/\r?\n/).map((line) => line.trim());
+          const variantUrls = [];
+          for (let index = 0; index < lines.length; index += 1) {
+            if (!/^#EXT-X-STREAM-INF:/i.test(lines[index])) continue;
+            const relativeUrl = lines.slice(index + 1).find((line) => line && !line.startsWith('#'));
+            if (!relativeUrl) continue;
+            try { variantUrls.push(new URL(relativeUrl, resourceUrl).href); } catch {}
+          }
+          const resolutions = Array.from(manifest.matchAll(/\bRESOLUTION\s*=\s*(\d+)x(\d+)/gi))
+            .map((match) => ({ width: Number(match[1]) || 0, height: Number(match[2]) || 0 }))
+            .filter(({ width, height }) => width > 0 && height > 0)
+            .sort((a, b) => (b.width * b.height) - (a.width * a.height));
+          const bestResolution = resolutions[0] || { width: 0, height: 0 };
+          const durations = Array.from(manifest.matchAll(/^#EXTINF:([0-9]+(?:\.[0-9]+)?)/gmi));
+          if (durations.length || bestResolution.width || variantUrls.length) {
+            const duration = durations.reduce((total, match) => total + Number(match[1] || 0), 0);
+            const liveState = durations.length
+              ? { isLive: !/^#EXT-X-ENDLIST\s*$/mi.test(manifest) && !/^#EXT-X-PLAYLIST-TYPE\s*:\s*VOD\s*$/mi.test(manifest) }
+              : {};
+            finish({ ok: true, ...bestResolution, duration, ...liveState, variantUrls, kind: 'video' });
+            return;
+          }
+        }
         const bytes = new Uint8Array(xhr.response);
         const view = new DataView(xhr.response);
         let width = 0;
@@ -1249,6 +1281,7 @@ function probeMediaMetadataInSourceTab(item, timeoutMs = 12500) {
         type: 'PROBE_MEDIA_METADATA_IN_PAGE',
         resourceUrl: item.resourceUrl,
         kind: item.kind,
+        streamProtocol: item.streamProtocol,
       }, (result) => {
         if (chrome.runtime.lastError) {
           finish(null);
@@ -1333,7 +1366,10 @@ function loadMediaMetadata(item, card) {
       if (!cleanedUp) mediaEl.src = item.resourceUrl;
     },
   };
-  if (isSafariPopupRuntime()) {
+  const sourcePageProbePreferred = isSafariPopupRuntime() ||
+    item.streamProtocol === 'hls' ||
+    /\.m3u8(?:[?#\s]|$)/i.test(`${item.resourceUrl || ''} ${item.filename || ''}`);
+  if (sourcePageProbePreferred) {
     probeMediaMetadataInSourceTab(item).then((result) => {
       if (cleanedUp) return;
       if (!result) {
@@ -1342,7 +1378,9 @@ function loadMediaMetadata(item, card) {
       }
       const width = Number(result.width) || 0;
       const height = Number(result.height) || 0;
-      const inferredKind = result.kind || inferMediaKindFromMetadata(item, { loaded: true, width, height });
+      const inferredKind = item.streamProtocol
+        ? inferMediaKindFromMetadata(item, { loaded: true, width, height })
+        : result.kind || inferMediaKindFromMetadata(item, { loaded: true, width, height });
       const duration = Number(result.duration) || 0;
       const liveState = typeof result.isLive === 'boolean'
         ? { isLive: result.isLive }
@@ -1359,6 +1397,7 @@ function loadMediaMetadata(item, card) {
         kind: inferredKind,
         duration,
         ...liveState,
+        variantUrls: Array.isArray(result.variantUrls) ? result.variantUrls : undefined,
         metadataFailed: false,
       }, () => {});
       removeMediaEl();
@@ -1484,7 +1523,7 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
     const icon = card.querySelector('.media-icon img');
     if (icon) icon.addEventListener('error', handleTaskIconError);
 
-    if ((item.kind === 'video' || item.kind === 'media') && (!item.width || !item.height) && !item.metadataFailed) {
+    if ((item.kind === 'video' || item.kind === 'media') && (!item.width || !item.height) && !item.metadataFailed && !item.metadataProbed) {
       // Defer metadata loading slightly to allow initial UI paint and avoid
       // triggering many network requests during popup open.
       setTimeout(() => loadMediaMetadata(item, card), MEDIA_METADATA_LOAD_DELAY_MS);
@@ -1542,9 +1581,13 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
     card.querySelector('[data-send-id]').addEventListener('click', (event) => {
       const btn = event.currentTarget;
       const filename = commitMediaName();
+      const sendConfig = getTestConnectionConfig();
+      const connectionConfig = sendConfig.downloaderType === 'motrixnext'
+        ? { motrixNextPort: sendConfig.motrixNextPort, motrixNextSecret: sendConfig.motrixNextSecret }
+        : undefined;
       btn.disabled = true;
       btn.textContent = popupAppT('sending', undefined, '发送中…');
-      chrome.runtime.sendMessage({ type: 'ADD_MEDIA_TASK', id: btn.dataset.sendId, filename }, (res) => {
+      chrome.runtime.sendMessage({ type: 'ADD_MEDIA_TASK', id: btn.dataset.sendId, filename, connectionConfig }, (res) => {
         if (res?.ok) {
           btn.textContent = popupAppT('sent', undefined, '已发送');
           showToast(popupAppT('mediaSentToDownloader', undefined, '媒体已发送到下载器'));

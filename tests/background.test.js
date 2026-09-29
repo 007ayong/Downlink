@@ -222,6 +222,12 @@ function createChromeStub(storedConfig = {}) {
       get(_tabId, callback) {
         callback?.(storedConfig.__tabsById?.[_tabId] || { id: _tabId, windowId: 3, title: '', url: '' });
       },
+      ...(storedConfig.__tabMessageResponse ? {
+        sendMessage(tabId, message, callback) {
+          const response = storedConfig.__tabMessageResponse(tabId, message);
+          Promise.resolve(response).then((value) => callback?.(value));
+        },
+      } : {}),
       update: async (tabId, opts) => {
         tabsCalls.update.push({ tabId, opts });
         return { id: tabId };
@@ -403,6 +409,378 @@ test('media sniffing recognizes HLS and DASH manifests by extension or MIME', ()
   assert.equal(background.BackgroundShared.streamProtocolOf('https://cdn.example.com/manifest', 'application/dash+xml', ''), 'dash');
 });
 
+test('media sniffing ignores remote HLS requests made by extension pages in every browser', async () => {
+  const background = loadBackgroundRuntime({
+    __tabsById: {
+      10: { id: 10, url: 'chrome-extension://extension-id/preview.html' },
+      11: { id: 11, url: 'moz-extension://extension-id/preview.html' },
+      12: { id: 12, url: 'safari-web-extension://extension-id/preview.html' },
+    },
+  });
+  const manager = background.__backgroundTestHooks.mediaManager;
+  const responseHeaders = [{ name: 'content-type', value: 'application/vnd.apple.mpegurl' }];
+
+  for (const [tabId, initiator] of [
+    [10, 'chrome-extension://extension-id'],
+    [11, 'moz-extension://extension-id'],
+    [12, 'safari-web-extension://extension-id'],
+  ]) {
+    await manager.handleMediaResponse({
+      url: `https://cdn.example.com/live/${tabId}/master.m3u8`,
+      tabId,
+      frameId: 0,
+      statusCode: 200,
+      initiator,
+      responseHeaders,
+    });
+    assert.deepEqual(manager.getState().media[tabId] || [], []);
+    assert.equal(manager.getState().badgeCounts[tabId] || 0, 0);
+  }
+});
+
+test('extension-tab URL prevents recursive sniffing when webRequest omits the initiator', async () => {
+  const background = loadBackgroundRuntime({
+    __tabsById: {
+      13: { id: 13, url: 'safari-web-extension://extension-id/preview.html' },
+    },
+  });
+  const manager = background.__backgroundTestHooks.mediaManager;
+
+  await manager.handleMediaResponse({
+    url: 'https://cdn.example.com/live/master.m3u8',
+    tabId: 13,
+    frameId: 0,
+    statusCode: 200,
+    responseHeaders: [{ name: 'content-type', value: 'application/vnd.apple.mpegurl' }],
+  });
+
+  assert.deepEqual(manager.getState().media[13] || [], []);
+  assert.equal(manager.getState().badgeCounts[13] || 0, 0);
+});
+
+test('media sniffing normalizes a misreported HLS document MIME', async () => {
+  const background = loadBackgroundRuntime();
+  const manager = background.__backgroundTestHooks.mediaManager;
+
+  await manager.handleMediaResponse({
+    url: 'https://cdn.example.com/episode/index.m3u8?token=1',
+    tabId: 3,
+    frameId: 0,
+    statusCode: 200,
+    initiator: 'https://example.com',
+    responseHeaders: [
+      { name: 'content-type', value: 'text/html; charset=utf-8' },
+      { name: 'content-length', value: '512' },
+    ],
+  });
+
+  const media = manager.getState().media[3];
+  assert.equal(media.length, 1);
+  assert.equal(media[0].streamProtocol, 'hls');
+  assert.equal(media[0].mime, 'application/vnd.apple.mpegurl');
+});
+
+test('media sniffing unwraps an HTML resolver URL that contains an absolute HLS manifest', async () => {
+  const background = loadBackgroundRuntime();
+  const manager = background.__backgroundTestHooks.mediaManager;
+  const manifestUrl = 'https://v14.example.com/video/index.m3u8';
+
+  await manager.handleMediaResponse({
+    url: `https://resolver.example.com/m3u8/?url=${encodeURIComponent(manifestUrl)}`,
+    tabId: 4,
+    frameId: 0,
+    statusCode: 200,
+    initiator: 'https://example.com',
+    responseHeaders: [{ name: 'content-type', value: 'text/html' }],
+  });
+
+  const media = manager.getState().media[4];
+  assert.equal(media.length, 1);
+  assert.equal(media[0].resourceUrl, manifestUrl);
+  assert.equal(media[0].filename, 'example.com-index.m3u8');
+  assert.equal(media[0].streamProtocol, 'hls');
+  assert.equal(media[0].mime, 'application/vnd.apple.mpegurl');
+});
+
+test('cross-origin manifest unwrapping does not forward resolver credentials', async () => {
+  const background = loadBackgroundRuntime();
+  const manager = background.__backgroundTestHooks.mediaManager;
+  const wrapperUrl = 'https://resolver.example.com/m3u8/?url=https%3A%2F%2Fcdn.example.net%2Findex.m3u8';
+
+  await invokeSendHeaders(background, {
+    url: wrapperUrl,
+    tabId: 3,
+    method: 'GET',
+    requestHeaders: [
+      { name: 'Cookie', value: 'resolver_session=secret' },
+      { name: 'Authorization', value: 'Bearer resolver-secret' },
+      { name: 'X-Resolver-Token', value: 'resolver-token' },
+      { name: 'Referer', value: 'https://example.com/watch' },
+      { name: 'User-Agent', value: 'Browser UA' },
+    ],
+  });
+  await manager.handleMediaResponse({
+    url: wrapperUrl,
+    tabId: 3,
+    frameId: 0,
+    statusCode: 200,
+    responseHeaders: [{ name: 'content-type', value: 'text/html' }],
+  });
+
+  const [media] = manager.getState().media[3];
+  assert.equal(media.resourceUrl, 'https://cdn.example.net/index.m3u8');
+  assert.deepEqual(JSON.parse(JSON.stringify(media.headers)), {
+    referer: 'https://example.com/watch',
+    'user-agent': 'Browser UA',
+  });
+});
+
+test('media list adds a stable suffix when distinct resources resolve to the same filename', () => {
+  const background = loadBackgroundRuntime();
+  const manager = background.__backgroundTestHooks.mediaManager;
+  for (const resourceUrl of [
+    'https://one.example.com/video/index.m3u8',
+    'https://two.example.com/video/index.m3u8',
+  ]) {
+    manager.upsertMediaResource({
+      id: `media_${resourceUrl}`,
+      tabId: 3,
+      resourceUrl,
+      filename: 'index.m3u8',
+      pageTitle: '同一页面',
+      kind: 'video',
+    });
+  }
+
+  const filenames = manager.getState().media[3].map((item) => item.filename);
+  assert.equal(new Set(filenames).size, 2);
+  assert.ok(filenames.includes('同一页面-index.m3u8'));
+  assert.ok(filenames.some((name) => /^同一页面-index-[a-z0-9]{6}\.m3u8$/.test(name)));
+});
+
+test('HLS master metadata merges a captured variant and removes its duplicate card', () => {
+  const background = loadBackgroundRuntime();
+  const manager = background.__backgroundTestHooks.mediaManager;
+  const masterUrl = 'https://cdn.example.com/video/master.m3u8';
+  const variantUrl = 'https://cdn.example.com/video/index-r4ndhb.m3u8';
+  manager.upsertMediaResource({
+    id: 'media_variant', tabId: 3, resourceUrl: variantUrl,
+    filename: 'index-r4ndhb.m3u8', pageTitle: '播放器', kind: 'video', streamProtocol: 'hls',
+  });
+  manager.upsertMediaResource({
+    id: 'media_master', tabId: 3, resourceUrl: masterUrl,
+    filename: 'master.m3u8', pageTitle: '播放器', kind: 'video', streamProtocol: 'hls',
+  });
+
+  manager.updateMediaMetadata('media_master', {
+    width: 1920,
+    height: 960,
+    variantUrls: [variantUrl],
+    metadataFailed: false,
+  });
+  assert.equal(manager.getState().media[3].length, 2);
+
+  manager.updateMediaMetadata('media_variant', {
+    duration: 3589,
+    isLive: false,
+    width: 0,
+    height: 0,
+    metadataFailed: false,
+  });
+
+  const media = manager.getState().media[3];
+  assert.equal(media.length, 1);
+  assert.equal(media[0].id, 'media_master');
+  assert.equal(media[0].width, 1920);
+  assert.equal(media[0].height, 960);
+  assert.equal(media[0].duration, 3589);
+  assert.equal(media[0].isLive, false);
+  assert.equal(manager.getState().badgeCounts[3], 1);
+});
+
+test('known HLS variants allow the first capture and suppress refreshes after metadata merges', async () => {
+  const background = loadBackgroundRuntime();
+  const manager = background.__backgroundTestHooks.mediaManager;
+  const masterUrl = 'https://cdn.example.com/live/master.m3u8';
+  const variantUrl = 'https://cdn.example.com/live/index.m3u8';
+  manager.upsertMediaResource({
+    id: 'media_live_master', tabId: 3, resourceUrl: masterUrl,
+    filename: 'master.m3u8', kind: 'video', streamProtocol: 'hls',
+  });
+  manager.updateMediaMetadata('media_live_master', {
+    width: 1280,
+    height: 720,
+    variantUrls: [variantUrl],
+    metadataFailed: false,
+  });
+
+  const response = {
+    url: variantUrl,
+    tabId: 3,
+    frameId: 0,
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'application/vnd.apple.mpegurl' },
+      { name: 'content-length', value: '4096' },
+    ],
+  };
+  await manager.handleMediaResponse(response);
+  assert.equal(manager.getState().media[3].length, 2);
+
+  const variant = manager.getState().media[3].find((item) => item.resourceUrl === variantUrl);
+  manager.updateMediaMetadata(variant.id, {
+    duration: 30,
+    isLive: true,
+    width: 0,
+    height: 0,
+    metadataFailed: false,
+  });
+  assert.equal(manager.getState().media[3].length, 1);
+
+  await manager.handleMediaResponse(response);
+
+  const media = manager.getState().media[3];
+  assert.equal(media.length, 1);
+  assert.equal(media[0].id, 'media_live_master');
+  assert.equal(media[0].duration, 30);
+  assert.equal(media[0].isLive, true);
+});
+
+test('background HLS probing publishes only the merged master item', async () => {
+  const masterUrl = 'https://cdn.example.com/show/master.m3u8';
+  const variantUrl = 'https://cdn.example.com/show/video.m3u8';
+  const background = loadBackgroundRuntime({
+    __tabMessageResponse(_tabId, message) {
+      if (message.resourceUrl === masterUrl) {
+        return {
+          ok: true, width: 1920, height: 1080, duration: 0,
+          kind: 'video', variantUrls: [variantUrl],
+        };
+      }
+      return { ok: true, width: 0, height: 0, duration: 120, isLive: false, kind: 'video', variantUrls: [] };
+    },
+  });
+  const manager = background.__backgroundTestHooks.mediaManager;
+  const responseHeaders = [{ name: 'content-type', value: 'application/vnd.apple.mpegurl' }];
+
+  await manager.handleMediaResponse({ url: masterUrl, tabId: 3, frameId: 0, statusCode: 200, responseHeaders });
+  await manager.handleMediaResponse({ url: variantUrl, tabId: 3, frameId: 0, statusCode: 200, responseHeaders });
+  assert.equal(manager.getState().media[3].length, 0);
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const media = manager.getState().media[3];
+  assert.equal(media.length, 1);
+  assert.equal(media[0].resourceUrl, masterUrl);
+  assert.equal(media[0].width, 1920);
+  assert.equal(media[0].height, 1080);
+  assert.equal(media[0].duration, 120);
+  assert.equal(media[0].metadataProbed, true);
+  assert.equal(manager.getState().badgeCounts[3], 1);
+});
+
+test('a slow HLS variant does not keep a resolved master hidden', async () => {
+  const masterUrl = 'https://cdn.example.com/show/master.m3u8';
+  const variantUrl = 'https://cdn.example.com/show/video.m3u8';
+  let resolveVariant;
+  const background = loadBackgroundRuntime({
+    __tabMessageResponse(_tabId, message) {
+      if (message.resourceUrl === masterUrl) {
+        return {
+          ok: true, width: 1920, height: 1080, duration: 0,
+          kind: 'video', variantUrls: [variantUrl],
+        };
+      }
+      return new Promise((resolve) => { resolveVariant = resolve; });
+    },
+  });
+  const manager = background.__backgroundTestHooks.mediaManager;
+  const responseHeaders = [{ name: 'content-type', value: 'application/vnd.apple.mpegurl' }];
+
+  await manager.handleMediaResponse({ url: masterUrl, tabId: 3, frameId: 0, statusCode: 200, responseHeaders });
+  await manager.handleMediaResponse({ url: variantUrl, tabId: 3, frameId: 0, statusCode: 200, responseHeaders });
+  await new Promise((resolve) => setTimeout(resolve, 250));
+
+  let media = manager.getState().media[3];
+  assert.equal(media.length, 1);
+  assert.equal(media[0].resourceUrl, masterUrl);
+  assert.equal(media[0].width, 1920);
+  assert.equal(manager.getState().badgeCounts[3], 1);
+
+  resolveVariant({
+    ok: true, width: 0, height: 0, duration: 120,
+    isLive: false, kind: 'video', variantUrls: [],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 250));
+
+  media = manager.getState().media[3];
+  assert.equal(media.length, 1);
+  assert.equal(media[0].resourceUrl, masterUrl);
+  assert.equal(media[0].duration, 120);
+});
+
+test('a resolved HLS child stays hidden while an unclassified master is probing', async () => {
+  const masterUrl = 'https://cdn.example.com/show/master.m3u8';
+  const variantUrl = 'https://cdn.example.com/show/video.m3u8';
+  let resolveMaster;
+  const background = loadBackgroundRuntime({
+    __tabMessageResponse(_tabId, message) {
+      if (message.resourceUrl === masterUrl) {
+        return new Promise((resolve) => { resolveMaster = resolve; });
+      }
+      return {
+        ok: true, width: 0, height: 0, duration: 120,
+        isLive: false, kind: 'video', variantUrls: [],
+      };
+    },
+  });
+  const manager = background.__backgroundTestHooks.mediaManager;
+  const responseHeaders = [{ name: 'content-type', value: 'application/vnd.apple.mpegurl' }];
+
+  await manager.handleMediaResponse({ url: variantUrl, tabId: 3, frameId: 0, statusCode: 200, responseHeaders });
+  await manager.handleMediaResponse({ url: masterUrl, tabId: 3, frameId: 0, statusCode: 200, responseHeaders });
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  assert.equal(manager.getState().media[3].length, 0);
+
+  resolveMaster({
+    ok: true, width: 1920, height: 1080, duration: 0,
+    kind: 'video', variantUrls: [variantUrl],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 250));
+
+  const media = manager.getState().media[3];
+  assert.equal(media.length, 1);
+  assert.equal(media[0].resourceUrl, masterUrl);
+  assert.equal(media[0].duration, 120);
+  assert.equal(media[0].width, 1920);
+  assert.equal(manager.getState().badgeCounts[3], 1);
+});
+
+test('a stalled HLS probe falls back to a visible sniffed resource promptly', async () => {
+  const background = loadBackgroundRuntime({
+    __tabMessageResponse() {
+      return new Promise(() => {});
+    },
+  });
+  const manager = background.__backgroundTestHooks.mediaManager;
+  const resourceUrl = 'https://cdn.example.com/show/master.m3u8';
+
+  await manager.handleMediaResponse({
+    url: resourceUrl,
+    tabId: 3,
+    frameId: 0,
+    statusCode: 200,
+    responseHeaders: [{ name: 'content-type', value: 'application/vnd.apple.mpegurl' }],
+  });
+  assert.equal(manager.getState().media[3].length, 0);
+
+  await new Promise((resolve) => setTimeout(resolve, 1050));
+  const media = manager.getState().media[3];
+  assert.equal(media.length, 1);
+  assert.equal(media[0].resourceUrl, resourceUrl);
+  assert.equal(media[0].metadataPending, true);
+  assert.equal(manager.getState().badgeCounts[3], 1);
+});
+
 test('metadata header rule is cleaned up by the background when popup closes early', async () => {
   const timers = [];
   const background = loadBackgroundRuntime({}, {
@@ -457,6 +835,34 @@ test('metadata header rule is cleaned up by the background when popup closes ear
     call.removeRuleIds?.includes(addCall.addRules[0].id) && !call.addRules
   );
   assert.ok(removeCall);
+});
+
+test('HLS preview header rule covers same-origin playlists and segments only in the preview tab', async () => {
+  const background = loadBackgroundRuntime();
+  const manager = background.__backgroundTestHooks.mediaManager;
+  const resourceUrl = 'https://cdn.example.com/live/master.m3u8?token=1';
+  manager.upsertMediaResource({
+    id: 'media_hls_preview',
+    tabId: 3,
+    resourceUrl,
+    filename: 'master.m3u8',
+    kind: 'video',
+    streamProtocol: 'hls',
+    headers: {
+      referer: 'https://example.com/watch',
+      cookie: 'sid=1',
+    },
+  });
+
+  const media = manager.findMediaResourceById('media_hls_preview');
+  const result = await manager.preparePreviewRule(99, media);
+
+  assert.equal(result.ok, true);
+  const addCall = background.chrome._dnrCalls.find((call) => call.addRules?.length);
+  assert.ok(addCall);
+  assert.equal(addCall.addRules[0].condition.regexFilter, '^https://cdn\\.example\\.com/');
+  assert.deepEqual(Array.from(addCall.addRules[0].condition.tabIds), [99]);
+  assert.deepEqual(Array.from(addCall.addRules[0].condition.resourceTypes), ['media', 'xmlhttprequest', 'other']);
 });
 
 test('hover preview header rule stays active until explicitly cleared', async () => {
@@ -815,6 +1221,53 @@ test('browser download cancel skips cancel when current download already complet
 
   assert.deepEqual(background.chrome._downloadCalls.cancel, []);
   assert.equal(JSON.stringify(background.chrome._downloadCalls.erase), JSON.stringify([{ id: 1 }]));
+});
+
+test('browser download capture does not erase an id missing during the pre-cancel search', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+  background.chrome.downloads.search = (_query, callback) => callback?.([]);
+
+  await invokeDownloadCreated(background, {
+    id: 404,
+    url: 'https://example.com/missing.zip',
+    filename: 'missing.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+  assert.deepEqual(background.chrome._downloadCalls.erase, []);
+});
+
+test('browser download capture does not erase after cancel reports Invalid downloadId', async () => {
+  const background = loadBackgroundRuntime({
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+  background.chrome.downloads.cancel = (_id, callback) => {
+    background.chrome._downloadCalls.cancel.push(_id);
+    background.chrome.runtime.lastError = { message: 'Invalid downloadId' };
+    callback?.();
+    background.chrome.runtime.lastError = null;
+  };
+
+  await invokeDownloadCreated(background, {
+    id: 405,
+    url: 'https://example.com/vanished.zip',
+    filename: 'vanished.zip',
+    state: 'in_progress',
+    totalBytes: 1024,
+  });
+
+  assert.deepEqual(background.chrome._downloadCalls.cancel, [405]);
+  assert.deepEqual(background.chrome._downloadCalls.erase, []);
 });
 
 test('interrupted browser downloads are ignored by auto capture', async () => {
@@ -4069,18 +4522,22 @@ test('Rayburst media send probes and submits HLS with the default selection', as
     streamProtocol: 'hls',
   });
 
-  const result = await invokeBackgroundMessage(background, { type: 'ADD_MEDIA_TASK', id: 'media_hls_1' });
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_MEDIA_TASK',
+    id: 'media_hls_1',
+    connectionConfig: { motrixNextPort: '29110', motrixNextSecret: 'current-popup-secret' },
+  });
   assert.equal(result.ok, true);
   assert.equal(result.gid, 'media-gid-1');
   assert.equal(result.media, true);
   assert.equal(requests.length, 3);
-  assert.equal(requests[0].options.headers.Authorization, 'Bearer media-secret');
+  assert.equal(requests[0].options.headers.Authorization, 'Bearer current-popup-secret');
   assert.deepEqual(requests[1].body.source, {
     url: 'https://cdn.example.com/live/master.m3u8?token=1',
     kind: 'hls',
     pageUrl: 'https://example.com/watch/live',
-    title: 'Live event',
-    filename: 'master.m3u8',
+    title: '',
+    filename: 'Live event-master.m3u8',
     mime: 'application/vnd.apple.mpegurl',
     requestContexts: [{
       url: 'https://cdn.example.com/live/master.m3u8?token=1',
@@ -4149,6 +4606,52 @@ test('Rayburst media retry reuses probe and submission identities after a lost r
   assert.deepEqual(probeIds, [probeIds[0], probeIds[0]]);
   assert.deepEqual(submissionIds, [savedSubmissionId]);
   assert.equal(pending.size, 0);
+});
+
+test('Rayburst media send continues when Safari retry storage exceeds its quota', async () => {
+  let probeId = '';
+  let submitted = false;
+  const defaults = {
+    videoId: 'video-main', audioId: null, subtitleId: null, format: 'mp4',
+    recordTimeSeconds: 0, startTimeSeconds: 0, endTimeSeconds: 0,
+  };
+  const background = loadBackgroundRuntime({}, {
+    fetch: async (url, options = {}) => {
+      if (url.endsWith('/media/v2/capabilities')) {
+        return { ok: true, json: async () => ({ product: 'rayburst', protocolVersion: 2, sourceKinds: ['hls'], requestContexts: true }) };
+      }
+      const body = JSON.parse(options.body);
+      if (url.endsWith('/media/v2/probes')) {
+        probeId = body.id;
+        return { ok: true, json: async () => ({ id: probeId, state: 'ready', presentation: { defaults } }) };
+      }
+      submitted = true;
+      return { ok: true, json: async () => ({ id: probeId, submissionId: body.submissionId, gid: 'quota-safe-gid' }) };
+    },
+  });
+  const clients = background.BackgroundDownloaders.createClients({
+    getConfig: () => ({ downloaderType: 'motrixnext', motrixNextPort: '29110', motrixNextSecret: 'secret' }),
+    notify() {},
+    async getPendingRayburstRequest() { return null; },
+    async savePendingRayburstRequest() {
+      throw new Error('Invalid call to browser.storage.session.set(). Exceeded storage quota.');
+    },
+    async removePendingRayburstRequest() {
+      throw new Error('Invalid call to browser.storage.session.set(). Exceeded storage quota.');
+    },
+  });
+
+  const result = await clients.sendTask({
+    url: 'https://cdn.example.com/master.m3u8',
+    filename: 'master.m3u8',
+    mime: 'application/vnd.apple.mpegurl',
+    streamProtocol: 'hls',
+    headers: { cookie: `session=${'x'.repeat(20_000)}` },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.gid, 'quota-safe-gid');
+  assert.equal(submitted, true);
 });
 
 test('Gopeed media send includes edited filename and required media headers', async () => {

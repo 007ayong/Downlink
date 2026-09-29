@@ -329,6 +329,35 @@
     const mediaEl = document.createElement(message.kind === 'audio' ? 'audio' : 'video');
     let settled = false;
     let xhr = null;
+    const parseHlsManifestMetadata = (buffer) => {
+      let manifest = '';
+      try {
+        manifest = new TextDecoder('utf-8').decode(new Uint8Array(buffer));
+      } catch {
+        return null;
+      }
+      if (!/^\s*#EXTM3U\b/i.test(manifest)) return null;
+      const lines = manifest.split(/\r?\n/).map((line) => line.trim());
+      const variantUrls = [];
+      for (let index = 0; index < lines.length; index += 1) {
+        if (!/^#EXT-X-STREAM-INF:/i.test(lines[index])) continue;
+        const relativeUrl = lines.slice(index + 1).find((line) => line && !line.startsWith('#'));
+        if (!relativeUrl) continue;
+        try { variantUrls.push(new URL(relativeUrl, resourceUrl).href); } catch {}
+      }
+      const resolutions = Array.from(manifest.matchAll(/\bRESOLUTION\s*=\s*(\d+)x(\d+)/gi))
+        .map((match) => ({ width: Number(match[1]) || 0, height: Number(match[2]) || 0 }))
+        .filter(({ width, height }) => width > 0 && height > 0)
+        .sort((a, b) => (b.width * b.height) - (a.width * a.height));
+      const bestResolution = resolutions[0] || { width: 0, height: 0 };
+      const durations = Array.from(manifest.matchAll(/^#EXTINF:([0-9]+(?:\.[0-9]+)?)/gmi));
+      if (!durations.length && !bestResolution.width && !variantUrls.length) return null;
+      const duration = durations.reduce((total, match) => total + Number(match[1] || 0), 0);
+      const isLive = durations.length
+        ? !/^#EXT-X-ENDLIST\s*$/mi.test(manifest) && !/^#EXT-X-PLAYLIST-TYPE\s*:\s*VOD\s*$/mi.test(manifest)
+        : undefined;
+      return { ...bestResolution, duration, isLive, variantUrls };
+    };
     const parseMp4Metadata = (buffer) => {
       const bytes = new Uint8Array(buffer);
       const view = new DataView(buffer);
@@ -440,6 +469,19 @@
         }
         if (xhr.response.byteLength > 2097152) {
           loadDirectly();
+          return;
+        }
+        const hlsMetadata = parseHlsManifestMetadata(xhr.response);
+        if (hlsMetadata) {
+          finish({
+            ok: true,
+            width: hlsMetadata.width,
+            height: hlsMetadata.height,
+            duration: hlsMetadata.duration,
+            isLive: hlsMetadata.isLive,
+            variantUrls: hlsMetadata.variantUrls,
+            kind: 'video',
+          });
           return;
         }
         const { width, height, duration } = parseMp4Metadata(xhr.response);

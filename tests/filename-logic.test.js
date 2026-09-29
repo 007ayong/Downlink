@@ -94,8 +94,34 @@ test('falls back to page title and inferred extension when media filename is low
       kind: 'audio',
       mime: 'audio/mpeg',
     }),
-    '中文专辑-audio.mp3'
+    '中文专辑-stream.mp3'
   );
+});
+
+test('prefers a generic URL basename over a generic content-disposition placeholder', () => {
+  assert.equal(
+    fallbackMediaFilename({
+      filename: 'video.mp4',
+      resourceUrl: 'https://cdn.example.com/master.m3u8',
+      pageTitle: '示例节目',
+      kind: 'video',
+    }),
+    '示例节目-master.m3u8'
+  );
+});
+
+test('uses the page title while retaining generic media basenames for identification', () => {
+  for (const basename of ['index', 'master', 'playlist', 'movie']) {
+    assert.equal(
+      fallbackMediaFilename({
+        filename: `${basename}.m3u8`,
+        resourceUrl: `https://cdn.example.com/${basename}.m3u8`,
+        pageTitle: '示例节目',
+        kind: 'video',
+      }),
+      `示例节目-${basename}.m3u8`
+    );
+  }
 });
 
 test('detects media kind from Chinese filenames and mime', () => {

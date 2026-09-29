@@ -266,6 +266,12 @@ function isSafariPreviewRuntime() {
   }
 }
 
+function isHlsMedia(media = {}) {
+  return media.streamProtocol === 'hls' ||
+    /(?:application|audio)\/(?:vnd\.apple\.mpegurl|x-mpegurl)/i.test(String(media.mime || '')) ||
+    /\.m3u8(?:[?#]|$)/i.test(String(media.resourceUrl || ''));
+}
+
 function loadPreviewChunkInMainWorld(resourceUrl, start, end) {
   return new Promise((resolve) => {
     let settled = false;
@@ -532,13 +538,17 @@ async function mountPlayer(media) {
     setStatus(t('previewFailedDetail', undefined, '预览失败。该资源可能依赖额外请求头、Cookie 或防盗链校验。'), 'fail');
   }, { once: true });
 
-  if (isSafariPreviewRuntime()) {
+  // Safari has native HLS playback. Feeding an M3U8 text manifest into the
+  // authenticated MP4 MediaSource bridge makes it wait for chunk timeouts and
+  // then append non-media bytes. Keep that bridge for direct file media only.
+  if (isSafariPreviewRuntime() && !isHlsMedia(media)) {
     setStatus(t('previewLoading', undefined, '正在加载媒体信息…'));
     const authenticated = await mountSafariAuthenticatedSource(media, player);
     if (authenticated) return;
     cleanupSafariPreviewSession();
   }
   player.src = media.resourceUrl;
+  player.load?.();
 }
 
 function setupCommandCopy() {

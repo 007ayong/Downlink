@@ -275,6 +275,7 @@ function loadPopupRuntime(options = {}) {
     DataView,
     Uint8Array,
     TextDecoder,
+    XMLHttpRequest: options.XMLHttpRequest,
     URL,
     URLSearchParams,
     setTimeout,
@@ -792,6 +793,14 @@ test('media metadata can refine audio-only mp4 resources', () => {
     popup.inferMediaKindFromMetadata({ kind: 'media', mime: 'application/octet-stream' }, { loaded: true, width: 1920, height: 1080 }),
     'video'
   );
+  assert.equal(
+    popup.inferMediaKindFromMetadata({ kind: 'video', streamProtocol: 'hls' }, { loaded: true, width: 0, height: 0 }),
+    'video'
+  );
+  assert.equal(
+    popup.inferMediaKindFromMetadata({ kind: 'media', streamProtocol: 'dash' }, { loaded: true, width: 0, height: 0 }),
+    'video'
+  );
 });
 
 test('ambiguous media kind is not mislabeled as video before metadata arrives', () => {
@@ -803,7 +812,7 @@ test('FLV and M3U8 media distinguish live streams from finite videos', () => {
   const popup = loadPopupRuntime();
   assert.equal(popup.mediaDisplayKind({ filename: 'stream.flv', kind: 'video', size: 1024 }), 'live');
   assert.equal(popup.mediaDisplayKind({ filename: 'movie.flv', kind: 'video', duration: 120 }), 'video');
-  assert.equal(popup.mediaDisplayKind({ resourceUrl: 'https://cdn.example.com/live.m3u8', streamProtocol: 'hls', kind: 'video' }), 'live');
+  assert.equal(popup.mediaDisplayKind({ resourceUrl: 'https://cdn.example.com/movie.m3u8', streamProtocol: 'hls', kind: 'video' }), 'video');
   assert.equal(popup.mediaDisplayKind({ filename: 'episode.m3u8', streamProtocol: 'hls', kind: 'video', duration: 120 }), 'video');
   assert.equal(popup.mediaDisplayKind({ filename: 'live.m3u8', streamProtocol: 'hls', kind: 'video', duration: 120, isLive: true }), 'live');
   assert.equal(popup.mediaKindLabel('live'), '直播');
@@ -975,6 +984,7 @@ test('Safari probes media metadata in the source tab before using extension requ
     resourceUrl: 'https://cdn.example.com/video.m4s',
     filename: 'video.m4s',
     kind: 'media',
+    streamProtocol: 'dash',
   };
   const card = popup.document.createElement('div');
 
@@ -987,6 +997,7 @@ test('Safari probes media metadata in the source tab before using extension requ
       type: 'PROBE_MEDIA_METADATA_IN_PAGE',
       resourceUrl: item.resourceUrl,
       kind: 'media',
+      streamProtocol: 'dash',
     },
   }]);
   assert.equal(
@@ -1004,6 +1015,148 @@ test('Safari probes media metadata in the source tab before using extension requ
     isLive: false,
     metadataFailed: false,
   });
+});
+
+test('Chromium and Firefox probe HLS manifests in the source tab before extension requests', async () => {
+  const manifest = '#EXTM3U\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:60.5,\none.ts\n#EXTINF:65,\ntwo.ts\n#EXT-X-ENDLIST\n';
+  class ManifestXMLHttpRequest {
+    open() {}
+    setRequestHeader() {}
+    abort() {}
+    send() {
+      this.status = 200;
+      this.response = new TextEncoder().encode(manifest).buffer;
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  const popup = loadPopupRuntime({
+    XMLHttpRequest: ManifestXMLHttpRequest,
+    scriptingExecuteScript: (details) => details.func(...details.args),
+  });
+  const item = {
+    id: 'media_hls_vod',
+    tabId: 9,
+    resourceUrl: 'https://cdn.example.com/episode/index.m3u8?token=1',
+    filename: 'index.m3u8',
+    kind: 'video',
+    streamProtocol: 'hls',
+  };
+  const card = popup.document.createElement('div');
+
+  popup.loadMediaMetadata(item, card);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(popup.chrome._tabMessages.length, 0);
+  assert.equal(
+    popup.chrome._sentMessages.some((message) => message?.type === 'PREPARE_MEDIA_METADATA_BATCH'),
+    false
+  );
+  const update = popup.chrome._sentMessages.find((message) => message?.type === 'UPDATE_MEDIA_METADATA');
+  assert.equal(update.duration, 125.5);
+  assert.equal(update.isLive, false);
+});
+
+test('Chromium HLS probe reads the highest resolution from a master playlist', async () => {
+  const manifest = [
+    '#EXTM3U',
+    '#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360',
+    'low.m3u8',
+    '#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080',
+    'high.m3u8',
+    '#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720',
+    'medium.m3u8',
+  ].join('\n');
+  class MasterPlaylistXMLHttpRequest {
+    open() {}
+    setRequestHeader() {}
+    abort() {}
+    send() {
+      this.status = 200;
+      this.response = new TextEncoder().encode(manifest).buffer;
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  const popup = loadPopupRuntime({
+    XMLHttpRequest: MasterPlaylistXMLHttpRequest,
+    scriptingExecuteScript: (details) => details.func(...details.args),
+  });
+  const card = popup.document.createElement('div');
+
+  popup.loadMediaMetadata({
+    id: 'media_hls_master',
+    tabId: 9,
+    resourceUrl: 'https://cdn.example.com/master.m3u8',
+    filename: 'master.m3u8',
+    kind: 'video',
+    streamProtocol: 'hls',
+  }, card);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const update = popup.chrome._sentMessages.find((message) => message?.type === 'UPDATE_MEDIA_METADATA');
+  assert.equal(update.width, 1920);
+  assert.equal(update.height, 1080);
+  assert.equal(update.duration, 0);
+  assert.equal(Object.prototype.hasOwnProperty.call(update, 'isLive'), false);
+  assert.deepEqual(Array.from(update.variantUrls), [
+    'https://cdn.example.com/low.m3u8',
+    'https://cdn.example.com/high.m3u8',
+    'https://cdn.example.com/medium.m3u8',
+  ]);
+});
+
+test('HLS master playlist without resolution still reports variant relationships', async () => {
+  const manifest = [
+    '#EXTM3U',
+    '#EXT-X-STREAM-INF:BANDWIDTH=128000,CODECS="mp4a.40.2"',
+    'audio.m3u8',
+  ].join('\n');
+  class AudioMasterXMLHttpRequest {
+    open() {}
+    setRequestHeader() {}
+    abort() {}
+    send() {
+      this.status = 200;
+      this.response = new TextEncoder().encode(manifest).buffer;
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  const popup = loadPopupRuntime({
+    XMLHttpRequest: AudioMasterXMLHttpRequest,
+    scriptingExecuteScript: (details) => details.func(...details.args),
+  });
+
+  popup.loadMediaMetadata({
+    id: 'media_audio_master', tabId: 9,
+    resourceUrl: 'https://cdn.example.com/master.m3u8',
+    filename: 'master.m3u8', kind: 'video', streamProtocol: 'hls',
+  }, popup.document.createElement('div'));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const update = popup.chrome._sentMessages.find((message) => message?.type === 'UPDATE_MEDIA_METADATA');
+  assert.equal(update.width, 0);
+  assert.equal(update.height, 0);
+  assert.deepEqual(Array.from(update.variantUrls), ['https://cdn.example.com/audio.m3u8']);
+});
+
+test('HLS source-page probe falls back to extension metadata loading', async () => {
+  const popup = loadPopupRuntime({ tabMessageResponse: null });
+  const card = popup.document.createElement('div');
+
+  popup.loadMediaMetadata({
+    id: 'media_hls_fallback',
+    tabId: 9,
+    resourceUrl: 'https://cdn.example.com/index.m3u8',
+    filename: 'index.m3u8',
+    kind: 'video',
+    streamProtocol: 'hls',
+  }, card);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  assert.equal(
+    popup.chrome._sentMessages.some((message) => message?.type === 'PREPARE_MEDIA_METADATA_BATCH'),
+    true
+  );
+  card.children[0]._listeners.error[0]();
 });
 
 test('unknown media duration does not mark a stream as non-live', async () => {

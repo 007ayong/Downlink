@@ -443,6 +443,10 @@
       flex-shrink: 0;
     }
     .task-row:hover .task-actions, .task-row.selected .task-actions { display: inline-flex; }
+    .task-row.completed {
+      border-color: var(--green-bd);
+      background: linear-gradient(90deg, var(--green-bg), var(--bg2) 34%);
+    }
     .icon-btn {
       border: 1px solid var(--border);
       background: var(--bg2);
@@ -572,59 +576,75 @@
       gap: 9px;
     }
     .detail-progress-card {
+      min-width: 0;
+      padding: 2px 0 0;
+    }
+    .detail-progress-copy { min-width: 0; width: 100%; }
+    .detail-progress-label {
       display: flex;
       align-items: center;
-      gap: 9px;
-      min-width: 0;
-      padding: 9px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: var(--bg3);
-    }
-    .detail-progress-ring {
-      position: relative;
-      width: 64px;
-      height: 64px;
-      flex: 0 0 64px;
-    }
-    .detail-progress-ring svg {
-      display: block;
-      width: 100%;
-      height: 100%;
-      transform: rotate(-90deg);
-    }
-    .detail-progress-ring circle {
-      fill: none;
-      stroke-width: 3.5;
-    }
-    .detail-progress-ring .ring-track { stroke: var(--bg4); }
-    .detail-progress-ring .ring-value {
-      stroke: var(--ring-color, var(--accent));
-      stroke-linecap: round;
-      stroke-dasharray: 100;
-      stroke-dashoffset: calc(100 - var(--ring-progress, 0));
-      transition: stroke-dashoffset .3s ease;
-    }
-    .detail-progress-ring.unavailable .ring-value { stroke: var(--text-3); opacity: .35; }
-    .detail-progress-ring .ring-center {
-      position: absolute;
-      inset: 0;
-      display: grid;
-      place-items: center;
-      color: var(--text);
-      font-size: 13px;
-      font-weight: 700;
-      font-variant-numeric: tabular-nums;
-    }
-    .detail-progress-ring.unavailable .ring-center { color: var(--text-3); }
-    .detail-progress-copy { min-width: 0; }
-    .detail-progress-label {
+      justify-content: space-between;
+      gap: 12px;
       color: var(--text-2);
-      font-size: 11.5px;
+      font-size: 12px;
       font-weight: 650;
     }
+    .detail-progress-percent {
+      color: var(--text);
+      font-size: 17px;
+      font-weight: 750;
+      font-variant-numeric: tabular-nums;
+    }
+    .detail-progress-card.completed .detail-progress-percent { color: var(--green); }
+    .detail-progress-track {
+      position: relative;
+      height: 10px;
+      margin: 34px 40px 31px;
+      border-radius: 999px;
+      background: var(--bg4);
+    }
+    .detail-progress-value {
+      width: 0;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), #ff9b73);
+      transition: width .3s ease;
+    }
+    .detail-progress-card.completed .detail-progress-value {
+      background: linear-gradient(90deg, var(--green), #63d59a);
+    }
+    .detail-progress-track.unavailable .detail-progress-value { background: var(--text-3); opacity: .35; }
+    .detail-speed-marker {
+      position: absolute;
+      top: 50%;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      transform: translate(-50%, -50%);
+      transition: left .3s ease;
+    }
+    .detail-speed-icon {
+      display: grid;
+      width: 32px;
+      height: 32px;
+      place-items: center;
+      filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .18));
+      font-size: 21px;
+      line-height: 1;
+    }
+    .detail-speed-value {
+      position: absolute;
+      top: 27px;
+      color: var(--text-2);
+      font-size: 10.5px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.4;
+      text-shadow: 0 1px 0 var(--bg2), 0 -1px 0 var(--bg2), 1px 0 0 var(--bg2), -1px 0 0 var(--bg2);
+      white-space: nowrap;
+    }
     .detail-progress-detail {
-      margin-top: 3px;
+      margin-top: 7px;
       color: var(--text-3);
       font-size: 10.5px;
       line-height: 1.35;
@@ -1112,6 +1132,11 @@
     .task-table { gap: 10px; }
     .task-row { min-height: 98px; gap: 14px; padding: 14px; background: var(--bg2); border-color: var(--border); border-radius: 12px; transform: none !important; }
     .task-row:hover { background: var(--bg2); border-color: var(--accent-bd); }
+    .task-row.completed,
+    .task-row.completed:hover {
+      border-color: var(--green-bd);
+      background: linear-gradient(90deg, var(--green-bg), var(--bg2) 38%);
+    }
     .task-icon { width: 52px; height: 52px; border-radius: 12px; background: var(--accent-bg); border: 0; }
     .task-icon img { width: 32px; height: 32px; }
     .task-info { align-self: stretch; justify-content: center; gap: 7px; }
@@ -1247,6 +1272,10 @@
       gap: 0;
     }
     .task-table::-webkit-scrollbar { display: none; width: 0; height: 0; }
+    .task-table.is-empty {
+      overflow: hidden;
+      padding-top: 12px;
+    }
     .task-table-header {
       position: relative;
       top: auto;
@@ -1294,6 +1323,13 @@
       background: var(--accent-bg);
       border-color: transparent;
       border-bottom-color: var(--border);
+    }
+    .task-row.completed,
+    .task-row.completed:hover,
+    .task-row.completed.selected,
+    .task-row.completed.selected:hover {
+      background: linear-gradient(90deg, var(--green-bg), transparent 48%);
+      border-bottom-color: var(--green-bd);
     }
     .task-row .task-icon { width: 48px; height: 48px; border-radius: 12px; background: transparent; border: 0; box-shadow: none; }
     .task-icon img { width: 100%; height: 100%; object-fit: contain; }

@@ -239,6 +239,7 @@ const ARIA2_ORIGINAL_URI_STORAGE_KEY = 'aria2OriginalUris';
 const MAX_ARIA2_ORIGINAL_URI_RECORDS = 2000;
 const ARIA2_TASK_META_STORAGE_KEY = 'aria2TaskMeta';
 const RAYBURST_PENDING_STORAGE_KEY = 'rayburstPendingRequests';
+const MAX_RAYBURST_PENDING_REQUESTS = 20;
 const MAX_ARIA2_TASK_META_RECORDS = 2000;
 const ARIA2_MANAGER_METHODS = new Set([
   'getGlobalStat',
@@ -277,7 +278,14 @@ async function getPendingRayburstRequest(fingerprint) {
 async function savePendingRayburstRequest(fingerprint, request) {
   const requests = await readPendingRayburstRequests();
   requests[fingerprint] = request;
-  await storageSet(getRayburstStorageArea(), { [RAYBURST_PENDING_STORAGE_KEY]: requests });
+  const entries = Object.entries(requests).slice(-MAX_RAYBURST_PENDING_REQUESTS);
+  const storageArea = getRayburstStorageArea();
+  try {
+    await storageSet(storageArea, { [RAYBURST_PENDING_STORAGE_KEY]: Object.fromEntries(entries) });
+  } catch (error) {
+    await storageSet(storageArea, { [RAYBURST_PENDING_STORAGE_KEY]: {} }).catch(() => {});
+    throw error;
+  }
 }
 
 async function removePendingRayburstRequest(fingerprint) {
@@ -801,6 +809,37 @@ function sendSafariNativeMessage(message = {}) {
       finish(null, error?.message || String(error));
     }
   });
+}
+
+async function safariLocalServiceFetch(url, options = {}) {
+  let endpoint;
+  try {
+    endpoint = new URL(String(url));
+  } catch {
+    return fetch(url, options);
+  }
+  if (endpoint.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(endpoint.hostname)) {
+    return fetch(url, options);
+  }
+  const headers = Object.fromEntries(new Headers(options.headers || {}).entries());
+  const response = await sendSafariNativeMessage({
+    type: 'LOCAL_HTTP_REQUEST',
+    url: String(url),
+    method: String(options.method || 'GET').toUpperCase(),
+    headers,
+    body: typeof options.body === 'string' ? options.body : '',
+  });
+  if (!response || typeof response.status !== 'number') {
+    throw new Error(response?.error || 'Safari native HTTP bridge returned an invalid response');
+  }
+  const body = String(response.body || '');
+  return {
+    ok: response.status >= 200 && response.status < 300,
+    status: response.status,
+    headers: new Headers(response.headers || {}),
+    text: async () => body,
+    json: async () => JSON.parse(body),
+  };
 }
 
 function clearSafariDownloadRules() {
@@ -2244,6 +2283,9 @@ chrome.webNavigation?.onCommitted?.addListener?.((details) => {
   if (details.frameId !== 0 || typeof details.tabId !== 'number') return;
   getTab(details.tabId).then((tab) => {
     rememberSafariCommittedPage(details.tabId, details.url, tab?.windowId);
+    return syncMediaSniffingStateForTab(details.tabId, details.url);
+  }).then(() => {
+    broadcastUpdate(details.tabId);
   }).catch(() => {});
 });
 
@@ -2307,7 +2349,16 @@ chrome.webNavigation?.onBeforeNavigate?.addListener?.(async (details) => {
     });
     return;
   }
-  if (!isSafariDnrDownloadCandidate(details.url)) return;
+  if (!isSafariDnrDownloadCandidate(details.url)) {
+    // Reset synchronously at the earliest main-frame navigation event. Safari
+    // may report HLS responses before onCommitted/onUpdated, so clearing in
+    // either later event can erase freshly captured media and its badge.
+    mediaManager.clearTabState(details.tabId);
+    autoCapturePausedTabs.delete(details.tabId);
+    mediaBlacklistBlockedTabs.delete(details.tabId);
+    mediaManager.clearPreviewRule(details.tabId);
+    return;
+  }
   if (await isSafariDnrBypassActive(details.tabId, details.url)) {
     writeProbeLog('DNR download navigation left to Safari by active bypass', {
       tabId: details.tabId,
@@ -2553,6 +2604,7 @@ const downloaderClients = downloaders.createClients({
   getPendingRayburstRequest,
   savePendingRayburstRequest,
   removePendingRayburstRequest,
+  fetchRequest: safariLocalServiceFetch,
 });
 
 const {
@@ -2568,8 +2620,26 @@ const {
   testGopeedConnection,
 } = downloaderClients;
 
+async function hydrateSafariTaskRequestContext(taskInfo = {}) {
+  const headers = { ...(taskInfo.headers || {}) };
+  const cookieHeader = headers.cookie ? '' : await getCookieHeaderForUrl(taskInfo.url);
+  if (cookieHeader) headers.cookie = cookieHeader;
+  const referrer = taskInfo.referrer || taskInfo.downloadPage || headers.referer || '';
+  if (referrer && !headers.referer) headers.referer = referrer;
+  if (!headers['user-agent'] && typeof navigator !== 'undefined' && navigator.userAgent) {
+    headers['user-agent'] = navigator.userAgent;
+  }
+  return {
+    ...taskInfo,
+    headers,
+    referrer,
+    origin: taskInfo.origin || headers.origin || deriveOrigin(taskInfo.url, referrer),
+  };
+}
+
 async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false, shouldReportFailure = () => true } = {}) {
-  const result = await sendTaskToDownloader(taskInfo, extraOpts);
+  const hydratedTaskInfo = await hydrateSafariTaskRequestContext(taskInfo);
+  const result = await sendTaskToDownloader(hydratedTaskInfo, extraOpts);
   if (result?.ok) {
     clearUiAlert();
     return result;
@@ -2582,7 +2652,7 @@ async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false, 
       downloaderLabel: getDownloaderLabel(config.downloaderType),
       message,
     });
-    if (openPopupOnFailure) await openTaskSurfaceForTask(taskInfo);
+    if (openPopupOnFailure) await openTaskSurfaceForTask(hydratedTaskInfo);
   }
   return {
     ...result,
@@ -2608,18 +2678,18 @@ function observeTabScopedActionCall(result, operation, tabId) {
 
 function updateActionBadgeForTab(tabId, count, isPaused = false) {
   if (typeof tabId !== 'number' || tabId < 0) return;
+  const isCaptureDisabled = !config.autoCapture;
   try {
-    const isCaptureDisabled = !config.autoCapture;
     observeTabScopedActionCall(
       chrome.action.setBadgeBackgroundColor({ color: isCaptureDisabled || isPaused ? '#6b7280' : '#e05c2a', tabId }),
       'setBadgeBackgroundColor',
       tabId
     );
-    observeTabScopedActionCall(
-      chrome.action.setBadgeTextColor?.({ color: '#ffffff', tabId }),
-      'setBadgeTextColor',
-      tabId
-    );
+  } catch {}
+  try {
+    observeTabScopedActionCall(chrome.action.setBadgeTextColor?.({ color: '#ffffff', tabId }), 'setBadgeTextColor', tabId);
+  } catch {}
+  try {
     observeTabScopedActionCall(
       chrome.action.setBadgeText({ text: isCaptureDisabled ? 'OFF' : (count > 0 ? String(Math.min(count, 99)) : ''), tabId }),
       'setBadgeText',
@@ -2692,6 +2762,37 @@ function getTabSnapshot(tabId) {
   });
 }
 
+function probeMediaMetadataInTab(media, timeoutMs = 12500) {
+  if (!chrome.tabs?.sendMessage || !Number.isInteger(media?.tabId)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(result?.ok ? result : null);
+    };
+    const timeout = setTimeout(() => finish(null), timeoutMs);
+    try {
+      const request = chrome.tabs.sendMessage(media.tabId, {
+        type: 'PROBE_MEDIA_METADATA_IN_PAGE',
+        resourceUrl: media.resourceUrl,
+        kind: media.kind,
+        streamProtocol: media.streamProtocol,
+      });
+      // Safari's WebExtension implementation is Promise-first here and can
+      // leave the Chromium-style callback pending indefinitely.
+      if (request && typeof request.then === 'function') {
+        request.then(finish, () => finish(null));
+      } else {
+        finish(request);
+      }
+    } catch {
+      finish(null);
+    }
+  });
+}
+
 const mediaManager = mediaModule.createMediaManager({
   fallbackMediaFilename,
   escapeRegex: shared.escapeRegex,
@@ -2703,6 +2804,8 @@ const mediaManager = mediaModule.createMediaManager({
   broadcastUpdate,
   getRequestHeaders: (url) => requestHeadersCache.get(url)?.headers || {},
   getTabSnapshot,
+  probeMediaMetadata: probeMediaMetadataInTab,
+  canAutoProbeMediaMetadata: Boolean(chrome.tabs?.sendMessage),
 });
 
 async function pollTasks() {
@@ -3285,7 +3388,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           isLive: typeof media.isLive === 'boolean' ? media.isLive : undefined,
           pageTitle: media.pageTitle || '',
           addedAt: Date.now(),
-        }, { ...(msg.opts || {}), abDownloadMode: 'headless' }, { openPopupOnFailure: false }));
+        }, { ...(msg.opts || {}), connectionConfig: msg.connectionConfig, abDownloadMode: 'headless' }, { openPopupOnFailure: false }));
         break;
       }
       case 'GET_MEDIA_ITEM': {
@@ -3376,6 +3479,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           height: typeof msg.height === 'number' ? msg.height : undefined,
           kind: ['audio', 'video', 'media'].includes(msg.kind) ? msg.kind : undefined,
           metadataFailed: typeof msg.metadataFailed === 'boolean' ? msg.metadataFailed : undefined,
+          metadataProbed: typeof msg.metadataProbed === 'boolean' ? msg.metadataProbed : undefined,
         });
         if (!updated) {
           sendResponse({ ok: false });
@@ -3678,11 +3782,10 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status !== 'loading') return;
-  mediaManager.clearTabState(tabId);
-  autoCapturePausedTabs.delete(tabId);
-  mediaBlacklistBlockedTabs.delete(tabId);
+  // Main-frame navigation cleanup is handled by webNavigation.onCommitted.
+  // Clearing here races with Safari's early media responses and makes the
+  // toolbar badge flash before being reset to an empty value.
   syncMediaSniffingStateForTab(tabId).then(() => broadcastUpdate()).catch(() => {});
-  mediaManager.clearPreviewRule(tabId);
 });
 
 chrome.runtime.onStartup.addListener(async () => {

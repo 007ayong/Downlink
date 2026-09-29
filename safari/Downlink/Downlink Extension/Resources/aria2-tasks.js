@@ -85,6 +85,9 @@
       progressLabel: '进度',
       sizeLabel: '大小',
       speedLabel: '速度',
+      speedSlow: '慢速下载',
+      speedFast: '高速下载',
+      speedVeryFast: '极速下载',
       etaLabel: '剩余时间',
       connectionsLabel: '连接数',
       seedersLabel: '做种数',
@@ -209,6 +212,9 @@
       progressLabel: 'Progress',
       sizeLabel: 'Size',
       speedLabel: 'Speed',
+      speedSlow: 'Slow download',
+      speedFast: 'Fast download',
+      speedVeryFast: 'Very fast download',
       etaLabel: 'ETA',
       connectionsLabel: 'Connections',
       seedersLabel: 'Seeders',
@@ -337,6 +343,17 @@
     if (sec < 3600) return `${Math.ceil(sec / 60)}m`;
     if (sec < 86400) return `${(sec / 3600).toFixed(1)}h`;
     return `${(sec / 86400).toFixed(1)}d`;
+  }
+
+  function speedIndicator(speed) {
+    const bytesPerSecond = Number(speed) || 0;
+    if (bytesPerSecond >= 10 * 1024 * 1024) {
+      return { icon: '🚀', className: 'very-fast', label: T.speedVeryFast };
+    }
+    if (bytesPerSecond >= 1024 * 1024) {
+      return { icon: '🐇', className: 'fast', label: T.speedFast };
+    }
+    return { icon: '🐢', className: 'slow', label: T.speedSlow };
   }
 
   function fmtTime(unixSec) {
@@ -812,7 +829,7 @@
     const row = document.createElement('div');
     const isDetailSelected = task.gid === state.detailGid;
     const isChecked = state.selectedGids.has(task.gid);
-    row.className = `task-row${isDetailSelected ? ' selected' : ''}`;
+    row.className = `task-row${isDetailSelected ? ' selected' : ''}${task.status === 'complete' ? ' completed' : ''}`;
     row.dataset.gid = task.gid;
     row.currentTask = task;
 
@@ -1027,6 +1044,7 @@
   function renderList() {
     const list = $('taskList');
     const items = visibleTasks();
+    list.classList.toggle('is-empty', items.length === 0);
     const rows = new Map(Array.from(list.children).map((row) => [row.dataset.gid, row]));
     const visibleGids = new Set(items.map((task) => task.gid));
     for (const row of Array.from(list.children)) {
@@ -1085,49 +1103,64 @@
     }
   }
 
-  function createProgressRing(label, percent, detail, color, available = true) {
+  function createProgressBar(label, percent, detail, completed = false, available = true, speed = 0, showSpeed = false, previousPercent = null) {
     const card = document.createElement('div');
-    card.className = 'detail-progress-card';
-
-    const ring = document.createElement('div');
-    ring.className = `detail-progress-ring${available ? '' : ' unavailable'}`;
-    ring.style.setProperty('--ring-color', color);
-    ring.style.setProperty('--ring-progress', available ? String(Math.max(0, Math.min(100, percent))) : '0');
-    ring.setAttribute('role', 'img');
-    ring.setAttribute('aria-label', `${label}: ${available ? `${Math.round(percent)}%` : '—'}`);
-
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 40 40');
-    svg.setAttribute('aria-hidden', 'true');
-    const track = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    track.classList.add('ring-track');
-    track.setAttribute('cx', '20');
-    track.setAttribute('cy', '20');
-    track.setAttribute('r', '16');
-    track.setAttribute('pathLength', '100');
-    const value = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    value.classList.add('ring-value');
-    value.setAttribute('cx', '20');
-    value.setAttribute('cy', '20');
-    value.setAttribute('r', '16');
-    value.setAttribute('pathLength', '100');
-    svg.append(track, value);
-
-    const center = document.createElement('span');
-    center.className = 'ring-center';
-    center.textContent = available ? `${Math.round(percent)}%` : '—';
-    ring.append(svg, center);
+    card.className = `detail-progress-card${completed ? ' completed' : ''}`;
+    const targetPercent = available ? Math.max(0, Math.min(100, percent)) : 0;
+    const startPercent = Number.isFinite(previousPercent)
+      ? Math.max(0, Math.min(100, previousPercent))
+      : targetPercent;
 
     const copy = document.createElement('div');
     copy.className = 'detail-progress-copy';
     const labelEl = document.createElement('div');
     labelEl.className = 'detail-progress-label';
     labelEl.textContent = label;
+    const percentEl = document.createElement('span');
+    percentEl.className = 'detail-progress-percent';
+    percentEl.textContent = available ? `${Math.round(percent)}%` : '—';
+    labelEl.appendChild(percentEl);
+    const track = document.createElement('div');
+    track.className = `detail-progress-track${available ? '' : ' unavailable'}`;
+    track.setAttribute('role', 'progressbar');
+    track.setAttribute('aria-label', label);
+    track.setAttribute('aria-valuemin', '0');
+    track.setAttribute('aria-valuemax', '100');
+    if (available) track.setAttribute('aria-valuenow', String(Math.round(percent)));
+    const value = document.createElement('div');
+    value.className = 'detail-progress-value';
+    value.style.width = `${startPercent}%`;
+    track.appendChild(value);
+    if (available && showSpeed) {
+      const speedLevel = speedIndicator(speed);
+      const marker = document.createElement('span');
+      marker.className = `detail-speed-marker ${speedLevel.className}`;
+      marker.style.left = `${startPercent}%`;
+      marker.title = `${speedLevel.label}: ${fmtSpeed(speed)}`;
+      marker.setAttribute('aria-label', marker.title);
+      const markerIcon = document.createElement('span');
+      markerIcon.className = 'detail-speed-icon';
+      markerIcon.textContent = speedLevel.icon;
+      const markerValue = document.createElement('span');
+      markerValue.className = 'detail-speed-value';
+      markerValue.textContent = fmtSpeed(speed);
+      marker.append(markerIcon, markerValue);
+      track.appendChild(marker);
+    }
     const detailEl = document.createElement('div');
     detailEl.className = 'detail-progress-detail';
     detailEl.textContent = detail;
-    copy.append(labelEl, detailEl);
-    card.append(ring, copy);
+    copy.append(labelEl, track, detailEl);
+    card.appendChild(copy);
+    if (startPercent !== targetPercent) {
+      const animate = () => {
+        value.style.width = `${targetPercent}%`;
+        const marker = track.querySelector('.detail-speed-marker');
+        if (marker) marker.style.left = `${targetPercent}%`;
+      };
+      if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(animate);
+      else window.setTimeout(animate, 0);
+    }
     return card;
   }
 
@@ -1147,6 +1180,9 @@
     const workspace = $('taskWorkspace');
     const body = $('detailBody');
     const actions = $('detailActions');
+    const previousDetailGid = body.dataset.detailGid || '';
+    const previousWidth = body.querySelector('.detail-progress-value')?.style.width || '';
+    const previousPercent = Number.parseFloat(previousWidth);
     body.replaceChildren();
     actions.replaceChildren();
 
@@ -1165,6 +1201,7 @@
       panel.setAttribute('aria-hidden', 'true');
       panel.inert = true; // belt-and-suspenders: also prevents focus from entering the hidden panel
       workspace.classList.remove('has-detail');
+      delete body.dataset.detailGid;
       return;
     }
 
@@ -1173,6 +1210,7 @@
     panel.setAttribute('aria-hidden', 'false');
     panel.inert = false;
     $('detailTitle').textContent = task.name;
+    body.dataset.detailGid = task.gid;
 
     const section = (label) => {
       const title = document.createElement('div');
@@ -1202,14 +1240,17 @@
     const progressGrid = document.createElement('div');
     progressGrid.className = 'detail-progress-grid';
     progressGrid.append(
-      createProgressRing(
+      createProgressBar(
         T.downloadProgressLabel,
         task.pct,
         task.isMagnetMetadata
           ? T.resolvingMetadata
           : (task.downloadProgressAvailable ? `${fmtBytes(task.completed)} / ${fmtBytes(task.total)}` : T.unknownSize),
-        'var(--accent)',
+        task.status === 'complete',
         task.downloadProgressAvailable,
+        task.speed,
+        task.status === 'active',
+        previousDetailGid === task.gid && Number.isFinite(previousPercent) ? previousPercent : null,
       ),
     );
     body.appendChild(progressGrid);
@@ -1222,10 +1263,10 @@
     );
     if (task.status === 'active') {
       kv.append(
-        detailRow(T.speedLabel, `${fmtSpeed(task.speed)}${task.uploadSpeed > 0 ? ` / ↑ ${fmtSpeed(task.uploadSpeed)}` : ''}`),
         detailRow(T.etaLabel, fmtEta(task.speed, task.total, task.completed)),
         detailRow(T.connectionsLabel, `${task.connections}`)
       );
+      if (task.uploadSpeed > 0) kv.append(detailRow(T.statUpSpeedLabel, fmtSpeed(task.uploadSpeed)));
     }
     if (task.status === 'waiting') kv.append(detailRow(T.connectionsLabel, T.waitingDetail));
     if (task.status === 'paused') kv.append(detailRow(T.connectionsLabel, T.pausedDetail));
@@ -1695,6 +1736,8 @@
     refreshConnectionConfig,
     isMagnetMetadataTask,
     taskUriEntries,
+    speedIndicator,
+    createProgressBar,
     T,
   };
 

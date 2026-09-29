@@ -166,7 +166,7 @@
     if (!cleanName) return true;
     const basename = cleanName.replace(/\.[a-z0-9]{2,5}$/i, '');
     if (!basename) return true;
-    if (/^(media|video|audio|play|stream|download|file)$/.test(basename)) return true;
+    if (/^(media|video|audio|play|stream|download|file|index|master|playlist|movie)$/.test(basename)) return true;
     if (/^[a-f0-9]{16,}$/i.test(basename)) return true;
     if (/^\d{10,}$/.test(basename)) return true;
     return false;
@@ -177,8 +177,14 @@
     if (preferred && !isLowQualityFilename(preferred)) return preferred;
     const urlName = sanitizeFilenamePart(filenameFromUrl(item.resourceUrl || ''));
     if (urlName && !isLowQualityFilename(urlName)) return urlName;
+    // Both candidates are generic at this point. Prefer the URL basename
+    // because it usually distinguishes manifests better than a server-wide
+    // Content-Disposition placeholder such as "media" or "video".
+    const genericName = urlName || preferred;
+    const genericBasename = genericName.replace(/\.[a-z0-9]{2,5}$/i, '');
+    const discriminator = genericBasename || (item.kind === 'audio' ? 'audio' : 'video');
     const pageTitle = sanitizeFilenamePart(item.pageTitle || '');
-    if (pageTitle) return `${pageTitle}-${item.kind === 'audio' ? 'audio' : 'video'}`;
+    if (pageTitle) return `${pageTitle}-${discriminator}`;
     const host = (() => {
       try {
         return new URL(item.pageUrl || item.referrer || item.resourceUrl || '').hostname.replace(/^www\./, '');
@@ -186,7 +192,7 @@
         return 'media';
       }
     })();
-    return `${host || 'media'}-${item.kind === 'audio' ? 'audio' : 'video'}`;
+    return `${host || 'media'}-${discriminator}`;
   }
 
   function fallbackMediaFilename(item = {}) {
