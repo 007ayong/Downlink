@@ -2497,8 +2497,8 @@ async function openMotrixNextView() {
       await chrome.tabs.create({ url: deepLink });
       return { ok: true, url: deepLink, target: deepLink, mode: 'direct-fallback' };
     } catch (fallbackError) {
-      const errorMessage = fallbackError?.message || error?.message || t('cannotLaunchMotrix', undefined, '无法唤起 MotrixNext');
-      notify(t('motrixOpenFailed', undefined, 'MotrixNext 打开失败'), errorMessage);
+      const errorMessage = fallbackError?.message || error?.message || t('cannotLaunchMotrix', undefined, '无法唤起 Rayburst');
+      notify(t('motrixOpenFailed', undefined, 'Rayburst 打开失败'), errorMessage);
       return { ok: false, error: errorMessage };
     }
   }

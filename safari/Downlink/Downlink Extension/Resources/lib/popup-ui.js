@@ -40,7 +40,7 @@
 
   function getDownloaderName(cfg = {}) {
     if (cfg?.downloaderType === 'abdownload') return 'AB DM';
-    if (cfg?.downloaderType === 'motrixnext') return 'MotrixNext';
+    if (cfg?.downloaderType === 'motrixnext') return 'Rayburst';
     if (cfg?.downloaderType === 'gopeed') return 'Gopeed';
     if (cfg?.downloaderType === 'neatdm') return 'NeatDM';
     return 'Aria2';

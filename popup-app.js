@@ -555,7 +555,7 @@ function createTaskCard(task, { name, stateKey, pct, showProgress, eta, canViewI
 
   const actions = document.createElement('div');
   actions.className = 'task-actions';
-  if (canViewInMotrix) actions.appendChild(createTaskButton(popupAppT('motrixView', undefined, 'MotrixNext中查看'), 'motrix-view'));
+  if (canViewInMotrix) actions.appendChild(createTaskButton(popupAppT('motrixView', undefined, 'Rayburst中查看'), 'motrix-view'));
   if (canViewInGopeed) actions.appendChild(createTaskButton(popupAppT('gopeedView', undefined, 'Gopeed中查看'), 'gopeed-view'));
   // 只有 Aria2 任务支持扩展侧暂停/继续，Gopeed 等其他下载器不显示这两个按钮。
   const canPause = !task.provider || task.provider === 'aria2';
@@ -1097,8 +1097,8 @@ function renderTasks(tasks, pending) {
               if (!res?.ok) {
                 showToast(popupAppT(
                   'openFailed',
-                  [res?.error || popupAppT('cannotLaunchMotrix', undefined, '无法唤起 MotrixNext')],
-                  `打开失败：${res?.error || '无法唤起 MotrixNext'}`
+                  [res?.error || popupAppT('cannotLaunchMotrix', undefined, '无法唤起 Rayburst')],
+                  `打开失败：${res?.error || '无法唤起 Rayburst'}`
                 ));
               }
               setTimeout(() => {
@@ -1935,7 +1935,7 @@ document.getElementById('testMotrixNextBtn').addEventListener('click', () => {
   const testConfig = getTestConnectionConfig();
   updateHeaderStatusDisplay({ cfg: testConfig, state: 'checking' });
   resultEl.className = 'conn-result';
-  resultEl.textContent = popupAppT('downloaderConnecting', ['MotrixNext'], 'MotrixNext 连接中…');
+  resultEl.textContent = popupAppT('downloaderConnecting', ['Rayburst'], 'Rayburst 连接中…');
   resultEl.style.display = 'block';
   chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', config: testConfig }, (res) => {
     updateHeaderStatusDisplay({
@@ -1946,11 +1946,11 @@ document.getElementById('testMotrixNextBtn').addEventListener('click', () => {
     });
     if (res?.ok) {
       resultEl.className = 'conn-result ok';
-      resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('motrixNextReady', undefined, 'MotrixNext 已就绪')], `${res.message || 'MotrixNext 已就绪'}`);
+      resultEl.textContent = popupAppT('connectedEndpoint', [res.message || popupAppT('motrixNextReady', undefined, 'Rayburst 已就绪')], `${res.message || 'Rayburst 已就绪'}`);
       return;
     }
     resultEl.className = 'conn-result fail';
-    resultEl.textContent = getConnectionFailureMessage('MotrixNext');
+    resultEl.textContent = getConnectionFailureMessage('Rayburst');
   });
 });
 

@@ -1094,7 +1094,7 @@ test('motrixnext view returns error and notifies when both bridge and direct ope
   assert.equal(result.ok, false);
   assert.equal(result.error, 'cannot open');
   assert.equal(background.chrome._notificationCalls.length, 1);
-  assert.equal(background.chrome._notificationCalls[0].title, 'MotrixNext 打开失败');
+  assert.equal(background.chrome._notificationCalls[0].title, 'Rayburst 打开失败');
   assert.equal(background.chrome._notificationCalls[0].message, 'cannot open');
 });
 
@@ -6250,7 +6250,7 @@ test('MotrixNext connection test fails when incoming secret is rejected', async 
 
   assert.equal(result.ok, false);
   assert.equal(result.mode, 'motrixnext');
-  assert.equal(result.error, '与 MotrixNext 连接失败，检查 MotrixNext 是否正在运行');
+  assert.equal(result.error, '与 Rayburst 连接失败，检查 Rayburst 是否正在运行');
 });
 
 test('Gopeed connection test uses incoming API and token', async () => {

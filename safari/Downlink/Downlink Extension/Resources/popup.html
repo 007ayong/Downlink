@@ -1907,7 +1907,7 @@
       <!-- 原生 select 保留为值载体，供表单读取与自动化/测试使用 -->
       <select class="settings-input wide downloader-picker__native" id="cfgDownloaderType" tabindex="-1" aria-hidden="true">
         <option value="aria2">Aria2 RPC</option>
-        <option value="motrixnext">Rayburst（原 MotrixNext）</option>
+        <option value="motrixnext">Rayburst</option>
         <option value="gopeed">Gopeed</option>
         <option value="abdownload">AB DM</option>
         <option value="neatdm">NeatDM</option>
@@ -1982,11 +1982,11 @@
       <button class="btn btn-ghost settings-test-button" id="testLauncherBtn" data-i18n="connectionTest">连接测试</button>
     </div>
     <div class="settings-row col motrixnext-only settings-hidden">
-      <label><span data-i18n="settingsMotrixNextPort">MotrixNext 端口</span> <span class="settings-sub" data-i18n="settingsMotrixNextPortSub">在下载器「设置 -- 高级 -- 浏览器扩展」处的端口</span></label>
+      <label><span data-i18n="settingsMotrixNextPort">Rayburst 端口</span> <span class="settings-sub" data-i18n="settingsMotrixNextPortSub">在下载器「设置 -- 高级 -- 浏览器扩展」处的端口</span></label>
       <input class="settings-input wide" id="cfgMotrixNextPort" type="text" placeholder="29110"/>
     </div>
     <div class="settings-row col motrixnext-only settings-hidden">
-      <label><span data-i18n="settingsMotrixNextSecret">MotrixNext 密钥</span> <span class="settings-sub" data-i18n="settingsMotrixNextSecretSub">在下载器「设置 -- 高级 -- 浏览器扩展」处的密钥</span></label>
+      <label><span data-i18n="settingsMotrixNextSecret">Rayburst 密钥</span> <span class="settings-sub" data-i18n="settingsMotrixNextSecretSub">在下载器「设置 -- 高级 -- 浏览器扩展」处的密钥</span></label>
       <input class="settings-input wide" id="cfgMotrixNextSecret" type="password" placeholder="留空则不使用" data-i18n-placeholder="settingsRpcSecretPlaceholder"/>
     </div>
     <div class="settings-row col settings-test-row motrixnext-only settings-hidden">
@@ -2027,7 +2027,7 @@
       <button class="add-save-location-btn" type="button" id="addAria2SaveLocationBtn" data-i18n="addSaveLocation">添加保存位置</button>
     </div>
     <div class="settings-row aria2-only">
-      <label><span data-i18n="settingsUseMotrixNext">使用 MotrixNext 管理</span> <span class="settings-sub" data-i18n="settingsUseMotrixNextSub">在任务面板显示“Motrix中查看”，默认关闭</span></label>
+      <label><span data-i18n="settingsUseMotrixNext">使用 Rayburst 管理</span> <span class="settings-sub" data-i18n="settingsUseMotrixNextSub">在任务面板显示“Rayburst中查看”，默认关闭</span></label>
       <label class="toggle"><input type="checkbox" id="cfgUseMotrixNext"><div class="toggle-track"></div></label>
     </div>
     <div class="settings-row gopeed-only settings-hidden">
