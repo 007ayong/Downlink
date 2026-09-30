@@ -861,32 +861,6 @@
       return forwarded;
     }
 
-    function supportsGopeedHlsVersion(version) {
-      const match = String(version || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9a-z.-]+))?(?:\+[0-9a-z.-]+)?$/i);
-      if (!match) return false;
-      const core = [Number(match[1]), Number(match[2]), Number(match[3])];
-      const minimumCore = [2, 0, 0];
-      for (let index = 0; index < core.length; index += 1) {
-        if (core[index] !== minimumCore[index]) return core[index] > minimumCore[index];
-      }
-      if (!match[4]) return true;
-
-      const current = match[4].toLowerCase().split('.');
-      const minimum = ['beta', '3'];
-      const length = Math.max(current.length, minimum.length);
-      for (let index = 0; index < length; index += 1) {
-        if (current[index] === undefined) return false;
-        if (minimum[index] === undefined) return true;
-        if (current[index] === minimum[index]) continue;
-        const currentNumeric = /^\d+$/.test(current[index]);
-        const minimumNumeric = /^\d+$/.test(minimum[index]);
-        if (currentNumeric && minimumNumeric) return Number(current[index]) > Number(minimum[index]);
-        if (currentNumeric !== minimumNumeric) return !currentNumeric;
-        return current[index] > minimum[index];
-      }
-      return true;
-    }
-
     function getGopeedStreamUnsupportedReason(taskInfo = {}) {
       const protocol = getGopeedStreamProtocol(taskInfo);
       if (!protocol) return '';
@@ -945,16 +919,6 @@
       const unsupportedReason = getGopeedStreamUnsupportedReason(taskInfo);
       if (unsupportedReason) return { ok: false, unsupported: true, error: unsupportedReason };
       try {
-        if (getGopeedStreamProtocol(taskInfo) === 'hls') {
-          const info = await gopeedRequest('/api/v1/info', undefined, { method: 'GET' });
-          if (!supportsGopeedHlsVersion(info?.version)) {
-            return {
-              ok: false,
-              unsupported: true,
-              error: 'Gopeed HLS 下载需要 2.0.0-beta.3 或更高版本',
-            };
-          }
-        }
         const data = await gopeedRequest('/api/v1/tasks', undefined, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

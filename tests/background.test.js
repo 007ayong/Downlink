@@ -4822,7 +4822,7 @@ test('Gopeed media send includes edited filename and required media headers', as
   assert.equal(Object.hasOwn(requestBody.req.extra.header, 'range'), false);
 });
 
-test('Gopeed HLS send checks native support and forwards safe playlist headers', async () => {
+test('Gopeed HLS send creates a native task and forwards safe playlist headers', async () => {
   const requests = [];
   const background = loadBackgroundRuntime(
     {
@@ -4836,7 +4836,6 @@ test('Gopeed HLS send checks native support and forwards safe playlist headers',
         return {
           ok: true,
           async json() {
-            if (url.endsWith('/api/v1/info')) return { code: 0, data: { version: '2.0.0-beta.3' } };
             return { code: 0, data: 'gopeed-hls-1' };
           },
         };
@@ -4874,11 +4873,10 @@ test('Gopeed HLS send checks native support and forwards safe playlist headers',
 
   assert.equal(result.ok, true);
   assert.equal(result.gid, 'gopeed-hls-1');
-  assert.equal(requests.length, 2);
-  assert.match(requests[0].url, /\/api\/v1\/info$/);
+  assert.equal(requests.length, 1);
   assert.equal(requests[0].options.headers['X-Api-Token'], 'gopeed-token');
-  assert.match(requests[1].url, /\/api\/v1\/tasks$/);
-  assert.deepEqual(requests[1].body, {
+  assert.match(requests[0].url, /\/api\/v1\/tasks$/);
+  assert.deepEqual(requests[0].body, {
     req: {
       url: 'https://cdn.example.com/live/master.m3u8?token=1',
       extra: {
@@ -4896,14 +4894,14 @@ test('Gopeed HLS send checks native support and forwards safe playlist headers',
   });
 });
 
-test('Gopeed HLS send rejects versions without native HLS support', async () => {
+test('Gopeed HLS send does not gate task creation on the reported version', async () => {
   const requests = [];
   const background = loadBackgroundRuntime(
     { downloaderType: 'gopeed' },
     {
       fetch: async (url, options = {}) => {
         requests.push({ url, options });
-        return { ok: true, json: async () => ({ code: 0, data: { version: '1.9.3' } }) };
+        return { ok: true, json: async () => ({ code: 0, data: 'gopeed-hls-dev' }) };
       },
     }
   );
@@ -4918,48 +4916,10 @@ test('Gopeed HLS send rejects versions without native HLS support', async () => 
     streamProtocol: 'hls',
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(result.unsupported, true);
-  assert.match(result.error, /2\.0\.0-beta\.3/);
+  assert.equal(result.ok, true);
+  assert.equal(result.gid, 'gopeed-hls-dev');
   assert.equal(requests.length, 1);
-  assert.match(requests[0].url, /\/api\/v1\/info$/);
-});
-
-test('Gopeed HLS version check follows semver prerelease ordering', async () => {
-  async function tryVersion(version) {
-    let requestCount = 0;
-    const clients = loadBackgroundRuntime(
-      { downloaderType: 'gopeed' },
-      {
-        fetch: async (url) => {
-          requestCount += 1;
-          if (url.endsWith('/api/v1/info')) {
-            return { ok: true, json: async () => ({ code: 0, data: { version } }) };
-          }
-          return { ok: true, json: async () => ({ code: 0, data: `task-${version}` }) };
-        },
-      }
-    ).BackgroundDownloaders.createClients({
-      getConfig: () => ({ downloaderType: 'gopeed', gopeedApi: 'http://127.0.0.1:9999' }),
-      notify() {},
-    });
-    const result = await clients.sendTask({
-      url: 'https://cdn.example.com/master.m3u8',
-      streamProtocol: 'hls',
-    });
-    return { result, requestCount };
-  }
-
-  for (const version of ['2.0.0-beta.3', '2.0.0-beta.4', '2.0.0-rc.1', '2.0.0', '2.0.1-alpha.1', 'v3.0.0']) {
-    const outcome = await tryVersion(version);
-    assert.equal(outcome.result.ok, true, version);
-    assert.equal(outcome.requestCount, 2, version);
-  }
-  for (const version of ['1.9.9', '2.0.0-alpha.9', '2.0.0-beta', '2.0.0-beta.2']) {
-    const outcome = await tryVersion(version);
-    assert.equal(outcome.result.unsupported, true, version);
-    assert.equal(outcome.requestCount, 1, version);
-  }
+  assert.match(requests[0].url, /\/api\/v1\/tasks$/);
 });
 
 test('Gopeed rejects unsupported stream inputs before creating a normal file task', async () => {

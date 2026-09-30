@@ -221,7 +221,7 @@ Required fields:
 
 Downlink sends tasks through the Gopeed HTTP API with `POST /api/v1/tasks`. Intercepted normal downloads enter the confirmation panel by default; enable "Silent normal downloads" in settings to start them automatically. `opts.extra.connections = 1` is sent only when "Single thread, no splitting" is checked in the confirmation panel; otherwise connection options are omitted. The extension does not pass a save path to Gopeed, so the downloader controls the download location.
 
-HLS manifests in the media panel can be handed to Gopeed's native streaming downloader. This requires Gopeed `2.0.0-beta.3` or later and a manifest URL whose path ends in `.m3u8`; Downlink checks `/api/v1/info` before creating the task. Only safe playback request headers are forwarded, and Gopeed chooses the merged output name and extension. Gopeed's current native implementation handles VOD HLS only; DASH, live HLS, and extensionless HLS entry points remain subject to Gopeed's limitations. Inputs Downlink can identify up front are rejected explicitly instead of silently downloading only the manifest.
+HLS manifests in the media panel can be handed to Gopeed's native streaming downloader when the manifest URL path ends in `.m3u8`. Downlink does not gate HLS on Gopeed's reported version; it sends the task directly and lets the current Gopeed build determine support. Only safe playback request headers are forwarded, and Gopeed chooses the merged output name and extension. Gopeed's current native implementation handles VOD HLS only; DASH, live HLS, and extensionless HLS entry points remain subject to Gopeed's limitations. Inputs Downlink can identify up front are rejected explicitly instead of silently downloading only the manifest.
 
 ### AB DM
 
