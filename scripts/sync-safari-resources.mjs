@@ -32,8 +32,6 @@ export const SHARED_FILES = Object.freeze([
   'preview.js',
   'gopeed-open.html',
   'gopeed-open.js',
-  'motrix-open.html',
-  'motrix-open.js',
   'aria2-tasks.html',
   'aria2-tasks.js',
   'aria2-settings.html',

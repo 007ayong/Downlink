@@ -1057,47 +1057,6 @@ test('rapid media discoveries are coalesced into one tab-scoped update', async (
   assert.equal(updates[0].media[3].length, 2);
 });
 
-test('motrixnext view action opens extension bridge page', async () => {
-  const background = loadBackgroundRuntime();
-  let openedUrl = '';
-  background.chrome.tabs.create = async ({ url }) => {
-    openedUrl = url;
-  };
-
-  const result = await background.openMotrixNextView();
-  assert.equal(result.ok, true);
-  assert.equal(openedUrl, 'chrome-extension://test/motrix-open.html');
-  assert.equal(result.target, 'rayburst://');
-});
-
-test('motrixnext view falls back to direct deep link when bridge page fails', async () => {
-  const background = loadBackgroundRuntime();
-  const openedUrls = [];
-  background.chrome.tabs.create = async ({ url }) => {
-    openedUrls.push(url);
-    if (url.includes('motrix-open.html')) throw new Error('bridge open failed');
-  };
-
-  const result = await background.openMotrixNextView();
-  assert.equal(result.ok, true);
-  assert.equal(result.mode, 'direct-fallback');
-  assert.deepEqual(openedUrls, ['chrome-extension://test/motrix-open.html', 'rayburst://']);
-});
-
-test('motrixnext view returns error and notifies when both bridge and direct open fail', async () => {
-  const background = loadBackgroundRuntime();
-  background.chrome.tabs.create = async () => {
-    throw new Error('cannot open');
-  };
-
-  const result = await background.openMotrixNextView();
-  assert.equal(result.ok, false);
-  assert.equal(result.error, 'cannot open');
-  assert.equal(background.chrome._notificationCalls.length, 1);
-  assert.equal(background.chrome._notificationCalls[0].title, 'Rayburst 打开失败');
-  assert.equal(background.chrome._notificationCalls[0].message, 'cannot open');
-});
-
 test('gopeed view action opens extension bridge page', async () => {
   const background = loadBackgroundRuntime();
   let openedUrl = '';

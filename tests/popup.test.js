@@ -1403,14 +1403,6 @@ test('task icon error handler falls back to default icon once', () => {
   assert.equal(img.src, 'assets/file-icons/still-missing.svg');
 });
 
-test('motrix button only shows for aria2 mode with motrix flag enabled', () => {
-  const canViewInMotrix = (cfg) => cfg.downloaderType === 'aria2' && !!cfg.useMotrixNext;
-  assert.equal(canViewInMotrix({ downloaderType: 'aria2', useMotrixNext: true }), true);
-  assert.equal(canViewInMotrix({ downloaderType: 'abdownload', useMotrixNext: true }), false);
-  assert.equal(canViewInMotrix({ downloaderType: 'motrixnext', useMotrixNext: true }), false);
-  assert.equal(canViewInMotrix({ downloaderType: 'neatdm', useMotrixNext: true }), false);
-});
-
 test('AB DM display name is fixed', () => {
   const popup = loadPopupRuntime();
   assert.equal(popup.getDownloaderName({ downloaderType: 'abdownload', externalLauncherName: 'Custom Name' }), 'AB DM');
@@ -1451,7 +1443,6 @@ test('aria2 test connection sends the current form config', () => {
     aria2Silent: false,
     aria2CustomSaveEnabled: false,
     aria2SaveLocations: [],
-    useMotrixNext: false,
     motrixNextPort: '29110',
     motrixNextSecret: '',
     gopeedApi: 'http://127.0.0.1:9999',
@@ -1509,7 +1500,6 @@ test('AB DM test connection sends the current form config', () => {
     aria2Silent: false,
     aria2CustomSaveEnabled: false,
     aria2SaveLocations: [],
-    useMotrixNext: false,
     motrixNextPort: '29110',
     motrixNextSecret: '',
     gopeedApi: 'http://127.0.0.1:9999',
@@ -1682,36 +1672,6 @@ test('aria2 custom save controls stay enabled while silent downloads are enabled
   assert.equal(saveLocationsRow.classList.contains('settings-hidden'), false);
 });
 
-test('cfgUseMotrixNext only binds one change listener for autosave', () => {
-  const { context, listenersById } = loadPopupSettingsRuntime();
-  let scheduleCalls = 0;
-  const controller = context.PopupSettings.createSettingsController({
-    getCurrentConfig: () => ({}),
-    setCurrentConfig() {},
-    getCurrentState: () => ({ tasks: {}, pending: {} }),
-    getLoading: () => false,
-    setLoading() {},
-    getAutoSaveTimer: () => null,
-    setAutoSaveTimer() {},
-    getSaveFeedbackTimer: () => null,
-    setSaveFeedbackTimer() {},
-    syncGlobals() {},
-    updateSettingsVisibility() {},
-    updateDynamicLabels() {},
-    updateHeaderStatusDisplay() {},
-    renderTasks() {},
-    checkStatus() {},
-  });
-
-  controller.scheduleAutoSave = () => {
-    scheduleCalls += 1;
-  };
-  controller.bindSettingsEvents();
-
-  const changeListeners = listenersById.get('cfgUseMotrixNext')?.change || [];
-  assert.equal(changeListeners.length, 1);
-});
-
 test('settings controller collects every visible config field from the form', () => {
   const { context } = loadPopupSettingsRuntime();
   const controller = context.PopupSettings.createSettingsController({
@@ -1735,7 +1695,6 @@ test('settings controller collects every visible config field from the form', ()
   context.document.getElementById('cfgRpc').value = 'http://127.0.0.1:6800/jsonrpc';
   context.document.getElementById('cfgSecret').value = 'secret';
   context.document.getElementById('cfgAria2Silent').checked = true;
-  context.document.getElementById('cfgUseMotrixNext').checked = true;
   context.document.getElementById('cfgMotrixNextPort').value = '16888';
   context.document.getElementById('cfgMotrixNextSecret').value = 'motrix-secret';
   context.document.getElementById('cfgGopeedSilent').checked = true;
@@ -1756,7 +1715,6 @@ test('settings controller collects every visible config field from the form', ()
     aria2Silent: true,
     aria2CustomSaveEnabled: false,
     aria2SaveLocations: [],
-    useMotrixNext: true,
     motrixNextPort: '16888',
     motrixNextSecret: 'motrix-secret',
     gopeedApi: 'http://127.0.0.1:9999',
@@ -2034,7 +1992,6 @@ test('all editable settings fields trigger autosave on change', async () => {
   assert.equal((await applyChange('cfgMediaSniffingBlacklist', '*')).config.mediaSniffingBlacklist, '*');
   assert.equal((await applyChange('cfgDownloadInterceptionBlacklist', 'web.telegram.org')).config.downloadInterceptionBlacklist, 'web.telegram.org');
   assert.equal((await applyChange('cfgSkipSmallDownloads', true, 'checked')).config.skipSmallDownloads, true);
-  assert.equal((await applyChange('cfgUseMotrixNext', true, 'checked')).config.useMotrixNext, true);
   assert.equal((await applyChange('cfgAbDownloadSilent', true, 'checked')).config.abDownloadSilent, true);
 });
 

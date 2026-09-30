@@ -29,7 +29,6 @@
 | `aria2TrackerSubscriptions` | `["https://ngosang.github.io/trackerslist/trackers_best.txt"]` | Tracker 列表订阅链接，保存后会自动抓取并合并到 `aria2Trackers` |
 | `aria2Trackers` | `[]` | 已解析的磁力链接 Tracker 缓存（存于本地，避免同步存储配额限制），创建磁力任务时通过 `bt-tracker` 传给 Aria2 |
 | `aria2TrackersUpdatedAt` | `0` | Tracker 缓存最近成功更新时间；浏览器启动时超过 24 小时会后台更新 |
-| `useMotrixNext` | `false` | 仅用于任务面板中快速跳转 MotrixNext 查看，不改变 Aria2 通讯方式 |
 
 ### 请求格式
 

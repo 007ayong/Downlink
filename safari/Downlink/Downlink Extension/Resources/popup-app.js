@@ -506,7 +506,7 @@ function appendTaskMeta(meta, text) {
   meta.appendChild(createTextElement('span', '', text));
 }
 
-function createTaskCard(task, { name, stateKey, pct, showProgress, eta, canViewInMotrix, canViewInGopeed }) {
+function createTaskCard(task, { name, stateKey, pct, showProgress, eta, canViewInGopeed }) {
   const card = document.createElement('div');
   card.className = `task-card ${stateKey}`;
 
@@ -555,7 +555,6 @@ function createTaskCard(task, { name, stateKey, pct, showProgress, eta, canViewI
 
   const actions = document.createElement('div');
   actions.className = 'task-actions';
-  if (canViewInMotrix) actions.appendChild(createTaskButton(popupAppT('motrixView', undefined, 'Rayburst中查看'), 'motrix-view'));
   if (canViewInGopeed) actions.appendChild(createTaskButton(popupAppT('gopeedView', undefined, 'Gopeed中查看'), 'gopeed-view'));
   // 只有 Aria2 任务支持扩展侧暂停/继续，Gopeed 等其他下载器不显示这两个按钮。
   const canPause = !task.provider || task.provider === 'aria2';
@@ -1070,7 +1069,6 @@ function renderTasks(tasks, pending) {
       }
       if (['complete', 'sent'].includes(stateKey)) doneCount++;
 
-      const canViewInMotrix = currentConfig.downloaderType === 'aria2' && !!currentConfig.useMotrixNext;
       const canViewInGopeed = task.provider === 'gopeed';
 
       const showProgress = ['active', 'paused', 'waiting', 'complete'].includes(stateKey);
@@ -1083,31 +1081,12 @@ function renderTasks(tasks, pending) {
         return `${(sec / 3600).toFixed(1)}h`;
       })();
 
-      const card = createTaskCard(task, { name, stateKey, pct, showProgress, eta, canViewInMotrix, canViewInGopeed });
+      const card = createTaskCard(task, { name, stateKey, pct, showProgress, eta, canViewInGopeed });
       taskList.appendChild(card);
       const icon = card.querySelector('.task-icon img');
       if (icon) icon.addEventListener('error', handleTaskIconError);
       card.querySelectorAll('[data-action]').forEach((btn) => {
         btn.addEventListener('click', () => {
-          if (btn.dataset.action === 'motrix-view') {
-            btn.disabled = true;
-            const originalText = btn.textContent;
-            btn.textContent = popupAppT('opening', undefined, '打开中…');
-            chrome.runtime.sendMessage({ type: 'OPEN_MOTRIXNEXT_VIEW' }, (res) => {
-              if (!res?.ok) {
-                showToast(popupAppT(
-                  'openFailed',
-                  [res?.error || popupAppT('cannotLaunchMotrix', undefined, '无法唤起 Rayburst')],
-                  `打开失败：${res?.error || '无法唤起 Rayburst'}`
-                ));
-              }
-              setTimeout(() => {
-                btn.disabled = false;
-                btn.textContent = originalText;
-              }, 500);
-            });
-            return;
-          }
           if (btn.dataset.action === 'gopeed-view') {
             btn.disabled = true;
             const originalText = btn.textContent;

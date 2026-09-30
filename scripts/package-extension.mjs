@@ -153,8 +153,6 @@ const archivePaths = [
   'popup.html',
   'popup.js',
   'popup-app.js',
-  'motrix-open.html',
-  'motrix-open.js',
   'gopeed-open.html',
   'gopeed-open.js',
   'aria2-tasks.html',

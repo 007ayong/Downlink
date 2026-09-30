@@ -33,7 +33,6 @@ const DEFAULT_CONFIG = {
   aria2TrackerSubscriptions: [DEFAULT_ARIA2_TRACKER_SUBSCRIPTION],
   aria2Trackers: [],
   aria2TrackersUpdatedAt: 0,
-  useMotrixNext: false,
   motrixNextPort: '29110',
   motrixNextSecret: '',
   gopeedApi: 'http://127.0.0.1:9999',
@@ -1551,38 +1550,12 @@ function notify(title, message) {
   });
 }
 
-function buildMotrixNextDeepLink() {
-  return 'rayburst://';
-}
-
-function buildMotrixNextBridgeUrl() {
-  return chrome.runtime.getURL('motrix-open.html');
-}
-
 function buildGopeedDeepLink() {
   return 'gopeed://';
 }
 
 function buildGopeedBridgeUrl() {
   return chrome.runtime.getURL('gopeed-open.html');
-}
-
-async function openMotrixNextView() {
-  const deepLink = buildMotrixNextDeepLink();
-  try {
-    const bridgeUrl = buildMotrixNextBridgeUrl();
-    await chrome.tabs.create({ url: bridgeUrl });
-    return { ok: true, url: bridgeUrl, target: deepLink, mode: 'bridge' };
-  } catch (error) {
-    try {
-      await chrome.tabs.create({ url: deepLink });
-      return { ok: true, url: deepLink, target: deepLink, mode: 'direct-fallback' };
-    } catch (fallbackError) {
-      const errorMessage = fallbackError?.message || error?.message || t('cannotLaunchMotrix', undefined, '无法唤起 Rayburst');
-      notify(t('motrixOpenFailed', undefined, 'Rayburst 打开失败'), errorMessage);
-      return { ok: false, error: errorMessage };
-    }
-  }
 }
 
 async function openGopeedView() {
@@ -2620,9 +2593,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, ...result });
         }
         break;
-      case 'OPEN_MOTRIXNEXT_VIEW':
-        sendResponse(await openMotrixNextView());
-        break;
       case 'OPEN_GOPEED_VIEW':
         sendResponse(await openGopeedView());
         break;
@@ -2764,7 +2734,6 @@ chrome.runtime.onStartup.addListener(async () => {
 });
 
 globalThis.isDirectMediaResource = isDirectMediaResource;
-globalThis.openMotrixNextView = openMotrixNextView;
 globalThis.openGopeedView = openGopeedView;
 globalThis.getBackgroundConfig = () => config;
 globalThis.__backgroundTestHooks = {

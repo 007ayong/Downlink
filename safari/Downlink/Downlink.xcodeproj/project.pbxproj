@@ -25,8 +25,6 @@
 		DD443B473009DC32007F0E9E /* popup-app.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B353009DC32007F0E9E /* popup-app.js */; };
 		DD443B483009DC32007F0E9E /* popup.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B363009DC32007F0E9E /* popup.js */; };
 		DD443B493009DC32007F0E9E /* gopeed-open.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B373009DC32007F0E9E /* gopeed-open.js */; };
-		DD443B4A3009DC32007F0E9E /* motrix-open.html in Resources */ = {isa = PBXBuildFile; fileRef = DD443B383009DC32007F0E9E /* motrix-open.html */; };
-		DD443B4B3009DC32007F0E9E /* motrix-open.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B393009DC32007F0E9E /* motrix-open.js */; };
 		DD443B4C3009DC32007F0E9E /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = DD443B3A3009DC32007F0E9E /* LICENSE */; };
 		DD443B4D3009DC32007F0E9E /* gopeed-open.html in Resources */ = {isa = PBXBuildFile; fileRef = DD443B3B3009DC32007F0E9E /* gopeed-open.html */; };
 		DD443B4E3009DC32007F0E9E /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = DD443B3C3009DC32007F0E9E /* background.js */; };
@@ -113,8 +111,6 @@
 		DD443B353009DC32007F0E9E /* popup-app.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "popup-app.js"; path = "Resources/popup-app.js"; sourceTree = "<group>"; };
 		DD443B363009DC32007F0E9E /* popup.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = popup.js; path = Resources/popup.js; sourceTree = "<group>"; };
 		DD443B373009DC32007F0E9E /* gopeed-open.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "gopeed-open.js"; path = "Resources/gopeed-open.js"; sourceTree = "<group>"; };
-		DD443B383009DC32007F0E9E /* motrix-open.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "motrix-open.html"; path = "Resources/motrix-open.html"; sourceTree = "<group>"; };
-		DD443B393009DC32007F0E9E /* motrix-open.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "motrix-open.js"; path = "Resources/motrix-open.js"; sourceTree = "<group>"; };
 		DD443B3A3009DC32007F0E9E /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; name = LICENSE; path = Resources/LICENSE; sourceTree = "<group>"; };
 		DD443B3B3009DC32007F0E9E /* gopeed-open.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "gopeed-open.html"; path = "Resources/gopeed-open.html"; sourceTree = "<group>"; };
 		DD443B3C3009DC32007F0E9E /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = background.js; path = Resources/background.js; sourceTree = "<group>"; };
@@ -252,8 +248,6 @@
 				DD443B353009DC32007F0E9E /* popup-app.js */,
 				DD443B363009DC32007F0E9E /* popup.js */,
 				DD443B373009DC32007F0E9E /* gopeed-open.js */,
-				DD443B383009DC32007F0E9E /* motrix-open.html */,
-				DD443B393009DC32007F0E9E /* motrix-open.js */,
 				DD443B3A3009DC32007F0E9E /* LICENSE */,
 				DD443B3B3009DC32007F0E9E /* gopeed-open.html */,
 				DD443B3C3009DC32007F0E9E /* background.js */,
@@ -446,7 +440,6 @@
 				DD443B463009DC32007F0E9E /* filename-logic.js in Resources */,
 				DD443B563009DC32007F0E9E /* assets in Resources */,
 				DD443B4C3009DC32007F0E9E /* LICENSE in Resources */,
-				DD443B4B3009DC32007F0E9E /* motrix-open.js in Resources */,
 				DD443B4E3009DC32007F0E9E /* background.js in Resources */,
 				DD443B4F3009DC32007F0E9E /* popup.html in Resources */,
 				DD443B533009DC32007F0E9E /* lib in Resources */,
@@ -455,7 +448,6 @@
 				DD443B543009DC32007F0E9E /* content-script.js in Resources */,
 				DD443B523009DC32007F0E9E /* manifest.json in Resources */,
 				DD443B4D3009DC32007F0E9E /* gopeed-open.html in Resources */,
-				DD443B4A3009DC32007F0E9E /* motrix-open.html in Resources */,
 				DD443B493009DC32007F0E9E /* gopeed-open.js in Resources */,
 				DD443B483009DC32007F0E9E /* popup.js in Resources */,
 				DD443B513009DC32007F0E9E /* icons in Resources */,
