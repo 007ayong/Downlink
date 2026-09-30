@@ -2564,42 +2564,35 @@ function broadcastUpdate(mediaTabId) {
 const downloaderClients = downloaders.createClients({
   getConfig: () => config,
   notify,
-  onBeforeAria2Send: () => {
-    for (const [gid, task] of Object.entries(tasks)) {
-      if (task?.gid && task.status !== 'paused') hiddenTaskGids[gid] = true;
+  onTaskAccepted: ({ provider, gid, taskInfo, status, trackable }) => {
+    for (const [oldGid, task] of Object.entries(tasks)) {
+      if (!task?.gid || task.status === 'paused') continue;
+      delete tasks[oldGid];
+      delete hiddenTaskGids[oldGid];
     }
-    broadcastUpdate();
-  },
-  onAria2TaskQueued: (gid, taskInfo) => {
     clearUiAlert();
+    if (!trackable || !gid) {
+      broadcastUpdate();
+      return undefined;
+    }
     const addedAt = taskInfo.addedAt || Date.now();
     tasks[gid] = {
       gid,
       url: taskInfo.url,
       filename: taskInfo.filename,
       addedAt,
-      status: 'active',
-      provider: 'aria2',
+      status,
+      provider,
     };
     delete hiddenTaskGids[gid];
     broadcastUpdate();
-    return Promise.all([
-      rememberAria2OriginalUris(gid, [taskInfo.url]),
-      rememberAria2TaskAddedAt(gid, addedAt),
-    ]);
-  },
-  onGopeedTaskQueued: (gid, taskInfo) => {
-    clearUiAlert();
-    tasks[gid] = {
-      gid,
-      url: taskInfo.url,
-      filename: taskInfo.filename,
-      addedAt: taskInfo.addedAt || Date.now(),
-      status: 'sent',
-      provider: 'gopeed',
-    };
-    delete hiddenTaskGids[gid];
-    broadcastUpdate();
+    if (provider === 'aria2') {
+      return Promise.all([
+        rememberAria2OriginalUris(gid, [taskInfo.url]),
+        rememberAria2TaskAddedAt(gid, addedAt),
+      ]);
+    }
+    return undefined;
   },
   getPendingRayburstRequest,
   savePendingRayburstRequest,

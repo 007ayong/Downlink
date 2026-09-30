@@ -485,6 +485,17 @@ test('Safari restores successful bridge navigations without replaying redirect h
   assert.match(recoveryFunction, /successful local bridge navigation recovered/);
 });
 
+test('Safari uses the generic successful-task hook for floating-panel rotation', () => {
+  const source = readSafariBackground();
+  const clients = source.slice(
+    source.indexOf('const downloaderClients = downloaders.createClients'),
+    source.indexOf('function rayburstMergeTrackType')
+  );
+  assert.match(clients, /onTaskAccepted/);
+  assert.match(clients, /if \(!trackable \|\| !gid\)/);
+  assert.doesNotMatch(clients, /onBeforeAria2Send|onAria2TaskQueued|onGopeedTaskQueued/);
+});
+
 test('Safari records committed pages and created navigation targets as bridge recovery sources', () => {
   const source = readSafariBackground();
   const listeners = source.slice(

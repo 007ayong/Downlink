@@ -1315,9 +1315,16 @@ function isUserDownloadLikeResponse(details = {}) {
   return ['main_frame', 'sub_frame', 'object', 'other'].includes(type);
 }
 
-function shouldSendFromResponseHeaders(details = {}, classification = {}, redirectIntent = null) {
+function shouldSendFromResponseHeaders(details = {}, classification = {}, redirectIntent = null, sourceFilename = '') {
   if (redirectIntent) {
     return Boolean(classification.shouldCapture && (classification.byDisposition || classification.byExt || classification.byMime));
+  }
+  if (isFirefoxRuntime && sourceFilename) {
+    return Boolean(
+      classification.shouldCapture &&
+      (classification.byExt || classification.byMime) &&
+      isUserDownloadLikeResponse(details)
+    );
   }
   return Boolean(
     classification.shouldCapture &&
@@ -1658,42 +1665,35 @@ function broadcastUpdate(mediaTabId) {
 const downloaderClients = downloaders.createClients({
   getConfig: () => config,
   notify,
-  onBeforeAria2Send: () => {
-    for (const [gid, task] of Object.entries(tasks)) {
-      if (task?.gid && task.status !== 'paused') hiddenTaskGids[gid] = true;
+  onTaskAccepted: ({ provider, gid, taskInfo, status, trackable }) => {
+    for (const [oldGid, task] of Object.entries(tasks)) {
+      if (!task?.gid || task.status === 'paused') continue;
+      delete tasks[oldGid];
+      delete hiddenTaskGids[oldGid];
     }
-    broadcastUpdate();
-  },
-  onAria2TaskQueued: (gid, taskInfo) => {
     clearUiAlert();
+    if (!trackable || !gid) {
+      broadcastUpdate();
+      return undefined;
+    }
     const addedAt = taskInfo.addedAt || Date.now();
     tasks[gid] = {
       gid,
       url: taskInfo.url,
       filename: taskInfo.filename,
       addedAt,
-      status: 'active',
-      provider: 'aria2',
+      status,
+      provider,
     };
     delete hiddenTaskGids[gid];
     broadcastUpdate();
-    return Promise.all([
-      rememberAria2OriginalUris(gid, [taskInfo.url]),
-      rememberAria2TaskAddedAt(gid, addedAt),
-    ]);
-  },
-  onGopeedTaskQueued: (gid, taskInfo) => {
-    clearUiAlert();
-    tasks[gid] = {
-      gid,
-      url: taskInfo.url,
-      filename: taskInfo.filename,
-      addedAt: taskInfo.addedAt || Date.now(),
-      status: 'sent',
-      provider: 'gopeed',
-    };
-    delete hiddenTaskGids[gid];
-    broadcastUpdate();
+    if (provider === 'aria2') {
+      return Promise.all([
+        rememberAria2OriginalUris(gid, [taskInfo.url]),
+        rememberAria2TaskAddedAt(gid, addedAt),
+      ]);
+    }
+    return undefined;
   },
   getPendingRayburstRequest,
   savePendingRayburstRequest,
@@ -2062,6 +2062,7 @@ chrome.webRequest.onHeadersReceived.addListener(
 
     const classification = classifyDownloadCandidate(config, {
       url: details.url,
+      filename: redirectIntent?.sourceFilename || requestMeta.sourceFilename || '',
       mime: contentType,
       contentDisposition,
       source: 'headers',
@@ -2085,7 +2086,12 @@ chrome.webRequest.onHeadersReceived.addListener(
     markedUrls.set(details.url, markedInfo);
     cleanExpired(markedUrls);
 
-    if (!shouldSendFromResponseHeaders(details, classification, redirectIntent)) return;
+    if (!shouldSendFromResponseHeaders(
+      details,
+      classification,
+      redirectIntent,
+      redirectIntent?.sourceFilename || requestMeta.sourceFilename || '',
+    )) return;
     if (shouldSkipSmallDownloadSize(totalBytes, config)) return;
 
     const captureResponse = () => {

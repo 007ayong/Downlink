@@ -1710,6 +1710,48 @@ test('Firefox response header capture blocks the browser download before its pan
   assert.deepEqual(background.chrome._downloadCalls.cancel, []);
 });
 
+test('Firefox blocks extensionless binary responses using the clicked download filename', async () => {
+  const background = loadBackgroundRuntime({
+    __firefoxRuntime: true,
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+  const signedUrl = 'https://files.example.com/download?signature=abc';
+
+  const tracked = await invokeBackgroundMessage(
+    background,
+    { type: 'TRACK_DOWNLOAD_CLICK', url: signedUrl, filename: 'release.zip' },
+    { tab: { id: 7, windowId: 9, url: 'https://example.com/releases' } },
+  );
+  assert.equal(tracked.ok, true);
+  await invokeSendHeaders(background, {
+    url: signedUrl,
+    tabId: 7,
+    method: 'GET',
+    requestHeaders: [{ name: 'Referer', value: 'https://example.com/releases' }],
+  });
+  const results = await invokeResponseHeaders(background, {
+    url: signedUrl,
+    tabId: 7,
+    type: 'main_frame',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-type', value: 'application/octet-stream' },
+      { name: 'content-length', value: '2048' },
+    ],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(results[0])), { cancel: true });
+  assert.equal(background.chrome._actionCalls.openPopup, 1);
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].filename, 'release.zip');
+});
+
 test('Firefox runtime does not read unsupported onDeterminingFilename API', async () => {
   const background = loadBackgroundRuntime({
     __firefoxRuntime: true,
@@ -4071,8 +4113,7 @@ test('AB DM downloader label is fixed', () => {
   const clients = background.BackgroundDownloaders.createClients({
     getConfig: () => ({ downloaderType: 'abdownload' }),
     notify() {},
-    onBeforeAria2Send() {},
-    onAria2TaskQueued() {},
+    onTaskAccepted() {},
   });
 
   assert.equal(clients.getDownloaderLabel('abdownload', { downloaderType: 'abdownload' }), 'AB DM');
@@ -4113,8 +4154,7 @@ test('Aria2 sends wait for the queued-task persistence callback', async () => {
       aria2SaveLocations: [],
     }),
     notify() {},
-    onBeforeAria2Send() {},
-    onAria2TaskQueued() {
+    onTaskAccepted() {
       return queued;
     },
   });
@@ -4135,6 +4175,94 @@ test('Aria2 sends wait for the queued-task persistence callback', async () => {
   const result = await outcome;
   assert.equal(result.ok, true);
   assert.equal(result.gid, 'queued-gid-1');
+});
+
+test('successful cross-downloader sends and untracked launchers hide old floating-panel tasks', async () => {
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://localhost:6800/jsonrpc',
+      aria2Secret: '',
+      aria2Silent: true,
+      gopeedApi: 'http://127.0.0.1:9999',
+      gopeedToken: '',
+      gopeedSilent: true,
+    },
+    {
+      fetch: async (url, options = {}) => {
+        if (String(url).includes('/jsonrpc')) {
+          return { ok: true, async json() { return { result: 'aria2-old' }; } };
+        }
+        if (String(url).includes('/api/v1/tasks')) {
+          return { ok: true, async json() { return { code: 0, data: 'gopeed-new' }; } };
+        }
+        if (String(url).includes(':15151/add')) return { ok: true };
+        throw new Error(`unexpected fetch ${url} ${options.method || 'GET'}`);
+      },
+    },
+  );
+
+  const first = await invokeBackgroundMessage(background, {
+    type: 'ADD_URL', url: 'https://example.com/old.zip', filename: 'old.zip',
+  });
+  assert.equal(first.ok, true);
+  await invokeBackgroundMessage(background, { type: 'SAVE_CONFIG', config: { downloaderType: 'gopeed' } });
+  const second = await invokeBackgroundMessage(background, {
+    type: 'ADD_URL', url: 'https://example.com/new.zip', filename: 'new.zip',
+  });
+  assert.equal(second.ok, true);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(state.tasks['aria2-old'], undefined);
+  assert.ok(!state.hiddenTaskGids.includes('aria2-old'));
+  assert.ok(!state.hiddenTaskGids.includes('gopeed-new'));
+  assert.equal(state.tasks['gopeed-new'].provider, 'gopeed');
+
+  await invokeBackgroundMessage(background, { type: 'SAVE_CONFIG', config: { downloaderType: 'abdownload' } });
+  const third = await invokeBackgroundMessage(background, {
+    type: 'ADD_URL', url: 'https://example.com/external.zip', filename: 'external.zip',
+  });
+  assert.equal(third.ok, true);
+  const finalState = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.equal(finalState.tasks['gopeed-new'], undefined);
+  assert.ok(!finalState.hiddenTaskGids.includes('gopeed-new'));
+});
+
+test('failed sends keep existing floating-panel tasks visible', async () => {
+  let failGopeed = false;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://localhost:6800/jsonrpc',
+      aria2Secret: '',
+      aria2Silent: true,
+      gopeedApi: 'http://127.0.0.1:9999',
+      gopeedToken: '',
+      gopeedSilent: true,
+    },
+    {
+      fetch: async (url) => {
+        if (String(url).includes('/jsonrpc')) {
+          return { ok: true, async json() { return { result: 'aria2-visible' }; } };
+        }
+        if (failGopeed) throw new Error('offline');
+        throw new Error(`unexpected fetch ${url}`);
+      },
+    },
+  );
+
+  await invokeBackgroundMessage(background, {
+    type: 'ADD_URL', url: 'https://example.com/old.zip', filename: 'old.zip',
+  });
+  await invokeBackgroundMessage(background, { type: 'SAVE_CONFIG', config: { downloaderType: 'gopeed' } });
+  failGopeed = true;
+  const failed = await invokeBackgroundMessage(background, {
+    type: 'ADD_URL', url: 'https://example.com/new.zip', filename: 'new.zip',
+  });
+  assert.equal(failed.ok, false);
+
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  assert.ok(!state.hiddenTaskGids.includes('aria2-visible'));
 });
 
 test('AB DM normal sends use add endpoint by default', async () => {
@@ -4301,6 +4429,29 @@ test('Rayburst cancelled receipt is not reported as a successful submission', as
   const result = await clients.sendTask({ url: 'https://example.com/file.zip' });
   assert.equal(result.ok, false);
   assert.equal(result.cancelled, true);
+});
+
+test('Rayburst confirmation receipts do not rotate floating-panel tasks before submission', async () => {
+  let accepted = 0;
+  const background = loadBackgroundRuntime({}, {
+    fetch: async (url, options = {}) => {
+      if (url.endsWith('/downloads/capabilities')) {
+        return { ok: true, json: async () => ({ product: 'rayburst', protocolVersion: 2, filenameHints: true }) };
+      }
+      const body = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ id: body.id, action: 'needs-confirmation' }) };
+    },
+  });
+  const clients = background.BackgroundDownloaders.createClients({
+    getConfig: () => ({ downloaderType: 'motrixnext', motrixNextPort: '29110' }),
+    notify() {},
+    onTaskAccepted() { accepted += 1; },
+  });
+
+  const result = await clients.sendTask({ url: 'https://example.com/file.zip' });
+  assert.equal(result.ok, true);
+  assert.equal(result.pending, true);
+  assert.equal(accepted, 0);
 });
 
 test('Rayburst permits an explicit custom port matching the legacy default', async () => {
@@ -4584,9 +4735,11 @@ test('Rayburst collection combines one recognized video and audio with scoped re
       return { ok: true, json: async () => ({ id: probeId, submissionId: body.submissionId, gid: 'merged-gid' }) };
     },
   });
+  const accepted = [];
   const clients = background.BackgroundDownloaders.createClients({
     getConfig: () => ({ downloaderType: 'motrixnext', motrixNextPort: '29110', motrixNextSecret: 'secret' }),
     notify() {},
+    onTaskAccepted(task) { accepted.push(task); },
   });
   const result = await clients.sendRayburstCollection([
     {
@@ -4601,6 +4754,9 @@ test('Rayburst collection combines one recognized video and audio with scoped re
 
   assert.equal(result.ok, true);
   assert.equal(result.gid, 'merged-gid');
+  assert.equal(accepted.length, 1);
+  assert.equal(accepted[0].provider, 'motrixnext');
+  assert.equal(accepted[0].trackable, false);
   assert.equal(requests[1].body.source.kind, 'collection');
   assert.deepEqual(requests[1].body.source.input.tracks, [
     { id: 'downlink-video-1', type: 'video', urls: ['https://cdn.example/video/main.m4s'] },

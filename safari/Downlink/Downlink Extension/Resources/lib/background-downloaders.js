@@ -34,9 +34,7 @@
   function createClients({
     getConfig,
     notify,
-    onBeforeAria2Send,
-    onAria2TaskQueued,
-    onGopeedTaskQueued,
+    onTaskAccepted,
     getPendingRayburstRequest,
     savePendingRayburstRequest,
     removePendingRayburstRequest,
@@ -669,7 +667,7 @@
         const request = buildRayburstCollectionRequest(taskInfos, collectionId, filename);
         const videoId = request.source.input.tracks.find((track) => track.type === 'video')?.id;
         const audioId = request.source.input.tracks.find((track) => track.type === 'audio')?.id;
-        return await sendMediaToRayburst({
+        const taskInfo = {
           ...taskInfos[0],
           url: request.source.url,
           filename,
@@ -680,7 +678,18 @@
             subtitleId: null,
             format: format === 'mkv' ? 'mkv' : 'mp4',
           },
-        }, 'collection', overrideConfig);
+        };
+        const result = await sendMediaToRayburst(taskInfo, 'collection', overrideConfig);
+        if (result?.ok && !result.pending) {
+          await onTaskAccepted?.({
+            provider: 'motrixnext',
+            gid: result.gid || '',
+            taskInfo,
+            status: 'active',
+            trackable: false,
+          });
+        }
+        return result;
       } catch (err) {
         const detail = err?.message || String(err || '');
         if (detail.includes('unsupported_selection')) {
@@ -925,7 +934,6 @@
           body: JSON.stringify(buildGopeedRequest(taskInfo, extraOpts)),
         });
         const gid = (typeof data === 'string' && data) || data?.id || `gopeed_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-        onGopeedTaskQueued?.(gid, taskInfo);
         clearConnectionFailureNotificationCooldown('gopeed');
         notify(t('sentToLabel', [getDownloaderLabel('gopeed')], `已发送到 ${getDownloaderLabel('gopeed')}`), taskInfo.filename || taskInfo.url.slice(0, 80));
         return { ok: true, gid };
@@ -1168,7 +1176,6 @@
           aria2Opts.dir = defaultSaveLocation.path;
         }
         const gid = await addUriToAria2(taskInfo.url, taskInfo.filename, taskInfo.headers || {}, aria2Opts);
-        await onAria2TaskQueued?.(gid, taskInfo);
         clearConnectionFailureNotificationCooldown('aria2');
         notify(t('sentToLabel', [getDownloaderLabel()], `已发送到 ${getDownloaderLabel()}`), taskInfo.filename || taskInfo.url.slice(0, 80));
         return { ok: true, gid };
@@ -1181,12 +1188,24 @@
     async function sendTask(taskInfo, extraOpts = {}) {
       const config = getConfig();
       const normalizedTask = normalizeTaskInfo(taskInfo, extraOpts);
-      if (config.downloaderType === 'abdownload') return sendToExternalLauncher(normalizedTask, extraOpts);
-      if (config.downloaderType === 'motrixnext') return sendToMotrixNext(normalizedTask, extraOpts.connectionConfig);
-      if (config.downloaderType === 'gopeed') return sendToGopeed(normalizedTask, extraOpts);
-      if (config.downloaderType === 'neatdm') return sendToNeatdm(normalizedTask);
-      onBeforeAria2Send?.();
-      return sendToAria2(normalizedTask, extraOpts);
+      const provider = config.downloaderType || 'aria2';
+      let result;
+      if (provider === 'abdownload') result = await sendToExternalLauncher(normalizedTask, extraOpts);
+      else if (provider === 'motrixnext') result = await sendToMotrixNext(normalizedTask, extraOpts.connectionConfig);
+      else if (provider === 'gopeed') result = await sendToGopeed(normalizedTask, extraOpts);
+      else if (provider === 'neatdm') result = await sendToNeatdm(normalizedTask);
+      else result = await sendToAria2(normalizedTask, extraOpts);
+
+      if (result?.ok && !result.pending) {
+        await onTaskAccepted?.({
+          provider,
+          gid: result.gid || '',
+          taskInfo: normalizedTask,
+          status: provider === 'gopeed' ? 'sent' : 'active',
+          trackable: provider === 'aria2' || provider === 'gopeed',
+        });
+      }
+      return result;
     }
 
     return {
