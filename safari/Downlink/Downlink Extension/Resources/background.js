@@ -2607,6 +2607,31 @@ const downloaderClients = downloaders.createClients({
   fetchRequest: safariLocalServiceFetch,
 });
 
+function rayburstMergeTrackType(media = {}) {
+  if (media.streamProtocol || media.isLive === true) return '';
+  if (media.kind === 'audio' || media.kind === 'video') return media.kind;
+  const mime = String(media.mime || '').split(';')[0].trim().toLowerCase();
+  if (mime.startsWith('audio/')) return 'audio';
+  if (mime.startsWith('video/')) return 'video';
+  if (Number(media.width) > 0 && Number(media.height) > 0) return 'video';
+  const ext = extOf(media.filename || media.resourceUrl || '');
+  if (['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'oga', 'opus'].includes(ext)) return 'audio';
+  if (['mp4', 'webm', 'mkv', 'mov', 'avi', 'm4v', 'ogv', 'flv'].includes(ext)) return 'video';
+  return '';
+}
+
+function mediaResourceToRayburstTrack(media, trackType) {
+  return {
+    url: media.resourceUrl,
+    filename: media.filename || '',
+    headers: media.headers || {},
+    referrer: media.referrer || media.headers?.referer || media.pageUrl || '',
+    downloadPage: media.pageUrl || media.referrer || '',
+    pageTitle: media.pageTitle || '',
+    rayburstTrackType: trackType,
+  };
+}
+
 const {
   aria2Call,
   buildExternalEndpoint,
@@ -2614,6 +2639,7 @@ const {
   getAria2Status,
   getGopeedTasks,
   getDownloaderLabel,
+  sendRayburstCollection,
   sendTask: sendTaskToDownloader,
   testNeatdmConnection,
   testMotrixNextConnection,
@@ -3389,6 +3415,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           pageTitle: media.pageTitle || '',
           addedAt: Date.now(),
         }, { ...(msg.opts || {}), connectionConfig: msg.connectionConfig, abDownloadMode: 'headless' }, { openPopupOnFailure: false }));
+        break;
+      }
+      case 'ADD_RAYBURST_MEDIA_COLLECTION': {
+        if (config.downloaderType !== 'motrixnext') {
+          sendResponse({ ok: false, unsupported: true, error: t('rayburstMergeOnly', undefined, '智能合并仅支持 Rayburst') });
+          break;
+        }
+        const ids = Array.isArray(msg.ids) ? [...new Set(msg.ids.map(String))] : [];
+        const selected = ids.map((id) => mediaManager.findMediaResourceById(id)).filter(Boolean);
+        if (selected.length !== ids.length) {
+          sendResponse({ ok: false, error: t('mediaExpired', undefined, '媒体资源不存在或已过期。') });
+          break;
+        }
+        const tracks = selected.map((media) => ({ media, type: rayburstMergeTrackType(media) }));
+        if (tracks.some((track) => !track.type)) {
+          sendResponse({ ok: false, unsupported: true, error: t('rayburstMergeUnrecognized', undefined, '部分所选资源无法识别为音频或视频') });
+          break;
+        }
+        const hydratedTracks = await Promise.all(tracks.map(async ({ media, type }) => (
+          hydrateSafariTaskRequestContext(mediaResourceToRayburstTrack(media, type))
+        )));
+        sendResponse(await sendRayburstCollection(
+          hydratedTracks,
+          msg.filename || tracks.find((track) => track.type === 'video')?.media?.filename || '',
+          msg.format,
+          msg.connectionConfig,
+        ));
         break;
       }
       case 'GET_MEDIA_ITEM': {

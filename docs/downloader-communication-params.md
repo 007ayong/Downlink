@@ -158,6 +158,8 @@ Downlink 嗅探到 HLS (`.m3u8` 或对应 MIME) 和 MPEG-DASH (`.mpd` / `applica
 
 媒体 API 要求 Rayburst 配置非空扩展 API 密钥。当前 Downlink 版本采用 Rayburst 的默认轨道选择；后续可在扩展侧补充视频、音频、字幕、输出格式和直播录制时长选择。
 
+当 Rayburst 是当前下载器时，媒体列表还允许勾选一条已识别的视频直链和一条已识别的音频直链进行智能合并。Downlink 会构造 `kind: "collection"` 的媒体源，把两条资源分别标记为 `video` 和 `audio` 轨道，并保留各自按源 URL 隔离的请求上下文；Rayburst 负责下载、兼容性校验和最终 MP4/MKV 封装。清单、直播和无法可靠识别类型的资源不会进入此直链合并流程。
+
 ### 连接检测
 
 连接检测依次请求：

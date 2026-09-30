@@ -211,13 +211,11 @@
       overflow-y: auto;
       flex: 1;
       padding: 10px 12px;
-      scrollbar-width: thin;
-      scrollbar-color: var(--bg4) transparent;
+      scrollbar-width: none;
       display: none;
     }
     .panel.active { display: block; }
-    .panel::-webkit-scrollbar { width: 4px; }
-    .panel::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 4px; }
+    .panel::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
     /* ── Empty ───────────────────────────────── */
     .empty {
@@ -789,6 +787,155 @@
       gap: 6px;
       align-items: stretch;
       margin-top: 8px;
+    }
+
+    .rayburst-selection-bar {
+      position: sticky;
+      bottom: 0;
+      z-index: 12;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 9px;
+      padding: 8px 9px 8px 11px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg2);
+      box-shadow: 0 7px 22px rgba(0, 0, 0, 0.14);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    .rayburst-selection-bar[hidden] { display: none; }
+    .rayburst-selection-copy {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .rayburst-selection-title {
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .rayburst-selection-status {
+      color: var(--text-3);
+      font-size: 10px;
+      line-height: 1.35;
+    }
+    .rayburst-selection-bar .btn {
+      min-width: 82px;
+      flex: 0 0 auto;
+      padding: 7px 10px;
+    }
+    .rayburst-filename-row {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding-top: 7px;
+      border-top: 1px solid var(--border);
+    }
+    .rayburst-filename-label {
+      flex: 0 0 auto;
+      color: var(--text-3);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+    .rayburst-filename-input {
+      min-width: 0;
+      width: 100%;
+      height: 27px;
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--bg);
+      color: var(--text);
+      font: 500 11px 'Sora', sans-serif;
+      outline: none;
+    }
+    .rayburst-format-picker {
+      position: relative;
+      flex: 0 0 68px;
+    }
+    .rayburst-format-trigger {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 7px;
+      width: 100%;
+      height: 27px;
+      padding: 3px 8px 3px 9px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--bg);
+      color: var(--text);
+      font: 600 10.5px 'Sora', sans-serif;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+    .rayburst-format-trigger:hover { background: var(--bg3); }
+    .rayburst-format-trigger:focus-visible,
+    .rayburst-format-picker.open .rayburst-format-trigger {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-bg);
+    }
+    .rayburst-format-caret {
+      width: 0;
+      height: 0;
+      border-left: 3.5px solid transparent;
+      border-right: 3.5px solid transparent;
+      border-top: 4px solid var(--text-3);
+      transition: transform 0.15s;
+    }
+    .rayburst-format-picker.open .rayburst-format-caret { transform: rotate(180deg); }
+    .rayburst-format-menu {
+      display: none;
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: calc(100% + 5px);
+      z-index: 30;
+      padding: 4px;
+      border: 1px solid rgba(113, 123, 139, 0.34);
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 12px 30px rgba(35, 42, 54, 0.24), 0 2px 8px rgba(35, 42, 54, 0.14);
+    }
+    .rayburst-format-picker.open .rayburst-format-menu { display: grid; gap: 2px; }
+    .rayburst-format-option {
+      width: 100%;
+      padding: 6px 7px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--text);
+      font: 600 10.5px 'Sora', sans-serif;
+      text-align: left;
+      cursor: pointer;
+    }
+    .rayburst-format-option:hover { background: var(--bg3); color: var(--text); }
+    .rayburst-format-option[aria-selected="true"] {
+      background: var(--accent-bg);
+      color: var(--accent);
+    }
+    .rayburst-filename-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-bg);
+    }
+
+    .media-select-checkbox {
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      flex: 0 0 auto;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    .media-card-selected {
+      border-color: var(--accent);
     }
     .media-blacklist-btn {
       width: 100%;
@@ -1584,6 +1731,13 @@
       }
       .downloader-picker__option:hover { background: rgba(255, 255, 255, 0.10); }
       .downloader-picker__option.active { background: rgba(255, 255, 255, 0.16); }
+      .rayburst-format-menu {
+        background: #35373f;
+        border-color: rgba(255, 255, 255, 0.22);
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.58), 0 2px 8px rgba(0, 0, 0, 0.40);
+      }
+      .rayburst-format-option { color: #f5f4f2; }
+      .rayburst-format-option:hover { background: #464952; }
     }
 
     @media (prefers-color-scheme: light) {
@@ -1708,6 +1862,31 @@
     <div class="empty-sub" data-i18n="mediaEmptySub">打开页面中的音频或视频后会显示在这里</div>
   </div>
   <div class="media-list" id="mediaList"></div>
+  <div class="rayburst-selection-bar" id="rayburstMergeBar" hidden>
+    <div class="rayburst-selection-copy">
+      <div class="rayburst-selection-title" data-i18n="rayburstSmartMerge">Rayburst 智能合并</div>
+      <div class="rayburst-selection-status" id="rayburstMergeStatus"></div>
+    </div>
+    <button class="btn btn-primary" id="mergeRayburstMediaBtn" data-i18n="mergeWithRayburst" disabled>合并下载</button>
+    <div class="rayburst-filename-row">
+      <label class="rayburst-filename-label" for="rayburstMergeFilename" data-i18n="outputFilename">文件名</label>
+      <input class="rayburst-filename-input" id="rayburstMergeFilename" type="text" autocomplete="off" spellcheck="false"/>
+      <div class="rayburst-format-picker" id="rayburstMergeFormatPicker">
+        <button class="rayburst-format-trigger" id="rayburstMergeFormatButton" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="rayburstMergeFormatMenu" aria-label="输出格式" data-i18n-aria-label="outputFormat">
+          <span id="rayburstMergeFormatLabel">MP4</span>
+          <span class="rayburst-format-caret" aria-hidden="true"></span>
+        </button>
+        <div class="rayburst-format-menu" id="rayburstMergeFormatMenu" role="listbox" aria-label="输出格式" data-i18n-aria-label="outputFormat">
+          <button class="rayburst-format-option" type="button" role="option" data-value="mp4" aria-selected="true">MP4</button>
+          <button class="rayburst-format-option" type="button" role="option" data-value="mkv" aria-selected="false">MKV</button>
+        </div>
+      </div>
+      <select class="downloader-picker__native" id="rayburstMergeFormat" tabindex="-1" aria-hidden="true">
+        <option value="mp4">MP4</option>
+        <option value="mkv">MKV</option>
+      </select>
+    </div>
+  </div>
 </div>
 
 <!-- Panel: Settings -->

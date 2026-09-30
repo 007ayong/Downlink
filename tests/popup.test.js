@@ -803,6 +803,83 @@ test('media metadata can refine audio-only mp4 resources', () => {
   );
 });
 
+test('Rayburst media list enables smart merge for one selected video and audio', async () => {
+  const video = {
+    id: 'video_1', resourceUrl: 'https://cdn.example/video.m4s', filename: 'movie.mp4',
+    kind: 'video', mime: 'video/mp4', width: 1920, height: 1080,
+    pageTitle: 'Example: Current / Page Title',
+  };
+  const audio = {
+    id: 'audio_1', resourceUrl: 'https://cdn.example/audio.m4s', filename: 'audio.m4a',
+    kind: 'audio', mime: 'audio/mp4', pageTitle: 'Example: Current / Page Title',
+  };
+  const popup = loadPopupRuntime({
+    state: { config: { downloaderType: 'motrixnext', motrixNextPort: '29110', motrixNextSecret: 'secret' }, media: { 1: [video, audio] } },
+    messageResponses: { ADD_RAYBURST_MEDIA_COLLECTION: { ok: true, gid: 'merged' } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const cards = popup.document.getElementById('mediaList').children;
+  const mergeBar = popup.document.getElementById('rayburstMergeBar');
+  assert.equal(mergeBar.hidden, true);
+  const videoCheckbox = cards[0].querySelector('[data-select-media-id]');
+  const audioCheckbox = cards[1].querySelector('[data-select-media-id]');
+  videoCheckbox.checked = true;
+  videoCheckbox._listeners.change[0]();
+  assert.equal(mergeBar.hidden, false);
+  audioCheckbox.checked = true;
+  audioCheckbox._listeners.change[0]();
+
+  const mergeButton = popup.document.getElementById('mergeRayburstMediaBtn');
+  assert.equal(mergeButton.disabled, false);
+  const filenameInput = popup.document.getElementById('rayburstMergeFilename');
+  const formatSelect = popup.document.getElementById('rayburstMergeFormat');
+  assert.equal(filenameInput.value, 'Example Current Page Title');
+  assert.equal(formatSelect.value, 'mp4');
+  filenameInput.value = 'renamed-output.mp4';
+  formatSelect.value = 'mkv';
+  mergeButton.click();
+  const message = popup.chrome._sentMessages.findLast((item) => item?.type === 'ADD_RAYBURST_MEDIA_COLLECTION');
+  assert.deepEqual(JSON.parse(JSON.stringify(message)), {
+    type: 'ADD_RAYBURST_MEDIA_COLLECTION',
+    ids: ['video_1', 'audio_1'],
+    filename: 'renamed-output',
+    format: 'mkv',
+    connectionConfig: { motrixNextPort: '29110', motrixNextSecret: 'secret' },
+  });
+});
+
+test('switching to Rayburst immediately adds media merge checkboxes', async () => {
+  const media = [
+    {
+      id: 'video_switch', resourceUrl: 'https://cdn.example/video.m4s', filename: 'movie.mp4',
+      kind: 'video', mime: 'video/mp4', width: 1920, height: 1080,
+    },
+    {
+      id: 'audio_switch', resourceUrl: 'https://cdn.example/audio.m4s', filename: 'audio.m4a',
+      kind: 'audio', mime: 'audio/mp4',
+    },
+  ];
+  const popup = loadPopupRuntime({
+    state: { config: { downloaderType: 'aria2' }, media: { 1: media } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const list = popup.document.getElementById('mediaList');
+  const hasMediaSelectionCheckbox = (node) => Object.prototype.hasOwnProperty.call(node.dataset || {}, 'selectMediaId')
+    || (node.children || []).some(hasMediaSelectionCheckbox);
+  assert.equal(hasMediaSelectionCheckbox(list.children[0]), false);
+
+  const downloader = popup.document.getElementById('cfgDownloaderType');
+  downloader.value = 'motrixnext';
+  downloader._listeners.change.forEach((listener) => listener({ target: downloader }));
+
+  assert.equal(hasMediaSelectionCheckbox(list.children[0]), true);
+  assert.equal(hasMediaSelectionCheckbox(list.children[1]), true);
+});
+
 test('ambiguous media kind is not mislabeled as video before metadata arrives', () => {
   const popup = loadPopupRuntime();
   assert.equal(popup.mediaKindLabel('media'), '待识别');

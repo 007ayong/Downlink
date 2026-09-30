@@ -4552,6 +4552,111 @@ test('Rayburst media send probes and submits HLS with the default selection', as
   assert.deepEqual(requests[2].body.selection, defaultSelection);
 });
 
+test('Rayburst collection combines one recognized video and audio with scoped request contexts', async () => {
+  const requests = [];
+  let probeId = '';
+  const defaults = {
+    videoId: 'native-video-track', audioId: 'native-audio-track', subtitleId: null, format: 'mp4',
+    recordTimeSeconds: 0, startTimeSeconds: 0, endTimeSeconds: 0,
+  };
+  const background = loadBackgroundRuntime({}, {
+    fetch: async (url, options = {}) => {
+      const body = options.body ? JSON.parse(options.body) : null;
+      requests.push({ url, options, body });
+      if (url.endsWith('/media/v2/capabilities')) {
+        return { ok: true, json: async () => ({ product: 'rayburst', protocolVersion: 2, sourceKinds: ['collection'], requestContexts: true }) };
+      }
+      if (url.endsWith('/media/v2/probes')) {
+        probeId = body.id;
+        return { ok: true, json: async () => ({
+          id: probeId,
+          state: 'ready',
+          presentation: {
+            defaults,
+            formats: ['mp4', 'mkv'],
+            tracks: [
+              { id: 'native-video-track', type: 'video' },
+              { id: 'native-audio-track', type: 'audio' },
+            ],
+          },
+        }) };
+      }
+      return { ok: true, json: async () => ({ id: probeId, submissionId: body.submissionId, gid: 'merged-gid' }) };
+    },
+  });
+  const clients = background.BackgroundDownloaders.createClients({
+    getConfig: () => ({ downloaderType: 'motrixnext', motrixNextPort: '29110', motrixNextSecret: 'secret' }),
+    notify() {},
+  });
+  const result = await clients.sendRayburstCollection([
+    {
+      url: 'https://cdn.example/video/main.m4s', rayburstTrackType: 'video', filename: 'movie.mp4',
+      headers: { cookie: 'video=1', referer: 'https://watch.example/player' }, downloadPage: 'https://watch.example/player',
+    },
+    {
+      url: 'https://cdn.example/audio/main.m4s', rayburstTrackType: 'audio', filename: 'audio.m4a',
+      headers: { authorization: 'Bearer audio', referer: 'https://watch.example/player' }, downloadPage: 'https://watch.example/player',
+    },
+  ], 'movie', 'mkv');
+
+  assert.equal(result.ok, true);
+  assert.equal(result.gid, 'merged-gid');
+  assert.equal(requests[1].body.source.kind, 'collection');
+  assert.deepEqual(requests[1].body.source.input.tracks, [
+    { id: 'downlink-video-1', type: 'video', urls: ['https://cdn.example/video/main.m4s'] },
+    { id: 'downlink-audio-2', type: 'audio', urls: ['https://cdn.example/audio/main.m4s'] },
+  ]);
+  assert.deepEqual(requests[1].body.source.requestContexts, [
+    {
+      url: 'https://cdn.example/video/main.m4s',
+      headers: [
+        { name: 'authorization', value: 'Bearer audio' },
+        { name: 'referer', value: 'https://watch.example/player' },
+        { name: 'cookie', value: 'video=1' },
+      ],
+    },
+  ]);
+  assert.equal(requests[1].body.source.filename, 'movie');
+  assert.deepEqual(requests[2].body.selection, {
+    ...defaults,
+    format: 'mkv',
+  });
+});
+
+test('Rayburst collection rejects selections that are not exactly one video and one audio', async () => {
+  const background = loadBackgroundRuntime();
+  const clients = background.BackgroundDownloaders.createClients({ getConfig: () => ({}), notify() {} });
+  const result = await clients.sendRayburstCollection([
+    { url: 'https://cdn.example/one.mp4', rayburstTrackType: 'video' },
+    { url: 'https://cdn.example/two.mp4', rayburstTrackType: 'video' },
+  ], 'movie.mp4');
+  assert.equal(result.ok, false);
+  assert.equal(result.unsupported, true);
+});
+
+test('Rayburst collection rejects non-HTTP media before creating a probe', async () => {
+  const requests = [];
+  const background = loadBackgroundRuntime({}, {
+    fetch: async (url) => {
+      requests.push(url);
+      return { ok: true, json: async () => ({ product: 'rayburst', protocolVersion: 2, sourceKinds: ['collection'], requestContexts: true }) };
+    },
+  });
+  const clients = background.BackgroundDownloaders.createClients({
+    getConfig: () => ({ downloaderType: 'motrixnext', motrixNextPort: '29110', motrixNextSecret: 'secret' }),
+    notify() {},
+  });
+  const result = await clients.sendRayburstCollection([
+    { url: 'blob:https://watch.example/video', rayburstTrackType: 'video' },
+    { url: 'https://cdn.example/audio.m4a', rayburstTrackType: 'audio' },
+  ], 'movie', 'mp4');
+
+  assert.equal(result.ok, false);
+  assert.equal(result.unsupported, true);
+  assert.match(result.error, /HTTP\(S\)/);
+  assert.equal(requests.length, 0);
+});
+
 test('Rayburst media retry reuses probe and submission identities after a lost receipt', async () => {
   const pending = new Map();
   const probeIds = [];

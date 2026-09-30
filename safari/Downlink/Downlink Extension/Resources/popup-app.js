@@ -12,6 +12,7 @@ const popupAppT = popupAppI18n.t || ((key, substitutions, fallback = key) => {
 });
 const pendingFilenameDrafts = new Map();
 const mediaFilenameDrafts = new Map();
+const selectedRayburstMediaIds = new Set();
 const menuOriginalParents = new Map();
 const MEDIA_HOVER_PREVIEW_DELAY_MS = 280;
 const MEDIA_HOVER_PREVIEW_HIDE_DELAY_MS = 360;
@@ -577,6 +578,87 @@ function createMediaFact(iconName, text, className = '') {
   return fact;
 }
 
+function rayburstMergeTrackType(item = {}) {
+  if (item.streamProtocol || item.isLive === true) return '';
+  if (item.kind === 'audio' || item.kind === 'video') return item.kind;
+  const category = getFileCategory({ name: item.filename || item.resourceUrl, mime: item.mime, kind: item.kind });
+  return category === 'audio' || category === 'video' ? category : '';
+}
+
+function rayburstOutputBasename(filename = '') {
+  return String(filename || '').trim().replace(/\.(?:mp4|mkv|webm|mov|m4v|m4s|avi|flv|ts)$/i, '');
+}
+
+function rayburstDefaultMergeBasename(items = []) {
+  const pageTitle = items.find((item) => String(item?.pageTitle || '').trim())?.pageTitle || '';
+  const cleanTitle = globalThis.FilenameLogic?.sanitizeFilenamePart?.(pageTitle) || String(pageTitle).trim();
+  if (cleanTitle) return rayburstOutputBasename(cleanTitle);
+  const video = items.find((item) => rayburstMergeTrackType(item) === 'video');
+  return video ? rayburstOutputBasename(getMediaFilenameValue(video)) : '';
+}
+
+function setRayburstMergeFormat(value = 'mp4') {
+  const format = value === 'mkv' ? 'mkv' : 'mp4';
+  const native = document.getElementById('rayburstMergeFormat');
+  const label = document.getElementById('rayburstMergeFormatLabel');
+  if (native) native.value = format;
+  if (label) label.textContent = format.toUpperCase();
+  document.querySelectorAll('.rayburst-format-option').forEach((option) => {
+    option.setAttribute('aria-selected', String(option.dataset.value === format));
+  });
+}
+
+function closeRayburstFormatPicker() {
+  const picker = document.getElementById('rayburstMergeFormatPicker');
+  const button = document.getElementById('rayburstMergeFormatButton');
+  picker?.classList.remove('open');
+  button?.setAttribute('aria-expanded', 'false');
+}
+
+function updateRayburstMergeControls(media = []) {
+  const button = document.getElementById('mergeRayburstMediaBtn');
+  const bar = document.getElementById('rayburstMergeBar');
+  const status = document.getElementById('rayburstMergeStatus');
+  const filenameInput = document.getElementById('rayburstMergeFilename');
+  const formatSelect = document.getElementById('rayburstMergeFormat');
+  if (!button) return;
+  const enabled = currentConfig.downloaderType === 'motrixnext';
+  const existingIds = new Set(media.map((item) => item.id));
+  for (const id of selectedRayburstMediaIds) {
+    if (!existingIds.has(id)) selectedRayburstMediaIds.delete(id);
+  }
+  const selected = media.filter((item) => selectedRayburstMediaIds.has(item.id));
+  if (bar) bar.hidden = !enabled || selected.length === 0;
+  const types = selected.map(rayburstMergeTrackType).sort();
+  const selectedVideo = selected.find((item) => rayburstMergeTrackType(item) === 'video');
+  const validPair = selected.length === 2 && types[0] === 'audio' && types[1] === 'video';
+  button.disabled = !validPair;
+  button.textContent = popupAppT('mergeWithRayburst', undefined, '合并下载');
+  button.title = validPair ? '' : popupAppT('rayburstMergeSelectionHint', undefined, '请选择一条视频和一条音频');
+  if (status) {
+    status.textContent = validPair
+      ? popupAppT('rayburstMergeReady', undefined, '已自动匹配视频与音频')
+      : types[0] === 'video'
+        ? popupAppT('rayburstMergeNeedAudio', undefined, '已选择视频，还需选择音频')
+        : types[0] === 'audio'
+          ? popupAppT('rayburstMergeNeedVideo', undefined, '已选择音频，还需选择视频')
+          : popupAppT('rayburstMergeSelectionHint', undefined, '请选择一条视频和一条音频');
+  }
+  if (filenameInput) {
+    const videoId = selectedVideo?.id || '';
+    if (filenameInput.dataset.videoId !== videoId) {
+      filenameInput.dataset.videoId = videoId;
+      filenameInput.value = selectedVideo ? rayburstDefaultMergeBasename(selected) : '';
+      if (formatSelect) setRayburstMergeFormat('mp4');
+    }
+    filenameInput.disabled = !selectedVideo;
+  }
+  document.querySelectorAll('[data-select-media-id]').forEach((checkbox) => {
+    checkbox.checked = selectedRayburstMediaIds.has(checkbox.dataset.selectMediaId);
+    checkbox.closest?.('.media-card')?.classList.toggle('media-card-selected', checkbox.checked);
+  });
+}
+
 function createMediaCard(item, { iconSrc, durationText, resolutionText, displayFilename }) {
   const displayKind = mediaDisplayKind(item);
   const card = document.createElement('div');
@@ -611,6 +693,16 @@ function createMediaCard(item, { iconSrc, durationText, resolutionText, displayF
   titleRow.appendChild(nameEl);
   titleRow.appendChild(nameInput);
   titleRow.appendChild(editBtn);
+  if (currentConfig.downloaderType === 'motrixnext' && rayburstMergeTrackType(item)) {
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'media-select-checkbox';
+    checkbox.checked = selectedRayburstMediaIds.has(item.id);
+    checkbox.dataset.selectMediaId = item.id;
+    checkbox.title = popupAppT('mergeWithRayburst', undefined, '合并下载');
+    checkbox.setAttribute('aria-label', `${popupAppT('mergeWithRayburst', undefined, '合并下载')}：${displayFilename}`);
+    titleRow.appendChild(checkbox);
+  }
   titleRow.appendChild(createTextElement('span', `media-chip media-kind kind-${displayKind}`, mediaKindLabel(displayKind)));
 
   const urlEl = createTextElement('div', 'media-url', item.resourceUrl || '');
@@ -1419,7 +1511,7 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
   const addSiteToMediaBlacklistBtn = document.getElementById('addSiteToMediaBlacklistBtn');
   renderInlineAlert('mediaAlert');
   const media = currentTabId == null ? [] : (mediaByTab?.[currentTabId] || []);
-  const mediaKey = buildMediaRenderKey(media);
+  const mediaKey = `${currentConfig.downloaderType}:${buildMediaRenderKey(media)}`;
   const mediaCount = media.length;
   const isBlacklistBlocked = currentTabId != null && mediaBlacklistBlockedTabs.includes(currentTabId);
   const blacklistBlockedLabel = popupAppT('mediaSniffingBlocked', undefined, '当前网站已在媒体嗅探黑名单中');
@@ -1488,6 +1580,7 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
     switchTab('media');
   }
   previousMediaCount = mediaCount;
+  updateRayburstMergeControls(media);
   syncPopupGlobals();
 
   if (mediaKey === lastRenderedMediaKey) return;
@@ -1522,6 +1615,20 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
     }
     const icon = card.querySelector('.media-icon img');
     if (icon) icon.addEventListener('error', handleTaskIconError);
+    const selectCheckbox = card.querySelector('[data-select-media-id]');
+    if (selectCheckbox) {
+      selectCheckbox.addEventListener('change', () => {
+        if (selectCheckbox.checked) {
+          const selectedType = rayburstMergeTrackType(item);
+          for (const selectedId of selectedRayburstMediaIds) {
+            const selectedItem = media.find((candidate) => candidate.id === selectedId);
+            if (rayburstMergeTrackType(selectedItem) === selectedType) selectedRayburstMediaIds.delete(selectedId);
+          }
+          selectedRayburstMediaIds.add(item.id);
+        } else selectedRayburstMediaIds.delete(item.id);
+        updateRayburstMergeControls(media);
+      });
+    }
 
     if ((item.kind === 'video' || item.kind === 'media') && (!item.width || !item.height) && !item.metadataFailed && !item.metadataProbed) {
       // Defer metadata loading slightly to allow initial UI paint and avoid
@@ -1728,6 +1835,10 @@ document.getElementById('cfgLanguage').addEventListener('change', () => {
 document.getElementById('cfgDownloaderType').addEventListener('change', (event) => {
   const nextType = event.target.value;
   const nextCfg = normalizePopupConfig({ ...currentConfig, ...collectSettingsFromForm(), downloaderType: nextType });
+  currentConfig = { ...currentConfig, ...nextCfg };
+  lastRenderedMediaKey = '';
+  renderMedia(currentState.media, currentState.pausedTabs, currentState.mediaBlacklistBlockedTabs);
+  syncPopupGlobals();
   updateHeaderStatusDisplay({ cfg: nextCfg, state: 'checking', stat: null, message: '' });
 });
 
@@ -1897,6 +2008,69 @@ document.getElementById('clearMediaBtn').addEventListener('click', () => {
     lastAutoSwitchedMediaCount = 0;
     syncPopupGlobals();
     showToast(popupAppT('clearedCurrentPageMedia', undefined, '已清空当前页面媒体列表'));
+  });
+});
+
+document.getElementById('rayburstMergeFormatButton')?.addEventListener('click', (event) => {
+  event.stopPropagation();
+  const picker = document.getElementById('rayburstMergeFormatPicker');
+  const button = event.currentTarget;
+  const open = !picker?.classList.contains('open');
+  picker?.classList.toggle('open', open);
+  button.setAttribute('aria-expanded', String(open));
+});
+
+document.getElementById('rayburstMergeFormatMenu')?.addEventListener('click', (event) => {
+  const option = event.target.closest('.rayburst-format-option');
+  if (!option) return;
+  setRayburstMergeFormat(option.dataset.value);
+  closeRayburstFormatPicker();
+  document.getElementById('rayburstMergeFormatButton')?.focus();
+});
+
+document.addEventListener?.('click', closeRayburstFormatPicker);
+document.getElementById('rayburstMergeFormatPicker')?.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    closeRayburstFormatPicker();
+    document.getElementById('rayburstMergeFormatButton')?.focus();
+  }
+});
+
+document.getElementById('mergeRayburstMediaBtn').addEventListener('click', (event) => {
+  const button = event.currentTarget;
+  const media = currentTabId == null ? [] : (currentState.media?.[currentTabId] || []);
+  const selected = media.filter((item) => selectedRayburstMediaIds.has(item.id));
+  const video = selected.find((item) => rayburstMergeTrackType(item) === 'video');
+  const audio = selected.find((item) => rayburstMergeTrackType(item) === 'audio');
+  if (selected.length !== 2 || !video || !audio) {
+    showToast(popupAppT('rayburstMergeSelectionHint', undefined, '请选择一条视频和一条音频'));
+    return;
+  }
+  const originalText = button.textContent;
+  const filenameInput = document.getElementById('rayburstMergeFilename');
+  const formatSelect = document.getElementById('rayburstMergeFormat');
+  button.disabled = true;
+  button.textContent = popupAppT('rayburstMergeSending', undefined, '正在合并发送…');
+  chrome.runtime.sendMessage({
+    type: 'ADD_RAYBURST_MEDIA_COLLECTION',
+    ids: selected.map((item) => item.id),
+    filename: rayburstOutputBasename(filenameInput?.value) || rayburstDefaultMergeBasename(selected),
+    format: formatSelect?.value === 'mkv' ? 'mkv' : 'mp4',
+    connectionConfig: {
+      motrixNextPort: currentConfig.motrixNextPort,
+      motrixNextSecret: currentConfig.motrixNextSecret,
+    },
+  }, (res) => {
+    if (res?.ok) {
+      selectedRayburstMediaIds.clear();
+      if (filenameInput) filenameInput.dataset.videoId = '';
+      document.querySelectorAll('[data-select-media-id]').forEach((checkbox) => { checkbox.checked = false; });
+      showToast(popupAppT('rayburstMergeSent', undefined, '已发送到 Rayburst 合并下载'));
+    } else {
+      showToast(res?.error || popupAppT('sendToDownloaderFailed', undefined, '发送到下载器失败。'));
+    }
+    button.textContent = originalText;
+    updateRayburstMergeControls(media);
   });
 });
 

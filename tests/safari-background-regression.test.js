@@ -57,6 +57,24 @@ const safariPopupPath = path.join(
   'Resources',
   'popup.js'
 );
+const safariPopupAppPath = path.join(
+  __dirname,
+  '..',
+  'safari',
+  'Downlink',
+  'Downlink Extension',
+  'Resources',
+  'popup-app.js'
+);
+const safariPopupHtmlPath = path.join(
+  __dirname,
+  '..',
+  'safari',
+  'Downlink',
+  'Downlink Extension',
+  'Resources',
+  'popup.html'
+);
 const safariHandlerPath = path.join(
   __dirname,
   '..',
@@ -161,6 +179,24 @@ test('Safari media tasks preserve stream metadata for Rayburst', () => {
   assert.match(sendWrapper, /if \(cookieHeader\) headers\.cookie = cookieHeader/);
   assert.match(sendWrapper, /headers\['user-agent'\] = navigator\.userAgent/);
   assert.match(sendWrapper, /sendTaskToDownloader\(hydratedTaskInfo, extraOpts\)/);
+});
+
+test('Safari packages the complete Rayburst collection merge workflow', () => {
+  const background = readSafariBackground();
+  const popupApp = fs.readFileSync(safariPopupAppPath, 'utf8');
+  const popupHtml = fs.readFileSync(safariPopupHtmlPath, 'utf8');
+  const handler = background.slice(
+    background.indexOf("case 'ADD_RAYBURST_MEDIA_COLLECTION'"),
+    background.indexOf("case 'GET_MEDIA_ITEM'")
+  );
+
+  assert.match(popupHtml, /id="rayburstMergeBar"/);
+  assert.match(popupHtml, /id="rayburstMergeFormatPicker"/);
+  assert.match(popupApp, /type: 'ADD_RAYBURST_MEDIA_COLLECTION'/);
+  assert.match(popupApp, /currentConfig\.downloaderType === 'motrixnext'/);
+  assert.match(handler, /hydrateSafariTaskRequestContext/);
+  assert.match(handler, /sendRayburstCollection/);
+  assert.match(handler, /msg\.format/);
 });
 
 test('Safari popup exposes the media display classifier used by media cards', () => {
