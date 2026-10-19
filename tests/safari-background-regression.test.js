@@ -170,7 +170,8 @@ test('Safari media tasks preserve stream metadata for Rayburst', () => {
   assert.match(handler, /streamProtocol: media\.streamProtocol \|\| ''/);
   assert.match(handler, /isLive: typeof media\.isLive === 'boolean' \? media\.isLive : undefined/);
   assert.match(handler, /pageTitle: media\.pageTitle \|\| ''/);
-  assert.match(handler, /connectionConfig: msg\.connectionConfig/);
+  assert.match(handler, /taskOrigin: 'media-sniffing'/);
+  assert.match(handler, /motrixNextConnectionConfig: msg\.connectionConfig/);
   const sendWrapper = source.slice(
     source.indexOf('async function hydrateSafariTaskRequestContext'),
     source.indexOf('async function pollTasks')
@@ -178,7 +179,7 @@ test('Safari media tasks preserve stream metadata for Rayburst', () => {
   assert.match(sendWrapper, /await getCookieHeaderForUrl\(taskInfo\.url\)/);
   assert.match(sendWrapper, /if \(cookieHeader\) headers\.cookie = cookieHeader/);
   assert.match(sendWrapper, /headers\['user-agent'\] = navigator\.userAgent/);
-  assert.match(sendWrapper, /sendTaskToDownloader\(hydratedTaskInfo, extraOpts\)/);
+  assert.match(sendWrapper, /sendTaskToDownloader\(hydratedTaskInfo, extraOpts, providerContext\)/);
 });
 
 test('Safari packages the complete Rayburst collection merge workflow', () => {

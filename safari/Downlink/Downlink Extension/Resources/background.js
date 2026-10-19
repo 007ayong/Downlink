@@ -2629,9 +2629,14 @@ async function hydrateSafariTaskRequestContext(taskInfo = {}) {
   };
 }
 
-async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false, shouldReportFailure = () => true } = {}) {
+async function sendTask(
+  taskInfo,
+  extraOpts = {},
+  { openPopupOnFailure = false, shouldReportFailure = () => true } = {},
+  providerContext = {},
+) {
   const hydratedTaskInfo = await hydrateSafariTaskRequestContext(taskInfo);
-  const result = await sendTaskToDownloader(hydratedTaskInfo, extraOpts);
+  const result = await sendTaskToDownloader(hydratedTaskInfo, extraOpts, providerContext);
   if (result?.ok) {
     clearUiAlert();
     return result;
@@ -3379,8 +3384,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           streamProtocol: media.streamProtocol || '',
           isLive: typeof media.isLive === 'boolean' ? media.isLive : undefined,
           pageTitle: media.pageTitle || '',
+          taskOrigin: 'media-sniffing',
           addedAt: Date.now(),
-        }, { ...(msg.opts || {}), connectionConfig: msg.connectionConfig, abDownloadMode: 'headless' }, { openPopupOnFailure: false }));
+        }, msg.opts || {}, { openPopupOnFailure: false }, {
+          motrixNextConnectionConfig: msg.connectionConfig,
+        }));
         break;
       }
       case 'ADD_RAYBURST_MEDIA_COLLECTION': {

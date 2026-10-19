@@ -3547,6 +3547,52 @@ test('Aria2 silent downloads omit dir when custom save locations are disabled', 
   assert.equal(Object.hasOwn(requestBody.params[1], 'dir'), false);
 });
 
+test('Aria2 media sends omit downloader routing options from addUri', async () => {
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'aria2',
+      aria2Rpc: 'http://localhost:6800/jsonrpc',
+    },
+    {
+      fetch: async (_url, options) => {
+        requestBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          async json() {
+            return { result: 'media-gid-1' };
+          },
+        };
+      },
+    }
+  );
+
+  background.__backgroundTestHooks.mediaManager.clearMediaResources();
+  background.__backgroundTestHooks.mediaManager.upsertMediaResource({
+    id: 'aria2_media_1',
+    tabId: 1,
+    resourceUrl: 'https://cdn.example.com/video.mp4',
+    pageUrl: 'https://example.com/watch/1',
+    filename: 'video.mp4',
+    headers: { referer: 'https://example.com/watch/1' },
+    mime: 'video/mp4',
+  });
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_MEDIA_TASK',
+    id: 'aria2_media_1',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requestBody.method, 'aria2.addUri');
+  assert.deepEqual(requestBody.params[1], {
+    out: 'example.com-video.mp4',
+    header: ['referer: https://example.com/watch/1'],
+  });
+  assert.equal(Object.hasOwn(requestBody.params[1], 'abDownloadMode'), false);
+  assert.equal(Object.hasOwn(requestBody.params[1], 'connectionConfig'), false);
+});
+
 test('Aria2 pending confirmation isolates single threaded overrides from the next download', async () => {
   let requestBody = null;
   const requests = [];
@@ -5257,6 +5303,39 @@ test('AB DM media sends always use headless endpoint with filename', async () =>
   assert.deepEqual(requestBody.downloadSource, {
     link: 'https://example.com/video.mp4',
   });
+});
+
+test('AB DM HLS sends use headless mode outside the media sniffing flow', async () => {
+  let requestedUrl = '';
+  let requestBody = null;
+  const background = loadBackgroundRuntime(
+    {
+      downloaderType: 'abdownload',
+      externalLauncherHost: 'localhost',
+      externalLauncherPort: '15151',
+      abDownloadSilent: false,
+    },
+    {
+      fetch: async (url, options) => {
+        requestedUrl = url;
+        requestBody = JSON.parse(options.body);
+        return { ok: true, status: 200 };
+      },
+    }
+  );
+
+  const result = await invokeBackgroundMessage(background, {
+    type: 'ADD_URL',
+    url: 'https://cdn.example.com/live/master.m3u8',
+    filename: 'Live event.m3u8',
+    headers: { referer: 'https://example.com/watch/live' },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requestedUrl, 'http://localhost:15151/start-headless-download');
+  assert.equal(requestBody.downloadSource.type, 'hls');
+  assert.equal(requestBody.startDownload, true);
+  assert.equal(requestBody.name, 'Live event.ts');
 });
 
 test('AB DM HLS media uses the native HLS source without manifest fallback', async () => {

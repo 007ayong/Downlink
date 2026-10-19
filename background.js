@@ -1712,8 +1712,13 @@ const {
   testGopeedConnection,
 } = downloaderClients;
 
-async function sendTask(taskInfo, extraOpts = {}, { openPopupOnFailure = false, shouldReportFailure = () => true } = {}) {
-  const result = await sendTaskToDownloader(taskInfo, extraOpts);
+async function sendTask(
+  taskInfo,
+  extraOpts = {},
+  { openPopupOnFailure = false, shouldReportFailure = () => true } = {},
+  providerContext = {},
+) {
+  const result = await sendTaskToDownloader(taskInfo, extraOpts, providerContext);
   if (result?.ok) {
     clearUiAlert();
     return result;
@@ -2315,8 +2320,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           streamProtocol: media.streamProtocol || '',
           isLive: typeof media.isLive === 'boolean' ? media.isLive : undefined,
           pageTitle: media.pageTitle || '',
+          taskOrigin: 'media-sniffing',
           addedAt: Date.now(),
-        }, { ...(msg.opts || {}), connectionConfig: msg.connectionConfig, abDownloadMode: 'headless' }, { openPopupOnFailure: false }));
+        }, msg.opts || {}, { openPopupOnFailure: false }, {
+          motrixNextConnectionConfig: msg.connectionConfig,
+        }));
         break;
       }
       case 'ADD_RAYBURST_MEDIA_COLLECTION': {
