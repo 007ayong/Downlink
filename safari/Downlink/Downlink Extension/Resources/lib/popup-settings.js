@@ -214,6 +214,31 @@
     let aria2Profiles = [];
     let aria2ActiveProfileId = '';
 
+    function setControlValue(id, value) {
+      const control = document.getElementById(id);
+      const nextValue = String(value ?? '');
+      // Do not replace an in-progress RPC draft with the last stored value.
+      // A port separator briefly makes the URL invalid (for example,
+      // http://localhost:/jsonrpc) while the user is still typing.
+      if (id === 'cfgRpc' && document.activeElement === control) return;
+      // Firefox moves the caret to the end when value is assigned, even when
+      // the assigned text is unchanged. Config broadcasts can arrive while a
+      // user is editing, so skip redundant writes to preserve the selection.
+      if (control.value !== nextValue) control.value = nextValue;
+    }
+
+    function isValidRpcDraft(value) {
+      if (global.Aria2Rpc?.parseRpcEndpoint) {
+        return !!global.Aria2Rpc.parseRpcEndpoint(value);
+      }
+      try {
+        const parsed = new global.URL(String(value || '').trim());
+        return ['http:', 'https:'].includes(parsed.protocol) && !!parsed.hostname;
+      } catch {
+        return false;
+      }
+    }
+
     function captureAria2Profile() {
       const profile = aria2Profiles.find((item) => item.id === aria2ActiveProfileId);
       if (!profile) return;
@@ -239,9 +264,9 @@
       global.syncAria2ProfilePicker?.(aria2ActiveProfileId);
       const profile = aria2Profiles.find((item) => item.id === aria2ActiveProfileId);
       if (!profile) return;
-      document.getElementById('cfgAria2ProfileName').value = profile.name;
-      document.getElementById('cfgRpc').value = profile.rpc;
-      document.getElementById('cfgSecret').value = profile.secret;
+      setControlValue('cfgAria2ProfileName', profile.name);
+      setControlValue('cfgRpc', profile.rpc);
+      setControlValue('cfgSecret', profile.secret);
       document.getElementById('deleteAria2ProfileBtn').disabled = aria2Profiles.length <= 1;
     }
 
@@ -349,12 +374,12 @@
       normalizedCfg.aria2CustomSaveEnabled = !!normalizedCfg.aria2CustomSaveEnabled;
       setCurrentConfig({ ...normalizedCfg });
       setSavedConfig({ ...normalizedCfg });
-      document.getElementById('cfgDownloaderType').value = normalizedCfg.downloaderType || 'aria2';
+      setControlValue('cfgDownloaderType', normalizedCfg.downloaderType || 'aria2');
       global.syncDownloaderPicker?.(normalizedCfg.downloaderType || 'aria2');
-      document.getElementById('cfgLanguage').value = normalizedCfg.language || 'auto';
+      setControlValue('cfgLanguage', normalizedCfg.language || 'auto');
       global.syncLanguagePicker?.(normalizedCfg.language || 'auto');
-      document.getElementById('cfgRpc').value = normalizedCfg.aria2Rpc || '';
-      document.getElementById('cfgSecret').value = normalizedCfg.aria2Secret || '';
+      setControlValue('cfgRpc', normalizedCfg.aria2Rpc || '');
+      setControlValue('cfgSecret', normalizedCfg.aria2Secret || '');
       aria2Profiles = Array.isArray(normalizedCfg.aria2Profiles) && normalizedCfg.aria2Profiles.length
         ? normalizedCfg.aria2Profiles.map((item) => ({ ...item }))
         : [{ id: 'default', name: '默认配置', rpc: normalizedCfg.aria2Rpc, secret: normalizedCfg.aria2Secret || '' }];
@@ -367,20 +392,20 @@
       document.getElementById('cfgAria2Silent').checked = !!normalizedCfg.aria2Silent;
       document.getElementById('cfgAria2CustomSaveEnabled').checked = !!normalizedCfg.aria2CustomSaveEnabled;
       renderSaveLocations(normalizedCfg.aria2SaveLocations || []);
-      document.getElementById('cfgMotrixNextPort').value = normalizedCfg.motrixNextPort || '29110';
-      document.getElementById('cfgMotrixNextSecret').value = normalizedCfg.motrixNextSecret || '';
-      document.getElementById('cfgGopeedApi').value = normalizedCfg.gopeedApi || 'http://127.0.0.1:9999';
-      document.getElementById('cfgGopeedToken').value = normalizedCfg.gopeedToken || '';
+      setControlValue('cfgMotrixNextPort', normalizedCfg.motrixNextPort || '29110');
+      setControlValue('cfgMotrixNextSecret', normalizedCfg.motrixNextSecret || '');
+      setControlValue('cfgGopeedApi', normalizedCfg.gopeedApi || 'http://127.0.0.1:9999');
+      setControlValue('cfgGopeedToken', normalizedCfg.gopeedToken || '');
       document.getElementById('cfgGopeedSilent').checked = !!normalizedCfg.gopeedSilent;
-      document.getElementById('cfgLauncherPort').value = normalizedCfg.externalLauncherPort || '15151';
+      setControlValue('cfgLauncherPort', normalizedCfg.externalLauncherPort || '15151');
       document.getElementById('cfgAbDownloadSilent').checked = !!normalizedCfg.abDownloadSilent;
       document.getElementById('cfgAutoCapture').checked = !!normalizedCfg.autoCapture;
-      document.getElementById('cfgMediaSniffingBlacklist').value = normalizedCfg.mediaSniffingBlacklist || '';
-      document.getElementById('cfgDownloadInterceptionBlacklist').value = normalizedCfg.downloadInterceptionBlacklist || '';
-      document.getElementById('cfgExts').value = normalizedCfg.captureExtensions || '';
+      setControlValue('cfgMediaSniffingBlacklist', normalizedCfg.mediaSniffingBlacklist || '');
+      setControlValue('cfgDownloadInterceptionBlacklist', normalizedCfg.downloadInterceptionBlacklist || '');
+      setControlValue('cfgExts', normalizedCfg.captureExtensions || '');
       if (!hideSmallDownloadSettings) {
         document.getElementById('cfgSkipSmallDownloads').checked = !!normalizedCfg.skipSmallDownloads;
-        document.getElementById('cfgSmallDownloadThresholdMb').value = ((Number(normalizedCfg.smallDownloadThresholdBytes) || 1048576) / 1024 / 1024).toString();
+        setControlValue('cfgSmallDownloadThresholdMb', ((Number(normalizedCfg.smallDownloadThresholdBytes) || 1048576) / 1024 / 1024).toString());
       }
       updateSettingsVisibility(normalizedCfg.downloaderType || 'aria2');
       updateDynamicLabels(normalizedCfg);
@@ -426,6 +451,14 @@
       ].forEach((id) => {
         const el = document.getElementById(id);
         el.addEventListener('input', () => {
+          if (id === 'cfgRpc' && !isValidRpcDraft(el.value)) {
+            // Cancel a save queued by the previous keystroke. Saving an
+            // incomplete URL would normalize it back to the default endpoint
+            // and Firefox would move the caret to the end during the reload.
+            clearTimeout(getAutoSaveTimer());
+            setAutoSaveTimer(null);
+            return;
+          }
           if (id === 'cfgLauncherPort') {
             const nextCfg = { ...getCurrentConfig(), externalLauncherName: AB_DM_NAME };
             setCurrentConfig(nextCfg);

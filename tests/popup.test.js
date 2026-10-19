@@ -338,6 +338,7 @@ function loadPopupSettingsRuntime(options = {}) {
 
   const context = {
     console,
+    URL,
     setTimeout,
     clearTimeout,
     document: {
@@ -1731,6 +1732,63 @@ test('settings controller collects every visible config field from the form', ()
     skipSmallDownloads: true,
     smallDownloadThresholdBytes: 2.5 * 1024 * 1024,
   });
+});
+
+test('settings reload preserves the RPC caret for unchanged and in-progress values', () => {
+  const { context } = loadPopupSettingsRuntime();
+  const rpcInput = context.document.getElementById('cfgRpc');
+  const rpc = 'http://127.0.0.1:6800/jsonrpc';
+  let storedValue = rpc;
+  let assignments = 0;
+  rpcInput.selectionStart = rpc.indexOf('6800') + 2;
+  rpcInput.selectionEnd = rpcInput.selectionStart;
+  Object.defineProperty(rpcInput, 'value', {
+    configurable: true,
+    get() { return storedValue; },
+    set(value) {
+      storedValue = String(value);
+      assignments += 1;
+      // Match Firefox's behavior when script assigns input.value.
+      this.selectionStart = storedValue.length;
+      this.selectionEnd = storedValue.length;
+    },
+  });
+  let config = { aria2Rpc: rpc, aria2Secret: '' };
+  const controller = context.PopupSettings.createSettingsController({
+    getCurrentConfig: () => config,
+    setCurrentConfig(next) { config = next; },
+    getSavedConfig: () => config,
+    setSavedConfig(next) { config = next; },
+    getCurrentState: () => ({ tasks: {}, pending: {} }),
+    getLoading: () => false,
+    setLoading() {},
+    getAutoSaveTimer: () => null,
+    setAutoSaveTimer() {},
+    getSaveFeedbackTimer: () => null,
+    setSaveFeedbackTimer() {},
+    syncGlobals() {},
+    updateSettingsVisibility() {},
+    updateDynamicLabels() {},
+    renderTasks() {},
+    requestAutoConnectionCheck() {},
+  });
+
+  const caret = rpcInput.selectionStart;
+  controller.loadSettings(config);
+
+  assert.equal(assignments, 0);
+  assert.equal(rpcInput.selectionStart, caret);
+  assert.equal(rpcInput.selectionEnd, caret);
+
+  storedValue = 'http://127.0.0.1:/jsonrpc';
+  rpcInput.selectionStart = 'http://127.0.0.1:'.length;
+  rpcInput.selectionEnd = rpcInput.selectionStart;
+  context.document.activeElement = rpcInput;
+  controller.loadSettings(config);
+
+  assert.equal(assignments, 0);
+  assert.equal(storedValue, 'http://127.0.0.1:/jsonrpc');
+  assert.equal(rpcInput.selectionStart, 'http://127.0.0.1:'.length);
 });
 
 test('Safari removes small-download settings and does not persist their legacy values', async () => {
