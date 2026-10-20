@@ -86,14 +86,34 @@
     return decodeTextWithCharset(bytes, charset);
   }
 
+  function repairUtf8Mojibake(value = '') {
+    const text = String(value || '');
+    // Firefox can expose a UTF-8 filename as one Latin-1 character per byte.
+    // Only try to reverse it when the text contains a UTF-8-looking byte pair
+    // (or a C1 control), so legitimate names such as "café.txt" stay intact.
+    if (!/[\u0080-\u009f]|[\u00c2-\u00f4][\u0080-\u00bf]/.test(text)) return text;
+    const bytes = [];
+    for (const ch of text) {
+      const code = ch.codePointAt(0);
+      if (code > 0xff) return text;
+      bytes.push(code);
+    }
+    try {
+      const decoded = new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes));
+      return decoded && decoded !== text ? decoded : text;
+    } catch {
+      return text;
+    }
+  }
+
   function decodeHttpFilename(value = '') {
     const text = decodeRfc2047Words(String(value || '').trim().replace(/^["']|["']$/g, ''));
     if (!text) return '';
-    if (!/%[0-9a-fA-F]{2}/.test(text)) return text;
+    if (!/%[0-9a-fA-F]{2}/.test(text)) return repairUtf8Mojibake(text);
     try {
-      return decodeURIComponent(text);
+      return repairUtf8Mojibake(decodeURIComponent(text));
     } catch {
-      return text;
+      return repairUtf8Mojibake(text);
     }
   }
 
@@ -218,6 +238,7 @@
     decodeTextWithCharset,
     decodeRfc2047Words,
     decodePercentEncodedText,
+    repairUtf8Mojibake,
     decodeHttpFilename,
     filenameFromCD,
     extOf,

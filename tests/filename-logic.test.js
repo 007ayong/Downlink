@@ -25,6 +25,15 @@ test('decodes percent-encoded Chinese filenames', () => {
   );
 });
 
+test('repairs Firefox filenames that decode UTF-8 bytes as Latin-1', () => {
+  const firefoxFilename = Buffer.from('Lightroom#解锁设计.hcc', 'utf8').toString('latin1');
+  assert.equal(decodeHttpFilename(firefoxFilename), 'Lightroom#解锁设计.hcc');
+});
+
+test('preserves legitimate Latin-1 filenames', () => {
+  assert.equal(decodeHttpFilename('café.txt'), 'café.txt');
+});
+
 test('preserves plus signs while decoding percent-encoded filenames', () => {
   assert.equal(decodeHttpFilename('C++%20Primer.pdf'), 'C++ Primer.pdf');
   assert.equal(filenameFromUrl('https://example.com/files/C++%20Primer.pdf?token=1'), 'C++ Primer.pdf');
