@@ -86,6 +86,12 @@ let pendingDownloads = {};
 let hiddenTaskGids = {};
 let uiAlert = null;
 let taskSurfaceOpenPromise = null;
+let taskOpenForTaskPromise = null;
+const pendingTaskPopupRequests = new Map();
+let lastTaskSurfaceOpenError = '';
+let firefoxPopupRetryTimer = null;
+let firefoxPopupRetryAttempts = 0;
+const FIREFOX_PANEL_RETRY_DELAYS_MS = [250, 500, 1000, 1500, 2000, 3000, 5000];
 let autoCaptureTogglePromise = Promise.resolve();
 const autoCapturePausedTabs = new Set();
 const mediaBlacklistBlockedTabs = new Set();
@@ -858,7 +864,7 @@ function clearUiAlert() {
   broadcastUpdate();
 }
 
-async function openTaskSurface() {
+async function openTaskSurface(targetWindowId) {
   if (taskSurfaceOpenPromise) {
     console.info('[Downlink][popup] reuse pending popup open request');
     return taskSurfaceOpenPromise;
@@ -866,13 +872,19 @@ async function openTaskSurface() {
 
   taskSurfaceOpenPromise = (async () => {
     try {
+      lastTaskSurfaceOpenError = '';
       console.info('[Downlink][popup] opening extension popup');
-      await chrome.action.openPopup();
+      if (isFirefoxRuntime && typeof targetWindowId === 'number') {
+        await chrome.action.openPopup({ windowId: targetWindowId });
+      } else {
+        await chrome.action.openPopup();
+      }
       console.info('[Downlink][popup] extension popup opened');
       return true;
     } catch (error) {
+      lastTaskSurfaceOpenError = error?.message || String(error);
       console.warn('[Downlink][popup] failed to open extension popup', {
-        error: error?.message || String(error),
+        error: lastTaskSurfaceOpenError,
       });
       return false;
     }
@@ -883,6 +895,41 @@ async function openTaskSurface() {
   } finally {
     taskSurfaceOpenPromise = null;
   }
+}
+
+function clearFirefoxPopupRetry() {
+  if (firefoxPopupRetryTimer) clearTimeout(firefoxPopupRetryTimer);
+  firefoxPopupRetryTimer = null;
+  firefoxPopupRetryAttempts = 0;
+}
+
+function scheduleFirefoxPopupRetry(taskInfo = {}) {
+  if (!isFirefoxRuntime || firefoxPopupRetryTimer || !taskInfo.key) return;
+  const delayMs = FIREFOX_PANEL_RETRY_DELAYS_MS[firefoxPopupRetryAttempts];
+  if (!delayMs) {
+    console.warn('[Downlink][popup] Firefox panel-open retries exhausted; pending task remains queued', {
+      key: taskInfo.key,
+    });
+    return;
+  }
+
+  firefoxPopupRetryAttempts += 1;
+  console.info('[Downlink][popup] retrying Firefox action popup while another panel is open', {
+    key: taskInfo.key,
+    attempt: firefoxPopupRetryAttempts,
+    delayMs,
+  });
+  firefoxPopupRetryTimer = setTimeout(() => {
+    firefoxPopupRetryTimer = null;
+    if (!pendingDownloads[taskInfo.key]) {
+      pendingTaskPopupRequests.delete(taskInfo.key);
+      if (!pendingTaskPopupRequests.size) clearFirefoxPopupRetry();
+      return;
+    }
+    openTaskSurfaceForTask(taskInfo).catch((error) => {
+      console.warn('[Downlink][popup] Firefox action popup retry failed', error?.message || String(error));
+    });
+  }, delayMs);
 }
 
 function getTab(tabId) {
@@ -901,18 +948,57 @@ function getTab(tabId) {
   });
 }
 
+function getLastFocusedNormalWindow() {
+  if (!chrome.windows?.getLastFocused) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (windowInfo) => {
+      if (settled) return;
+      settled = true;
+      resolve(windowInfo || null);
+    };
+    try {
+      const result = chrome.windows.getLastFocused({ windowTypes: ['normal'] }, finish);
+      result?.then?.(finish).catch?.(() => finish(null));
+    } catch {
+      finish(null);
+    }
+  });
+}
+
 async function focusPopupTarget({ tabId, windowId } = {}) {
   const tab = await getTab(tabId);
-  const targetWindowId = typeof windowId === 'number' ? windowId : tab?.windowId;
+  let targetWindowId = typeof windowId === 'number' ? windowId : tab?.windowId;
+  if (typeof targetWindowId !== 'number' && isFirefoxRuntime) {
+    const lastFocusedWindow = await getLastFocusedNormalWindow();
+    targetWindowId = lastFocusedWindow?.id;
+    if (typeof targetWindowId === 'number') {
+      console.info('[Downlink][popup] using Firefox last focused normal window', { windowId: targetWindowId });
+    }
+  }
   try {
-    if (typeof targetWindowId === 'number') await chrome.windows?.update?.(targetWindowId, { focused: true });
-  } catch {}
+    if (typeof targetWindowId === 'number' && chrome.windows?.update) {
+      await chrome.windows.update(targetWindowId, { focused: true });
+      console.info('[Downlink][popup] focused target browser window', { windowId: targetWindowId });
+    }
+  } catch (error) {
+    console.warn('[Downlink][popup] failed to focus target browser window', {
+      windowId: targetWindowId,
+      error: error?.message || String(error),
+    });
+  }
   try {
     if (typeof tab?.id === 'number') await chrome.tabs?.update?.(tab.id, { active: true });
   } catch {}
+  return targetWindowId;
 }
 
 async function openTaskSurfaceForTask(taskInfo = {}) {
+  if (taskOpenForTaskPromise) {
+    console.info('[Downlink][popup] reuse pending task surface request');
+    return taskOpenForTaskPromise;
+  }
+
   console.info('[Downlink][popup] popup requested for task', {
     url: taskInfo.url || '',
     filename: taskInfo.filename || '',
@@ -922,11 +1008,48 @@ async function openTaskSurfaceForTask(taskInfo = {}) {
     sourceWindowId: taskInfo.sourceWindowId,
     downloaderType: config.downloaderType,
   });
-  await focusPopupTarget({
-    tabId: taskInfo.sourceTabId,
-    windowId: taskInfo.sourceWindowId,
-  });
-  return openTaskSurface();
+  taskOpenForTaskPromise = (async () => {
+    const targetWindowId = await focusPopupTarget({
+      tabId: taskInfo.sourceTabId,
+      windowId: taskInfo.sourceWindowId,
+    });
+
+    if (await openTaskSurface(targetWindowId)) {
+      pendingTaskPopupRequests.clear();
+      clearFirefoxPopupRetry();
+      return true;
+    }
+    if (taskInfo.key) pendingTaskPopupRequests.set(taskInfo.key, taskInfo);
+    if (isFirefoxRuntime && /another panel is open/i.test(lastTaskSurfaceOpenError)) {
+      scheduleFirefoxPopupRetry(taskInfo);
+    } else {
+      console.warn('[Downlink][popup] extension popup unavailable; will retry on the next browser focus or tab activation');
+    }
+    return false;
+  })();
+
+  try {
+    return await taskOpenForTaskPromise;
+  } finally {
+    taskOpenForTaskPromise = null;
+  }
+}
+
+function retryPendingTaskPopupOnBrowserEvent() {
+  if (taskOpenForTaskPromise) return;
+  for (const [key, taskInfo] of pendingTaskPopupRequests) {
+    if (!pendingDownloads[key]) pendingTaskPopupRequests.delete(key);
+  }
+  const taskInfo = pendingTaskPopupRequests.values().next().value;
+  if (!taskInfo) return;
+  // Let the current focus/navigation event finish before trying to open the
+  // action popup. The retry is driven by browser state changes, not a timeout.
+  setTimeout(() => {
+    if (taskOpenForTaskPromise) return;
+    openTaskSurfaceForTask(taskInfo).catch((error) => {
+      console.warn('[Downlink][popup] deferred action popup retry failed', error?.message || String(error));
+    });
+  }, 0);
 }
 
 async function closeFirefoxInterceptedDownloadTab(taskInfo = {}, reason = '') {
@@ -975,7 +1098,7 @@ async function enqueuePendingDownload(taskInfo, { openSurface = true } = {}) {
     downloaderType: config.downloaderType,
   });
   broadcastUpdate();
-  if (openSurface) await openTaskSurfaceForTask(taskInfo);
+  if (openSurface) await openTaskSurfaceForTask({ ...taskInfo, key });
   return key;
 }
 
@@ -1317,6 +1440,11 @@ function isUserDownloadLikeResponse(details = {}) {
 function shouldSendFromResponseHeaders(details = {}, classification = {}, redirectIntent = null, sourceFilename = '') {
   if (redirectIntent) {
     return Boolean(classification.shouldCapture && (classification.byDisposition || classification.byExt || classification.byMime));
+  }
+  // Firefox opens its native downloads panel as soon as the browser download is created.
+  // An explicit attachment must be cancelled here, even if its suffix is not configured.
+  if (isFirefoxRuntime && classification.byDisposition && isUserDownloadLikeResponse(details)) {
+    return Boolean(classification.shouldCapture);
   }
   if (isFirefoxRuntime && sourceFilename) {
     return Boolean(
@@ -2110,13 +2238,17 @@ chrome.webRequest.onHeadersReceived.addListener(
         !isFirefoxRuntime &&
         shouldConfirmBeforeSend() &&
         typeof taskInfo.sourceTabId !== 'number';
+      const deferPendingSurfaceUntilFirefoxTabRecovery =
+        isFirefoxRuntime &&
+        shouldConfirmBeforeSend();
+      const deferPendingSurface = deferPendingSurfaceUntilBrowserCancel || deferPendingSurfaceUntilFirefoxTabRecovery;
       const claimState = { discarded: false, taskInfo };
       const browserCancelGate = createResponseCaptureGate(!isFirefoxRuntime && !shouldConfirmBeforeSend());
       const claimPromise = (async () => {
         await browserCancelGate.promise;
         const result = await queueOrSendCapturedDownload(taskInfo, {
           openPopupOnFailure: true,
-          openPendingSurface: !deferPendingSurfaceUntilBrowserCancel,
+          openPendingSurface: !deferPendingSurface,
           shouldReportFailure: () => !claimState.discarded,
         });
         return { handled: Boolean(result?.ok), result };
@@ -2129,7 +2261,22 @@ chrome.webRequest.onHeadersReceived.addListener(
         deleteRedirectIntent(details.url, redirectIntent.sourceUrl, redirectIntent.redirectUrl);
       }
       if (isFirefoxRuntime) {
-        claimPromise.then(() => closeFirefoxInterceptedDownloadTab(taskInfo, 'response-headers-cancel'));
+        claimPromise.then(async (claimResult) => {
+          await closeFirefoxInterceptedDownloadTab(taskInfo, 'response-headers-cancel');
+          const key = claimResult?.result?.key;
+          if (
+            deferPendingSurfaceUntilFirefoxTabRecovery &&
+            claimResult?.result?.pending &&
+            key &&
+            pendingDownloads[key]
+          ) {
+            console.info('[Downlink][popup] opening pending surface after Firefox download-tab recovery', {
+              key,
+              downloadTabId: taskInfo.downloadTabId,
+            });
+            await openTaskSurfaceForTask({ ...taskInfo, key });
+          }
+        });
       }
       return isFirefoxRuntime ? { cancel: true } : undefined;
     };
@@ -2238,7 +2385,14 @@ chrome.downloads.onCreated.addListener(async (item) => {
       if (responseClaim.claimState) responseClaim.claimState.browserDownloadCancelled = true;
       await cancelBrowserDownloadItem(item, 'response-claim:onCreated');
       releaseResponseCaptureClaimAfterBrowserCancel(responseClaim);
-      await openPendingSurfaceForResponseClaim(responseClaim, 'response-claim:onCreated');
+      // Firefox already blocks the response in webRequest. Its downloads
+      // event can still race with that response path, so let the Firefox
+      // recovery continuation open the extension action popup after the
+      // intercepted tab has been handled. Chromium opens from this cancel
+      // completion path instead.
+      if (!isFirefoxRuntime) {
+        await openPendingSurfaceForResponseClaim(responseClaim, 'response-claim:onCreated');
+      }
     }
     markedUrls.delete(url);
     markedUrls.delete(item.url);
@@ -2278,13 +2432,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const info = pendingDownloads[msg.key];
         if (!info) break;
         const result = await sendTask({ ...info, filename: msg.filename || info.filename }, msg.opts || {}, { openPopupOnFailure: false });
-        if (result?.ok) delete pendingDownloads[msg.key];
+        if (result?.ok) {
+          delete pendingDownloads[msg.key];
+          pendingTaskPopupRequests.delete(msg.key);
+          if (!pendingTaskPopupRequests.size) clearFirefoxPopupRetry();
+        }
         sendResponse(result);
         broadcastUpdate();
         break;
       }
       case 'REJECT_DOWNLOAD':
         delete pendingDownloads[msg.key];
+        pendingTaskPopupRequests.delete(msg.key);
+        if (!pendingTaskPopupRequests.size) clearFirefoxPopupRetry();
         broadcastUpdate();
         sendResponse({ ok: true });
         break;
@@ -2707,7 +2867,13 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   mediaManager.clearPreviewRule(tabId);
 });
 
+chrome.windows?.onFocusChanged?.addListener?.((windowId) => {
+  if (windowId === chrome.windows?.WINDOW_ID_NONE) return;
+  retryPendingTaskPopupOnBrowserEvent();
+});
+
 chrome.tabs.onActivated.addListener(({ tabId }) => {
+  retryPendingTaskPopupOnBrowserEvent();
   syncMediaSniffingStateForTab(tabId).then(() => broadcastUpdate()).catch(() => {});
 });
 

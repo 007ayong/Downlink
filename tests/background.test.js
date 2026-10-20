@@ -260,6 +260,11 @@ function createChromeStub(storedConfig = {}) {
         windowsCalls.update.push({ windowId, opts });
         return { id: windowId };
       },
+      onFocusChanged: {
+        addListener(callback) {
+          listeners.windowsOnFocusChanged = callback;
+        },
+      },
     },
     declarativeNetRequest: {
       updateSessionRules: async (options) => {
@@ -1666,6 +1671,44 @@ test('Firefox response header capture blocks the browser download before its pan
   const pending = Object.values(state.pending || {});
   assert.equal(pending.length, 1);
   assert.equal(pending[0].url, url);
+  assert.deepEqual(background.chrome._downloadCalls.cancel, []);
+});
+
+test('Firefox blocks explicit CRX attachments before the native downloads panel opens', async () => {
+  const background = loadBackgroundRuntime({
+    __firefoxRuntime: true,
+    downloaderType: 'aria2',
+    autoCapture: true,
+    aria2Silent: false,
+    captureExtensions: 'zip',
+  });
+  const url = 'https://download.example.com/download/chrome?version=1';
+  const redirectResults = await invokeResponseHeaders(background, {
+    url: 'https://store.example.com/get-extension',
+    tabId: -1,
+    type: 'other',
+    statusCode: 302,
+    responseHeaders: [{ name: 'location', value: url }],
+  });
+  assert.equal(redirectResults[0], undefined);
+
+  const results = await invokeResponseHeaders(background, {
+    url,
+    tabId: -1,
+    type: 'other',
+    statusCode: 200,
+    responseHeaders: [
+      { name: 'content-disposition', value: 'attachment; filename="example.crx"' },
+      { name: 'content-type', value: 'application/octet-stream' },
+    ],
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(results[0])), { cancel: true });
+  const state = await invokeBackgroundMessage(background, { type: 'GET_STATE' });
+  const pending = Object.values(state.pending || {});
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].url, url);
+  assert.equal(pending[0].filename, 'example.crx');
   assert.deepEqual(background.chrome._downloadCalls.cancel, []);
 });
 
@@ -3115,7 +3158,7 @@ test('downloads at or above small-file threshold are still captured', async () =
   assert.equal(pending[0].url, 'https://example.com/large.zip');
 });
 
-test('Aria2 pending confirmation does not open a fallback window when action popup is blocked', async () => {
+test('Aria2 pending confirmation keeps the action popup path when its first open attempt fails', async () => {
   const background = loadBackgroundRuntime(
     {
       downloaderType: 'aria2',
