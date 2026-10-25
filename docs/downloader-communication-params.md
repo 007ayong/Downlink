@@ -106,7 +106,7 @@ X-Rayburst-Client: rayburst-connect
 Authorization: Bearer <motrixNextSecret>
 ```
 
-能力响应必须声明 `product: "rayburst"`、`protocolVersion: 2` 和 `filenameHints: true`。随后发送任务：
+能力响应必须声明 `product: "rayburst"`。Downlink 支持普通下载协议 v3（Rayburst 4.1+），并兼容声明 `protocolVersion: 2`、`filenameHints: true` 的旧版。随后发送任务：
 
 ```http
 POST http://127.0.0.1:<motrixNextPort>/add
@@ -144,7 +144,13 @@ Authorization: Bearer <motrixNextSecret>
 | `userAgent` | 请求头 `user-agent` | 否 | 浏览器 User-Agent |
 | `requestHeaders` | 过滤后的请求头 | 否 | 不包含 Cookie、Referer、Range、条件请求和逐跳请求头 |
 
-Rayburst 模式不会进入 Downlink 侧二次确认。服务端会返回带有相同 `id` 的回执，`action` 为 `submitted`、`needs-confirmation` 或 `cancelled`；`submitted` 必须同时返回 `gid`。
+Rayburst 模式不会进入 Downlink 侧二次确认。上面的带 `id` 请求用于旧版 v2；服务端返回同一 `id`，`action` 为 `submitted`、`needs-confirmation` 或 `cancelled`；`submitted` 必须同时返回 `gid`。
+
+普通下载协议 v3 不发送或持久化 `id`，也不重放旧回执。Downlink 发送 `ack: "early"`，原生对话框接管后返回 `accepted`，无需等待用户确认。`added` 表示引擎已创建任务，必须包含非空 `gid`；`cancelled` 表示取消；`fallback` 表示未接管，保留失败状态及服务端原因。未知回执或缺少任务 ID 均不视为成功。
+
+对于 `captureSource: "browser-download"` 的任务，v3 同时发送 `verify: true`、已知 MIME 和非负整数文件大小，由引擎核对实际响应。普通链接不启用浏览器文件验证。v3 的 `/add` 超时为 12 秒，以覆盖上游最多 8 秒的验证；不会自动重试不确定交付。
+
+核对基线：[Rayburst v4.1.1](https://github.com/AnInsomniacy/rayburst/releases/tag/v4.1.1)（2026-10-25），[普通下载协议](https://github.com/AnInsomniacy/rayburst/blob/v4.1.1/docs/DOWNLOADS.md)。媒体协议独立维持 v2。
 
 ### HLS/DASH 流媒体任务
 

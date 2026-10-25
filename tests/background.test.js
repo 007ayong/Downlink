@@ -7054,3 +7054,58 @@ test('failed sync persistence does not apply a temporary config change', async (
   await background.chrome._listeners.storageOnChanged({ motrixNextPort: { newValue: '17000' } }, 'sync');
   assert.equal((await invokeBackgroundMessage(background, { type: 'GET_STATE' })).config.motrixNextPort, '16999');
 });
+
+test('Rayburst v3 negotiates ownership, verification and fallback without replay storage', async () => {
+  for (const receipt of [
+    { action: 'added', gid: 'v3-task' },
+    { action: 'accepted' },
+    { action: 'cancelled' },
+    { action: 'fallback', reason: 'web-page' },
+    { action: 'added' },
+    { action: 'submitted', gid: 'legacy' },
+  ]) {
+    let body;
+    const accepted = [];
+    const background = loadBackgroundRuntime({}, {
+      fetch: async (url, options = {}) => {
+        if (url.endsWith('/downloads/capabilities')) {
+          return { ok: true, json: async () => ({ product: 'rayburst', protocolVersion: 3 }) };
+        }
+        body = JSON.parse(options.body);
+        return { ok: true, json: async () => receipt };
+      },
+    });
+    const clients = background.BackgroundDownloaders.createClients({
+      getConfig: () => ({ downloaderType: 'motrixnext', motrixNextPort: '29110' }),
+      notify() {},
+      savePendingRayburstRequest() { assert.fail('v3 must not persist replay requests'); },
+      onTaskAccepted: (task) => accepted.push(task),
+    });
+    const result = await clients.sendTask({
+      url: 'https://example.com/file.zip', finalUrl: 'https://cdn.example/file.zip',
+      filename: 'file.zip', captureSource: 'browser-download', mime: 'application/zip', size: 1234,
+    });
+    assert.equal('id' in body, false);
+    assert.equal(body.ack, 'early');
+    assert.equal(body.verify, true);
+    assert.equal(body.mime, 'application/zip');
+    assert.equal(body.size, 1234);
+    assert.equal(body.filenameSource, 'browser');
+    assert.equal(body.finalUrl, 'https://cdn.example/file.zip');
+    const ownsDownload = receipt.action === 'accepted' || (receipt.action === 'added' && !!receipt.gid);
+    assert.equal(result.ok, ownsDownload);
+    assert.equal(accepted.length, ownsDownload ? 1 : 0);
+    if (receipt.action === 'fallback') assert.equal(result.fallback, true);
+    if (receipt.action === 'cancelled') assert.equal(result.cancelled, true);
+  }
+});
+
+test('Rayburst v3 connection accepts capabilities without filenameHints', async () => {
+  const background = loadBackgroundRuntime({}, {
+    fetch: async (url) => ({ ok: true, json: async () => url.endsWith('/ping')
+      ? { product: 'rayburst', status: 'ok', version: '4.1.1' }
+      : { product: 'rayburst', protocolVersion: 3 } }),
+  });
+  const clients = background.BackgroundDownloaders.createClients({ getConfig: () => ({}), notify() {} });
+  assert.equal((await clients.testMotrixNextConnection({ motrixNextPort: '29110' })).ok, true);
+});
