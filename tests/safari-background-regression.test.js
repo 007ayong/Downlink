@@ -309,12 +309,91 @@ test('Safari DNR takeover redirects browser downloads to the native loopback bri
   );
   assert.match(installFunction, /removeRuleIds: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS/);
   assert.match(installFunction, /addRules: \[\]/);
-  assert.match(installFunction, /removeRuleIds: \[\]/);
   assert.match(installFunction, /type: 'redirect'/);
   assert.match(installFunction, /regexSubstitution: `\$\{bridgeUrl\}\/\?url=\\\\1#\\\\1`/);
   assert.match(installFunction, /isUrlFilterCaseSensitive: false/);
   assert.doesNotMatch(installFunction, /extensionPath:/);
   assert.doesNotMatch(installFunction, /type: 'block'/);
+});
+
+test('Safari queues session-rule mutations and avoids reinstalling unchanged redirects', async () => {
+  const source = readSafariBackground();
+  const updates = [];
+  const timers = [];
+  let reads = 0;
+  let activeWrites = 0;
+  const context = {
+    config: { autoCapture: true, pattern: 'zip' },
+    safariLocalBridgeUrl: 'http://127.0.0.1:1234',
+    SAFARI_DOWNLOAD_REDIRECT_RULE_IDS: [80000001, 80000002],
+    SAFARI_DOWNLOAD_BYPASS_RULE_ID_BASE: 81000000,
+    safariDnrBypassRules: new Map(),
+    safariDnrQueue: Promise.resolve(),
+    buildSafariDownloadRedirectPatterns: () => [context.config.pattern],
+    ensureSafariLocalBridge: async () => context.safariLocalBridgeUrl,
+    setTimeout: (callback) => timers.push(callback),
+    writeProbeLog: () => {},
+    chrome: {
+      declarativeNetRequest: {
+        async updateSessionRules(options) {
+          activeWrites += 1;
+          assert.equal(activeWrites, 1);
+          await Promise.resolve();
+          updates.push(structuredClone(options));
+          activeWrites -= 1;
+        },
+        async getSessionRules() {
+          reads += 1;
+          return [{ id: 81000007, action: { type: 'allow' }, condition: { tabIds: [7] } }];
+        },
+      },
+    },
+  };
+  const operations = source.slice(
+    source.indexOf('function queueSafariDnrOperation'),
+    source.indexOf('async function probeSafariLocalBridge')
+  ) + source.slice(
+    source.indexOf('async function installSafariDownloadRedirectRules'),
+    source.indexOf('function addHostnameToMediaSniffingBlacklist')
+  );
+  vm.runInNewContext(
+    `let safariDnrBypassRecovery, safariDownloadRulesKey, safariInstalledDownloadRuleIds;
+     let safariInstalledDownloadBridge = '';
+     ${operations}`,
+    context
+  );
+
+  const sync = () => context.installSafariDownloadRedirectRules();
+  const url = 'https://example.com/download.zip';
+  assert.deepEqual(await Promise.all([
+    sync(), sync(), context.isSafariDnrBypassActive(7, url), context.isSafariDnrBypassActive(8, url),
+  ]), [true, true, true, false]);
+  assert.equal(reads, 1);
+  assert.equal(updates.length, 2);
+  assert.deepEqual(updates[0], { removeRuleIds: [80000001, 80000002], addRules: [] });
+  assert.deepEqual(updates[1].removeRuleIds, []);
+
+  context.config.pattern = 'exe';
+  await Promise.all([sync(), context.updateSafariSessionRules({ removeRuleIds: [42] })]);
+  assert.equal(updates.length, 4);
+  const replacement = updates.find((entry) => entry.addRules?.[0]?.condition.regexFilter === 'exe');
+  assert.deepEqual(replacement.removeRuleIds, [80000001]);
+
+  context.safariLocalBridgeUrl = '';
+  await Promise.all([sync(), sync()]);
+  assert.equal(updates.length, 5);
+  assert.deepEqual(updates[4], { removeRuleIds: [80000001], addRules: [] });
+  context.safariLocalBridgeUrl = 'http://127.0.0.1:4321';
+  await sync();
+  assert.equal(updates.length, 6);
+  assert.match(updates[5].addRules[0].action.redirect.regexSubstitution, /:4321/);
+
+  assert.equal(await context.installSafariDnrBypassRule(7, url), true);
+  await timers[0]();
+  assert.equal(await context.isSafariDnrBypassActive(7, url), true);
+  await timers[1]();
+  assert.equal(await context.isSafariDnrBypassActive(7, url), false);
+  assert.equal(reads, 1);
 });
 
 test('Safari wildcard DNR patterns require a file extension in the URL path', () => {

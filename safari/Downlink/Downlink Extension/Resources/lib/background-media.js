@@ -19,6 +19,7 @@
     getTabSnapshot,
     probeMediaMetadata,
     canAutoProbeMediaMetadata = false,
+    updateSessionRules = (options) => chrome.declarativeNetRequest.updateSessionRules(options),
   }) {
     const MEDIA_CACHE_LIMIT = 60;
     const METADATA_RULE_TTL_MS = 15000;
@@ -351,7 +352,7 @@
       if (typeof tabId !== 'number' || tabId < 0) return;
       if (!chrome.declarativeNetRequest?.updateSessionRules) return;
       try {
-        await chrome.declarativeNetRequest.updateSessionRules({
+        await updateSessionRules({
           removeRuleIds: [getPreviewRuleId(tabId)],
         });
       } catch {}
@@ -371,7 +372,7 @@
       delete metadataRulesByMediaId[mediaId];
       if (!ruleId) return;
       try {
-        await chrome.declarativeNetRequest.updateSessionRules({
+        await updateSessionRules({
           removeRuleIds: [ruleId],
         });
       } catch {}
@@ -389,7 +390,7 @@
       delete hoverPreviewRulesByMediaId[mediaId];
       if (!ruleId) return;
       try {
-        await chrome.declarativeNetRequest.updateSessionRules({
+        await updateSessionRules({
           removeRuleIds: [ruleId],
         });
       } catch {}
@@ -418,7 +419,7 @@
           resourceTypes: PREVIEW_RESOURCE_TYPES,
         };
         if (typeof tabId === 'number' && tabId >= 0) condition.tabIds = [tabId];
-        await chrome.declarativeNetRequest.updateSessionRules({
+        await updateSessionRules({
           removeRuleIds: [ruleId],
           addRules: [{
             id: ruleId,
@@ -431,7 +432,7 @@
           }],
         });
       } else {
-        await chrome.declarativeNetRequest.updateSessionRules({
+        await updateSessionRules({
           removeRuleIds: [ruleId],
         });
       }
@@ -491,7 +492,7 @@
             resourceTypes: PREVIEW_RESOURCE_TYPES,
           },
         }));
-      await chrome.declarativeNetRequest.updateSessionRules({
+      await updateSessionRules({
         removeRuleIds: entries.map((entry) => entry.ruleId),
         ...(addRules.length ? { addRules } : {}),
       });

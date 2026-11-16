@@ -171,6 +171,12 @@ const safariCommittedTabPages = new Map();
 const safariCreatedNavigationSources = new Map();
 const safariUrlCaptureClaims = new Map();
 const safariDnrBypassRules = new Map();
+let safariDnrQueue = Promise.resolve();
+let safariDnrBypassRecovery;
+let safariDownloadRulesKey;
+let safariInstalledDownloadRuleIds;
+let safariInstalledDownloadBridge = '';
+let safariBridgeKeepalivePending = false;
 const SAFARI_DOWNLOAD_REDIRECT_RULE_IDS = Array.from({ length: 100 }, (_, index) => 80000001 + index);
 const SAFARI_DOWNLOAD_BYPASS_RULE_ID_BASE = 81000000;
 const SAFARI_DOWNLOAD_ENDPOINT_REDIRECT_PATTERNS = [];
@@ -841,25 +847,35 @@ async function safariLocalServiceFetch(url, options = {}) {
   };
 }
 
-function clearSafariDownloadRules() {
-  return chrome.declarativeNetRequest?.updateSessionRules?.({
-    removeRuleIds: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS,
-    addRules: [],
-  }).catch(() => {});
+function queueSafariDnrOperation(operation) {
+  const result = safariDnrQueue.then(operation);
+  safariDnrQueue = result.catch(() => {});
+  return result;
+}
+
+function updateSafariSessionRules(options) {
+  return queueSafariDnrOperation(() => chrome.declarativeNetRequest.updateSessionRules(options));
 }
 
 function safariDnrBypassRuleId(tabId) {
   return SAFARI_DOWNLOAD_BYPASS_RULE_ID_BASE + (Math.abs(Number(tabId)) % 1000000);
 }
 
-async function clearSafariDnrBypassRule(tabId) {
-  if (typeof tabId !== 'number' || !chrome.declarativeNetRequest?.updateSessionRules) return;
-  const entry = safariDnrBypassRules.get(tabId);
-  safariDnrBypassRules.delete(tabId);
-  await chrome.declarativeNetRequest.updateSessionRules({
-    removeRuleIds: [entry?.ruleId || safariDnrBypassRuleId(tabId)],
-    addRules: [],
-  }).catch(() => {});
+function rememberSafariDnrBypassRule(tabId, ruleId) {
+  const entry = { ruleId };
+  safariDnrBypassRules.set(tabId, entry);
+  setTimeout(() => clearSafariDnrBypassRule(tabId, entry), 30000);
+}
+
+function clearSafariDnrBypassRule(tabId, entry = safariDnrBypassRules.get(tabId)) {
+  if (!entry) return;
+  return queueSafariDnrOperation(async () => {
+    if (safariDnrBypassRules.get(tabId) !== entry) return;
+    await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [entry.ruleId] });
+    safariDnrBypassRules.delete(tabId);
+  }).catch((error) => {
+    writeProbeLog('Safari DNR bypass cleanup failed', { tabId, message: error?.message || String(error) });
+  });
 }
 
 async function installSafariDnrBypassRule(tabId, url = '') {
@@ -868,25 +884,26 @@ async function installSafariDnrBypassRule(tabId, url = '') {
   }
   const ruleId = safariDnrBypassRuleId(tabId);
   try {
-    await chrome.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: [ruleId],
-      addRules: [{
-        id: ruleId,
-        priority: 100,
-        action: { type: 'allow' },
-        condition: {
-          // Keep the entire resumed redirect chain in Safari. Restricting the
-          // rule to the first URL lets a terminal .zip/.exe redirect hit the
-          // takeover rule again and creates a browser + Downlink duplicate.
-          regexFilter: '^https?://',
-          isUrlFilterCaseSensitive: false,
-          resourceTypes: ['main_frame', 'other'],
-          tabIds: [tabId],
-        },
-      }],
+    await queueSafariDnrOperation(async () => {
+      await chrome.declarativeNetRequest.updateSessionRules({
+        removeRuleIds: [ruleId],
+        addRules: [{
+          id: ruleId,
+          priority: 100,
+          action: { type: 'allow' },
+          condition: {
+            // Keep the entire resumed redirect chain in Safari. Restricting the
+            // rule to the first URL lets a terminal .zip/.exe redirect hit the
+            // takeover rule again and creates a browser + Downlink duplicate.
+            regexFilter: '^https?://',
+            isUrlFilterCaseSensitive: false,
+            resourceTypes: ['main_frame', 'other'],
+            tabIds: [tabId],
+          },
+        }],
+      });
+      rememberSafariDnrBypassRule(tabId, ruleId);
     });
-    safariDnrBypassRules.set(tabId, { ruleId, url, expiresAt: Date.now() + 30000 });
-    setTimeout(() => clearSafariDnrBypassRule(tabId).catch(() => {}), 30000);
     return true;
   } catch (error) {
     writeProbeLog('Safari DNR one-shot bypass rule installation failed', {
@@ -900,15 +917,24 @@ async function installSafariDnrBypassRule(tabId, url = '') {
 
 async function isSafariDnrBypassActive(tabId, url = '') {
   if (typeof tabId !== 'number' || !/^https?:\/\//i.test(url)) return false;
-  const cached = safariDnrBypassRules.get(tabId);
-  if (cached && cached.expiresAt > Date.now()) return true;
+  if (safariDnrBypassRules.has(tabId)) return true;
   if (!chrome.declarativeNetRequest?.getSessionRules) return false;
-  const ruleId = safariDnrBypassRuleId(tabId);
-  const rules = await chrome.declarativeNetRequest.getSessionRules().catch(() => []);
-  const persisted = rules.find((rule) => rule.id === ruleId && rule.action?.type === 'allow');
-  if (!persisted) return false;
-  safariDnrBypassRules.set(tabId, { ruleId, url, expiresAt: Date.now() + 30000 });
-  return true;
+  // A Safari background page can unload while its session rules stay active.
+  // Recover the surviving bypasses once, including when requests arrive together.
+  safariDnrBypassRecovery ??= queueSafariDnrOperation(async () => {
+    const rules = await chrome.declarativeNetRequest.getSessionRules();
+    for (const rule of rules) {
+      const [ruleTabId] = rule.condition?.tabIds || [];
+      if (Number.isInteger(ruleTabId) && rule.id === safariDnrBypassRuleId(ruleTabId) &&
+          rule.action?.type === 'allow' && !safariDnrBypassRules.has(ruleTabId)) {
+        rememberSafariDnrBypassRule(ruleTabId, rule.id);
+      }
+    }
+  }).catch((error) => {
+    writeProbeLog('Safari DNR bypass recovery failed', { message: error?.message || String(error) });
+  });
+  await safariDnrBypassRecovery;
+  return safariDnrBypassRules.has(tabId);
 }
 
 async function probeSafariLocalBridge(bridgeUrl = '') {
@@ -962,25 +988,46 @@ function ensureSafariLocalBridge({ force = false } = {}) {
 function startSafariLocalBridgeKeepalive() {
   if (safariLocalBridgeKeepaliveTimer) return;
   safariLocalBridgeKeepaliveTimer = setInterval(async () => {
-    if (!config.autoCapture) return;
-    const previousUrl = safariLocalBridgeUrl;
-    const bridgeUrl = await ensureSafariLocalBridge({ force: true });
-    if (bridgeUrl && bridgeUrl === previousUrl) return;
-    if (!bridgeUrl) {
-      await clearSafariDownloadRules();
-      return;
+    if (!config.autoCapture || safariBridgeKeepalivePending) return;
+    safariBridgeKeepalivePending = true;
+    try {
+      await ensureSafariLocalBridge({ force: true });
+      await installSafariDownloadRedirectRules({ useCachedBridge: true });
+    } finally {
+      safariBridgeKeepalivePending = false;
     }
-    await installSafariDownloadRedirectRules();
   }, SAFARI_LOCAL_BRIDGE_KEEPALIVE_MS);
 }
 
-async function installSafariDownloadRedirectRules() {
+async function installSafariDownloadRedirectRules({ useCachedBridge = false } = {}) {
   if (!chrome.declarativeNetRequest?.updateSessionRules) {
     writeProbeLog('DNR local bridge redirect unavailable');
     return false;
   }
-  const bridgeUrl = config.autoCapture ? await ensureSafariLocalBridge() : '';
-  const redirectPatterns = buildSafariDownloadRedirectPatterns();
+  if (!useCachedBridge && config.autoCapture) await ensureSafariLocalBridge();
+  return queueSafariDnrOperation(syncSafariDownloadRedirectRules).catch((error) => {
+    writeProbeLog('DNR local bridge redirect rule installation failed', {
+      message: error?.message || String(error),
+    });
+    return false;
+  });
+}
+
+async function syncSafariDownloadRedirectRules() {
+  // On the first sync, clear any legacy block/fixed-URL rules even if Safari
+  // later rejects the replacement. Known rules can be replaced atomically.
+  if (!safariInstalledDownloadRuleIds) {
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS,
+      addRules: [],
+    });
+    safariInstalledDownloadRuleIds = [];
+  }
+  const bridgeUrl = config.autoCapture ? safariLocalBridgeUrl : '';
+  const redirectPatterns = bridgeUrl ? buildSafariDownloadRedirectPatterns() : [];
+  const rulesKey = JSON.stringify([bridgeUrl, redirectPatterns]);
+  if (rulesKey === safariDownloadRulesKey) return true;
+
   const supportedPatterns = [];
   for (let index = 0; index < redirectPatterns.length; index += 1) {
     const regexFilter = redirectPatterns[index];
@@ -1005,7 +1052,7 @@ async function installSafariDownloadRedirectRules() {
     }
     supportedPatterns.push({ index, regexFilter });
   }
-  const addRules = config.autoCapture && bridgeUrl ? supportedPatterns.map(({ index, regexFilter }) => ({
+  const addRules = supportedPatterns.map(({ index, regexFilter }) => ({
     id: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS[index],
     priority: 10,
     action: {
@@ -1023,44 +1070,37 @@ async function installSafariDownloadRedirectRules() {
       // more redirects when the response becomes a browser download.
       resourceTypes: ['main_frame', 'other'],
     },
-  })) : [];
-  try {
-    // Clear legacy block/fixed-URL rules in a separate transaction. Safari
-    // keeps the old rules when a combined remove+add update rejects a new
-    // regexSubstitution rule.
-    await chrome.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS,
-      addRules: [],
-    });
-    if (addRules.length) {
+  }));
+  const desiredBridge = config.autoCapture ? safariLocalBridgeUrl : '';
+  const desiredPatterns = desiredBridge ? buildSafariDownloadRedirectPatterns() : [];
+  if (JSON.stringify([desiredBridge, desiredPatterns]) !== rulesKey) return false;
+
+  if (safariInstalledDownloadRuleIds.length || addRules.length) {
+    try {
       await chrome.declarativeNetRequest.updateSessionRules({
-        removeRuleIds: [],
+        removeRuleIds: safariInstalledDownloadRuleIds,
         addRules,
       });
+    } catch (error) {
+      if (addRules.length && safariInstalledDownloadRuleIds.length &&
+          bridgeUrl !== safariInstalledDownloadBridge) {
+        await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: safariInstalledDownloadRuleIds });
+        safariInstalledDownloadRuleIds = [];
+        safariInstalledDownloadBridge = '';
+        safariDownloadRulesKey = undefined;
+      }
+      throw error;
     }
-    let installedRules = [];
-    if (chrome.declarativeNetRequest.getSessionRules) {
-      installedRules = await chrome.declarativeNetRequest.getSessionRules().catch(() => []);
-    }
-    // Safari 26.3 rejects safari-web-extension:// as a main-frame redirect
-    // destination and exposes an error page for block rules. A loopback-only
-    // native HTTP server returns a blank 200 page that the content script can
-    // consume, so Safari neither downloads nor exposes a blocker error page.
-    writeProbeLog('DNR local bridge redirect rules installed', {
-      ruleIds: addRules.map((rule) => rule.id),
-      patterns: redirectPatterns,
-      bridgeUrl,
-      installedRedirects: installedRules
-        .filter((rule) => SAFARI_DOWNLOAD_REDIRECT_RULE_IDS.includes(rule.id))
-        .map((rule) => rule.action?.redirect || {}),
-    });
-    return true;
-  } catch (error) {
-    writeProbeLog('DNR local bridge redirect rule installation failed', {
-      message: error?.message || String(error),
-    });
-    return false;
+    safariInstalledDownloadRuleIds = addRules.map((rule) => rule.id);
+    safariInstalledDownloadBridge = addRules.length ? bridgeUrl : '';
   }
+  safariDownloadRulesKey = rulesKey;
+  writeProbeLog('DNR local bridge redirect rules synchronized', {
+    ruleIds: safariInstalledDownloadRuleIds,
+    patterns: redirectPatterns,
+    bridgeUrl,
+  });
+  return true;
 }
 
 function addHostnameToMediaSniffingBlacklist(value, hostname) {
@@ -2803,6 +2843,7 @@ const mediaManager = mediaModule.createMediaManager({
   getTabSnapshot,
   probeMediaMetadata: probeMediaMetadataInTab,
   canAutoProbeMediaMetadata: Boolean(chrome.tabs?.sendMessage),
+  updateSessionRules: updateSafariSessionRules,
 });
 
 async function pollTasks() {
@@ -2988,7 +3029,8 @@ async function handleSafariHeadersReceived(details) {
       // Keep the allow rule across 3xx hops. Once the terminal response has
       // passed DNR evaluation it is safe to remove the one-shot rule.
       if (!isRedirectStatus(details.statusCode)) {
-        setTimeout(() => clearSafariDnrBypassRule(details.tabId).catch(() => {}), 1000);
+        const bypass = safariDnrBypassRules.get(details.tabId);
+        if (bypass) setTimeout(() => clearSafariDnrBypassRule(details.tabId, bypass), 1000);
       }
       writeProbeLog('Safari response left to browser by active bypass', {
         tabId: details.tabId,
@@ -3792,6 +3834,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   safariCommittedTabPages.delete(tabId);
   safariCreatedNavigationSources.delete(tabId);
   dnrNavigationCandidates.delete(tabId);
+  clearSafariDnrBypassRule(tabId);
   mediaManager.clearTabState(tabId);
   mediaManager.clearPreviewRule(tabId);
 });
