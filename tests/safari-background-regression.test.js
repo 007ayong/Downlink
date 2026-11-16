@@ -97,7 +97,6 @@ test('Safari sends local downloader HTTP requests through the native loopback br
   assert.match(background, /fetchRequest: safariLocalServiceFetch/);
   assert.match(handler, /LOCAL_HTTP_REQUEST/);
   assert.match(handler, /"127\.0\.0\.1", "localhost", "::1"/);
-  assert.match(handler, /URLSession\.shared\.dataTask/);
 });
 
 function loadSafariRedirectPatternBuilder() {
@@ -413,7 +412,7 @@ test('Safari DNR allowlist matches opaque redirect targets and preserves the sig
   const buildPatterns = loadSafariRedirectPatternBuilder();
   const rules = buildPatterns({
     captureExtensions: 'zip',
-    safariDownloadAllowlist: 'cdn.example.com/File, files.example.com/releases/?action=download, ignored.example',
+    safariDownloadAllowlist: 'cdn.example.com/File, files.example.com/releases/?action=download, download.winapps.cc/download/, ignored.example',
   });
   const capture = (url) => rules
     .map(({ regexFilter, isUrlFilterCaseSensitive }) =>
@@ -425,13 +424,22 @@ test('Safari DNR allowlist matches opaque redirect targets and preserves the sig
   assert.equal(capture(target), target);
   assert.equal(capture(prefixTarget), prefixTarget);
   for (const url of [
+    'https://download.winapps.cc/download?hash=abc&platform=arm64',
+    'https://download.winapps.cc/download/',
+    'https://download.winapps.cc/download/macos?platform=arm64',
+    'https://files.example.com/releases?action=download',
+  ]) assert.equal(capture(url), url);
+  for (const url of [
     'https://cdn.example.com/file',
     'https://cdn.example.com/FilePreview',
+    'https://cdn.example.com/File/child',
     'https://cdn.example.com.evil.test/File',
     'https://files.example.com/releases-other/build?action=download',
     'https://files.example.com/releases/build?action=preview',
     'https://files.example.com/releases/build?xaction=download',
     'https://files.example.com/releases/build?action=download-preview',
+    'https://files.example.com/releases?action=preview',
+    'https://download.winapps.cc/downloads?hash=abc',
     'https://ignored.example/login',
   ]) assert.equal(capture(url), undefined, url);
   assert.equal(capture('https://example.com/file.ZIP'), 'https://example.com/file.ZIP');
@@ -445,6 +453,7 @@ test('Safari resolves allowlisted filenames from headers and defers opaque names
     config: { safariDownloadAllowlist: 'cdn.example.com/file' },
     ConfigDefaults: require('../lib/config-defaults.js'),
     responseHeadersCache: new Map(),
+    writeProbeLog() {},
   };
   const code = source.slice(source.indexOf('function isSafariDownloadAllowlisted'), source.indexOf('function isSafariDnrDownloadCandidate'))
     + source.slice(source.indexOf('function normalizeSourceFilename'), source.indexOf('function rememberDownloadClickIntent'))
@@ -479,6 +488,26 @@ test('Safari resolves allowlisted filenames from headers and defers opaque names
   const fallback = await resolve();
   assert.equal(fallback.filename, '');
   assert.equal(fallback.autoDetectFilename, true);
+
+  const probeMethods = [];
+  let cancelled = false;
+  context.fetch = async (target, options) => {
+    assert.equal(target, url);
+    probeMethods.push(options.method);
+    if (options.method === 'HEAD') return new Response(null, { status: 405 });
+    assert.equal(options.headers.Range, 'bytes=0-0');
+    return {
+      ok: true,
+      status: 206,
+      redirected: true,
+      url: 'https://downloads.example.com/actual.dmg',
+      headers: new Headers({ 'content-type': 'application/octet-stream' }),
+      body: { cancel: async () => { cancelled = true; } },
+    };
+  };
+  assert.equal((await resolve()).filename, 'actual.dmg');
+  assert.deepEqual(probeMethods, ['HEAD', 'GET']);
+  assert.equal(cancelled, true);
 
   context.fetch = async () => ({
     ok: true,
@@ -687,7 +716,7 @@ test('Safari restores the bridge tab before opening pending task UI', () => {
   );
 
   assert.match(captureHandler, /openPendingSurface: false/);
-  assert.match(captureHandler, /sourceTabId: candidate\?\.sourceTabId \?\? openerTabId/);
+  assert.match(captureHandler, /candidate\?\.sourceTabId \?\? createdSource\?\.sourceTabId \?\? openerTabId/);
   assert.match(captureHandler, /stableSourcePageUrl/);
   assert.match(captureHandler, /scheduleSafariBridgeRecovery/);
   assert.match(captureHandler, /bridgeHandled/);
@@ -709,9 +738,14 @@ test('Safari restores successful bridge navigations without replaying redirect h
   assert.match(recoveryFunction, /sourceTabId/);
   assert.match(recoveryFunction, /chrome\.tabs\.update/);
   assert.match(recoveryFunction, /chrome\.tabs\.remove/);
-  assert.match(recoveryFunction, /url: returnUrl \|\| 'about:blank'/);
+  assert.doesNotMatch(recoveryFunction, /about:blank/);
   assert.doesNotMatch(recoveryFunction, /goBack|history\.back/);
   assert.match(recoveryFunction, /successful local bridge navigation recovered/);
+  const recover = vm.runInNewContext(`${recoveryFunction}; scheduleSafariBridgeRecovery`, {
+    chrome: { tabs: { update() {} } },
+    isUsableSafariBridgeSourcePage: () => false,
+  });
+  assert.equal(recover({ tabId: 1 }), 'stay');
 });
 
 test('Safari uses the generic successful-task hook for floating-panel rotation', () => {

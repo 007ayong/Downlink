@@ -1,0 +1,127 @@
+.downlink-bridge-status {
+  color-scheme: light dark;
+  --canvas: #f5f5f7;
+  --light: #fff;
+  --text: #1d1d1f;
+  --secondary: #626268;
+  --accent: #0066cc;
+  --edge: #d2d2d7;
+  --button-hover: #e9e9ee;
+  --tile: #fff;
+  --tile-shadow: 0 8px 26px rgb(0 0 0 / 8%);
+  position: fixed;
+  inset: 0;
+  display: grid;
+  align-items: safe center;
+  justify-items: center;
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 36px 24px;
+  background: radial-gradient(ellipse at center, var(--light), transparent 72%), var(--canvas);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.downlink-bridge-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 32px;
+  max-width: 36rem;
+}
+
+.downlink-bridge-icon {
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 112px;
+  border-radius: 26px;
+  background: var(--tile);
+  box-shadow: var(--tile-shadow);
+}
+
+.downlink-bridge-icon img {
+  display: block;
+}
+
+.downlink-bridge-details h1 {
+  margin: 0 0 6px;
+  font-size: clamp(24px, 4vw, 32px);
+  line-height: 1.2;
+  letter-spacing: -.03em;
+  font-weight: 670;
+}
+
+.downlink-bridge-details p {
+  margin: 0;
+  color: var(--secondary);
+  text-wrap: pretty;
+}
+
+.downlink-bridge-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin-top: 18px;
+  padding: 5px 13px;
+  border: 1px solid var(--edge);
+  border-radius: 100px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: 500 13px/1.3 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
+.downlink-bridge-back::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border: solid currentColor;
+  border-width: 0 0 1.5px 1.5px;
+  transform: rotate(45deg);
+}
+
+.downlink-bridge-back:hover {
+  background: var(--button-hover);
+}
+
+.downlink-bridge-back:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (max-width: 480px) {
+  .downlink-bridge-panel {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    gap: 22px;
+    text-align: center;
+  }
+
+  .downlink-bridge-icon {
+    width: 96px;
+    height: 96px;
+    border-radius: 23px;
+  }
+
+  .downlink-bridge-icon img {
+    width: 68px;
+    height: 68px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .downlink-bridge-status {
+    --canvas: #1c1c1e;
+    --light: #242426;
+    --text: #f5f5f7;
+    --secondary: #b0b0b5;
+    --accent: #82baff;
+    --edge: #515156;
+    --button-hover: #333336;
+    --tile: #303034;
+    --tile-shadow: 0 8px 26px rgb(0 0 0 / 21%);
+  }
+}

@@ -1639,6 +1639,7 @@ function scheduleSafariBridgeRecovery({ tabId, sourceTabId, openerTabId, sourceP
   const mode = typeof externalSourceTabId === 'number' && chrome.tabs?.remove
     ? 'close'
     : 'replace';
+  if (mode === 'replace' && (!returnUrl || !chrome.tabs?.update)) return 'stay';
   setTimeout(async () => {
     try {
       if (mode === 'close') {
@@ -1651,7 +1652,7 @@ function scheduleSafariBridgeRecovery({ tabId, sourceTabId, openerTabId, sourceP
         // previous history entry is commonly the terminal file URL, so going
         // back immediately triggers the same DNR rule again.
         await callChromeApi(chrome.tabs.update.bind(chrome.tabs), tabId, {
-          url: returnUrl || 'about:blank',
+          url: returnUrl,
         });
       }
       writeProbeLog('successful local bridge navigation recovered', {
@@ -1912,32 +1913,61 @@ async function resolveSafariDownloadMetadata(url, headers, referrer, { sourceFil
     || target.searchParams.get('response-content-disposition') || '';
   let mime = hasFreshResponse ? cached.contentType || '' : '';
   let filename = filenameFromCD(contentDisposition);
+  const allowlisted = isSafariDownloadAllowlisted(target.href);
 
-  if (!filename && (isSafariDownloadAllowlisted(target.href)
+  if (!filename && (allowlisted
     || (!downloadFilename && (!urlFilename || isLowQualityFilename(urlFilename))))) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 1000);
+    const timeout = setTimeout(() => controller.abort(), allowlisted ? 2000 : 1000);
+    let method = 'HEAD';
     try {
-      const response = await fetch(target.href, {
-        method: 'HEAD',
-        credentials: 'include',
-        headers: headers.authorization ? { Authorization: headers.authorization } : {},
-        referrer: /^https?:\/\//i.test(referrer) ? referrer : '',
-        signal: controller.signal,
-      });
-      if (response.ok) {
+      while (true) {
+        const requestHeaders = headers.authorization ? { Authorization: headers.authorization } : {};
+        if (method === 'GET') requestHeaders.Range = 'bytes=0-0';
+        const response = await fetch(target.href, {
+          method,
+          credentials: 'include',
+          headers: requestHeaders,
+          referrer: /^https?:\/\//i.test(referrer) ? referrer : '',
+          signal: controller.signal,
+        });
+        // Some servers ignore Range and return the whole file. Read only the
+        // headers and cancel the body as soon as it becomes available.
+        if (method === 'GET') response.body?.cancel().catch(() => {});
         const disposition = response.headers.get('content-disposition') || '';
         const contentType = response.headers.get('content-type') || '';
         const responseFilename = filenameFromCD(disposition);
         const isHtml = /^(?:text\/html|application\/xhtml\+xml)(?:\s*;|$)/i.test(contentType.trim());
-        if (!isHtml || (/^\s*attachment(?:\s*;|$)/i.test(disposition) && responseFilename)) {
+        const attachment = /^\s*attachment(?:\s*;|$)/i.test(disposition);
+        if (response.ok && (!isHtml || (attachment && responseFilename))) {
           contentDisposition = disposition || contentDisposition;
           mime = contentType || mime;
           filename = responseFilename || preferredUrlFilename(filenameFromUrl(response.url));
         }
+        if (allowlisted) {
+          writeProbeLog('Safari download filename probe response', {
+            host: target.host,
+            finalHost: response.url ? new URL(response.url).host : '',
+            method,
+            status: response.status,
+            redirected: response.redirected,
+            mime: contentType,
+            hasContentDisposition: Boolean(disposition),
+            filenameFound: Boolean(filename),
+          });
+        }
+        if (!allowlisted || method !== 'HEAD' || filename
+          || !(response.status === 405 || response.status === 501 || (response.ok && isHtml))) break;
+        method = 'GET';
       }
     } catch {
-      // Let the downloader resolve the filename if the server rejects HEAD.
+      if (allowlisted) {
+        writeProbeLog('Safari download filename probe failed', {
+          host: target.host,
+          method,
+          reason: controller.signal.aborted ? 'timeout' : 'request-failed',
+        });
+      }
     } finally {
       clearTimeout(timeout);
     }
@@ -3333,8 +3363,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           break;
         }
         if (candidate) dnrNavigationCandidates.delete(tabId);
+        cleanExpired(safariCreatedNavigationSources);
+        const createdSource = safariCreatedNavigationSources.get(tabId);
+        const sourceTabId = candidate?.sourceTabId ?? createdSource?.sourceTabId ?? openerTabId;
         const sourcePageUrl = String(candidate?.sourcePageUrl || msg.referrer || '');
-        const stableSourcePageUrl = String(candidate?.stableSourcePageUrl || '');
+        const stableSourcePageUrl = String(candidate?.stableSourcePageUrl || createdSource?.sourcePageUrl || '');
         const referrer = String(candidate?.referrer || sourcePageUrl);
         if (!config.autoCapture || !isSafariDnrDownloadCandidate(url) || isDownloadInterceptionBlockedForSource(sourcePageUrl, referrer)) {
           const bypass = await installSafariDnrBypassRule(tabId, url);
@@ -3357,14 +3390,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           referrer,
           sourcePageUrl,
           sourceFilename: candidate?.sourceFilename || filenameFromSafariRedirectUrl(url),
-          sourceTabId: candidate?.sourceTabId ?? openerTabId,
+          sourceTabId,
           tabId,
           windowId: candidate?.sourceWindowId ?? sender?.tab?.windowId,
           captureSource: 'safari-local-dnr-bridge',
           captureReason: 'dnr-regex-substitution',
           openPendingSurface: false,
         });
-        const sourceTabId = candidate?.sourceTabId ?? openerTabId;
         const recoveryMode = result?.ok ? scheduleSafariBridgeRecovery({
           tabId,
           sourceTabId,

@@ -155,6 +155,49 @@
         recovered = true;
         if (response?.closeBridgeTab) {
           try { window.close(); } catch {}
+        } else if (response.recoveryMode === 'stay') {
+          const showStatus = () => {
+            const message = (key, fallback) => chrome.i18n?.getMessage?.(key) || fallback;
+            const page = document.createElement('main');
+            page.className = 'downlink-bridge-status';
+            const panel = document.createElement('section');
+            panel.className = 'downlink-bridge-panel';
+            panel.setAttribute('aria-labelledby', 'downlink-bridge-title');
+            const tile = document.createElement('span');
+            tile.className = 'downlink-bridge-icon';
+            const icon = document.createElement('img');
+            icon.src = chrome.runtime.getURL('icons/icon300.png');
+            icon.alt = '';
+            icon.width = 80;
+            icon.height = 80;
+            tile.append(icon);
+            const details = document.createElement('div');
+            details.className = 'downlink-bridge-details';
+            const title = document.createElement('h1');
+            title.id = 'downlink-bridge-title';
+            title.textContent = response.pending
+              ? message('safariBridgePending', 'Confirm download')
+              : message('safariBridgeSent', 'Download sent');
+            const status = document.createElement('p');
+            status.textContent = response.pending
+              ? message('safariBridgePendingDetail', 'Confirm this task in the Downlink window to start the download.')
+              : message('safariBridgeSentDetail', 'You can view progress in your downloader.');
+            details.append(title, status);
+            panel.append(tile, details);
+            page.append(panel);
+            if (window.history.length > 1) {
+              const back = document.createElement('button');
+              back.className = 'downlink-bridge-back';
+              back.type = 'button';
+              back.textContent = message('safariBridgeBack', 'Go back');
+              back.addEventListener('click', () => window.history.back());
+              details.append(back);
+            }
+            document.title = `${title.textContent} · Downlink`;
+            document.body.append(page);
+          };
+          if (document.body) showStatus();
+          else document.addEventListener('DOMContentLoaded', showStatus, { once: true });
         }
         return;
       }

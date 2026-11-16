@@ -38,6 +38,7 @@
 		DD443B563009DC32007F0E9E /* assets in Resources */ = {isa = PBXBuildFile; fileRef = DD443B443009DC32007F0E9E /* assets */; };
 		A1D000000000000000000001 /* dnr-capture.html in Resources */ = {isa = PBXBuildFile; fileRef = A1D000000000000000000003 /* dnr-capture.html */; };
 		A1D000000000000000000002 /* dnr-capture.js in Resources */ = {isa = PBXBuildFile; fileRef = A1D000000000000000000004 /* dnr-capture.js */; };
+		A1D000000000000000000005 /* bridge-status.css in Resources */ = {isa = PBXBuildFile; fileRef = A1D000000000000000000006 /* bridge-status.css */; };
 		A2D000000000000000000000 /* aria2-tasks.html in Resources */ = {isa = PBXBuildFile; fileRef = A2E000000000000000000000 /* aria2-tasks.html */; };
 		A2D000000000000000000001 /* aria2-tasks.js in Resources */ = {isa = PBXBuildFile; fileRef = A2E000000000000000000001 /* aria2-tasks.js */; };
 		A2D000000000000000000002 /* aria2-settings.html in Resources */ = {isa = PBXBuildFile; fileRef = A2E000000000000000000002 /* aria2-settings.html */; };
@@ -124,6 +125,7 @@
 		DD443B443009DC32007F0E9E /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; name = assets; path = Resources/assets; sourceTree = "<group>"; };
 		A1D000000000000000000003 /* dnr-capture.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "dnr-capture.html"; path = "Resources/dnr-capture.html"; sourceTree = "<group>"; };
 		A1D000000000000000000004 /* dnr-capture.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "dnr-capture.js"; path = "Resources/dnr-capture.js"; sourceTree = "<group>"; };
+		A1D000000000000000000006 /* bridge-status.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; name = "bridge-status.css"; path = "Resources/bridge-status.css"; sourceTree = "<group>"; };
 		A2E000000000000000000000 /* aria2-tasks.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "aria2-tasks.html"; path = "Resources/aria2-tasks.html"; sourceTree = "<group>"; };
 		A2E000000000000000000001 /* aria2-tasks.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = "aria2-tasks.js"; path = "Resources/aria2-tasks.js"; sourceTree = "<group>"; };
 		A2E000000000000000000002 /* aria2-settings.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = "aria2-settings.html"; path = "Resources/aria2-settings.html"; sourceTree = "<group>"; };
@@ -261,6 +263,7 @@
 				DD443B443009DC32007F0E9E /* assets */,
 				A1D000000000000000000003 /* dnr-capture.html */,
 				A1D000000000000000000004 /* dnr-capture.js */,
+				A1D000000000000000000006 /* bridge-status.css */,
 				A2E000000000000000000005 /* aria2-create-task.js */,
 				A2E000000000000000000004 /* aria2-create-task.html */,
 				A2E000000000000000000003 /* aria2-settings.js */,
@@ -453,6 +456,7 @@
 				DD443B513009DC32007F0E9E /* icons in Resources */,
 				A1D000000000000000000001 /* dnr-capture.html in Resources */,
 				A1D000000000000000000002 /* dnr-capture.js in Resources */,
+				A1D000000000000000000005 /* bridge-status.css in Resources */,
 				A2D000000000000000000005 /* aria2-create-task.js in Resources */,
 				A2D000000000000000000004 /* aria2-create-task.html in Resources */,
 				A2D000000000000000000003 /* aria2-settings.js in Resources */,

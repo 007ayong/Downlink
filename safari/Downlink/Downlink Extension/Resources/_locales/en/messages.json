@@ -5,6 +5,21 @@
   "extensionDescription": {
     "message": "Take over downloads after the browser confirms the response and send them to your selected downloader"
   },
+  "safariBridgePending": {
+    "message": "Confirm download"
+  },
+  "safariBridgeSent": {
+    "message": "Download sent"
+  },
+  "safariBridgePendingDetail": {
+    "message": "Confirm this task in the Downlink window to start the download."
+  },
+  "safariBridgeSentDetail": {
+    "message": "You can view progress in your downloader."
+  },
+  "safariBridgeBack": {
+    "message": "Go back"
+  },
   "commandToggleAutoCapture": {
     "message": "Toggle automatic interception"
   },

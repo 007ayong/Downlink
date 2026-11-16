@@ -62,6 +62,7 @@ export const SHARED_DIRECTORIES = Object.freeze([
 // shared JavaScript files).
 export const SAFARI_ONLY_FILES = Object.freeze([
   'background.js',
+  'bridge-status.css',
   'dnr-capture.html',
   'dnr-capture.js',
   'manifest.json',

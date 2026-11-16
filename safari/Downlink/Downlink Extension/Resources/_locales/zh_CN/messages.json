@@ -5,6 +5,21 @@
   "extensionDescription": {
     "message": "在浏览器确认下载响应后接管，并发送到你选择的下载器"
   },
+  "safariBridgePending": {
+    "message": "等待确认下载"
+  },
+  "safariBridgeSent": {
+    "message": "已发送到下载器"
+  },
+  "safariBridgePendingDetail": {
+    "message": "在 Downlink 窗口确认任务后即可开始下载。"
+  },
+  "safariBridgeSentDetail": {
+    "message": "可在下载器中查看下载进度。"
+  },
+  "safariBridgeBack": {
+    "message": "返回上一页"
+  },
   "commandToggleAutoCapture": {
     "message": "开启/关闭自动拦截"
   },

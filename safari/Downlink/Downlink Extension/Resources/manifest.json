@@ -22,6 +22,14 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "icons/icon300.png"
+      ],
+      "matches": [
+        "http://127.0.0.1/*"
+      ]
+    },
+    {
+      "resources": [
         "dnr-capture.html",
         "dnr-capture.js"
       ],
@@ -60,6 +68,15 @@
     }
   },
   "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1/downlink-dnr/*"
+      ],
+      "css": [
+        "bridge-status.css"
+      ],
+      "run_at": "document_start"
+    },
     {
       "matches": [
         "<all_urls>"

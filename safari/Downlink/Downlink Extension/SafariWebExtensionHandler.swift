@@ -10,7 +10,31 @@ import os.log
 
 private let localDNRBridgeURL = "http://127.0.0.1:17651/downlink-dnr/7f459ea1-29d8-4d22-90c3-9fbfd95071ac"
 
+private final class LoopbackRequestPolicy: NSObject, URLSessionTaskDelegate {
+    static func allows(_ url: URL, method: String) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return url.scheme?.lowercased() == "http"
+            && ["127.0.0.1", "localhost", "::1", "[::1]"].contains(host)
+            && ["GET", "POST"].contains(method)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        guard let url = request.url, Self.allows(url, method: request.httpMethod ?? "GET") else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
+    }
+}
+
 class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
+
+    private static let loopbackSession = URLSession(configuration: .default,
+                                                    delegate: LoopbackRequestPolicy(),
+                                                    delegateQueue: nil)
 
     private func complete(_ context: NSExtensionContext, reply: [String: Any]) {
         let response = NSExtensionItem()
@@ -49,24 +73,23 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
         }
 
         if let payload = message as? [String: Any], payload["type"] as? String == "LOCAL_HTTP_REQUEST" {
+            let method = (payload["method"] as? String) ?? "GET"
             guard let urlText = payload["url"] as? String,
                   let url = URL(string: urlText),
-                  url.scheme == "http",
-                  ["127.0.0.1", "localhost", "::1"].contains(url.host ?? ""),
-                  ["GET", "POST"].contains((payload["method"] as? String) ?? "GET") else {
+                  LoopbackRequestPolicy.allows(url, method: method) else {
                 complete(context, reply: ["error": "invalid-local-http-request"])
                 return
             }
             var localRequest = URLRequest(url: url)
             localRequest.timeoutInterval = 5
-            localRequest.httpMethod = (payload["method"] as? String) ?? "GET"
+            localRequest.httpMethod = method
             if let headers = payload["headers"] as? [String: String] {
                 for (name, value) in headers { localRequest.setValue(value, forHTTPHeaderField: name) }
             }
             if let body = payload["body"] as? String, !body.isEmpty {
                 localRequest.httpBody = body.data(using: .utf8)
             }
-            URLSession.shared.dataTask(with: localRequest) { data, response, error in
+            Self.loopbackSession.dataTask(with: localRequest) { data, response, error in
                 if let error = error {
                     self.complete(context, reply: ["error": error.localizedDescription])
                     return

@@ -1289,6 +1289,9 @@
     .settings-input-action .settings-input.wide { margin-top: 0; }
     .settings-input-action .btn { flex: 0 0 auto; padding: 6px 12px; }
     .settings-row.col { flex-direction: column; align-items: stretch; }
+    .safari-download-allowlist-row:not(.settings-hidden) { display: block; }
+    .safari-download-allowlist-row > summary { cursor: pointer; }
+    .safari-download-allowlist-row .settings-sub { display: block; margin-top: 6px; }
     .settings-row .btn.btn-ghost { height: 32px; }
     .aria2-profile-card { padding: 14px; }
     .aria2-profile-header { margin-bottom: 12px; }
@@ -2059,14 +2062,12 @@
         <button class="btn btn-ghost" type="button" id="restoreDefaultCaptureExtensionsBtn" data-i18n="restoreDefaultCaptureExtensions">恢复默认</button>
       </div>
     </div>
-    <div class="settings-row col safari-download-allowlist-row settings-hidden">
-      <label for="cfgSafariDownloadAllowlist">
-        <span data-i18n="settingsSafariDownloadAllowlist">Safari 下载接管白名单</span>
-        <span class="settings-sub" data-i18n="settingsSafariDownloadAllowlistSub">逗号分隔，填写域名和路径。路径以 / 结尾时匹配前缀，也可加 ?参数=值。</span>
-      </label>
-      <input class="settings-input wide" id="cfgSafariDownloadAllowlist" type="text"
+    <details class="settings-row col safari-download-allowlist-row settings-hidden">
+      <summary id="safariDownloadAllowlistTitle" data-i18n="settingsSafariDownloadAllowlist">Safari 自定义下载规则（可选）</summary>
+      <label class="settings-sub" id="safariDownloadAllowlistHelp" for="cfgSafariDownloadAllowlist" data-i18n="settingsSafariDownloadAllowlistSub">只在 Safari 漏接管没有文件后缀的下载链接时填写。每条规则包含域名和路径，用逗号分隔。以 / 结尾时匹配路径本身及其子路径，也可加 ?参数=值 缩小范围。</label>
+      <input class="settings-input wide" id="cfgSafariDownloadAllowlist" type="text" aria-labelledby="safariDownloadAllowlistTitle" aria-describedby="safariDownloadAllowlistHelp"
         placeholder="cdn.example.com/file, downloads.example.com/files/" spellcheck="false" autocomplete="off"/>
-    </div>
+    </details>
     <div class="settings-row shortcut-settings-row">
       <label><span data-i18n="settingsAutoCaptureShortcut">拦截快捷键</span> <span class="settings-sub" data-i18n="settingsAutoCaptureShortcutSub">默认 Ctrl+Shift+D，可在浏览器扩展管理页中自定义</span></label>
       <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="customizeShortcutBtn" data-i18n="customizeShortcut">自定义</button>
