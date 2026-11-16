@@ -12,6 +12,7 @@
       defaultMediaSniffingBlacklist = 'x.com,youtube.com',
       defaultDownloadInterceptionBlacklist = 'web.telegram.org',
       hideSmallDownloadSettings = false,
+      showSafariDownloadAllowlist = false,
       getCurrentConfig,
       setCurrentConfig,
       getSavedConfig = getCurrentConfig,
@@ -295,6 +296,9 @@
         mediaSniffingBlacklist: document.getElementById('cfgMediaSniffingBlacklist').value.trim(),
         downloadInterceptionBlacklist: document.getElementById('cfgDownloadInterceptionBlacklist').value.trim(),
         captureExtensions: document.getElementById('cfgExts').value.trim(),
+        ...(showSafariDownloadAllowlist ? {
+          safariDownloadAllowlist: document.getElementById('cfgSafariDownloadAllowlist')?.value.trim() || '',
+        } : {}),
         ...(hideSmallDownloadSettings ? {} : {
           skipSmallDownloads: document.getElementById('cfgSkipSmallDownloads').checked,
           smallDownloadThresholdBytes: Math.max(0.1, Number.parseFloat(document.getElementById('cfgSmallDownloadThresholdMb').value) || 1) * 1024 * 1024,
@@ -403,6 +407,9 @@
       setControlValue('cfgMediaSniffingBlacklist', normalizedCfg.mediaSniffingBlacklist || '');
       setControlValue('cfgDownloadInterceptionBlacklist', normalizedCfg.downloadInterceptionBlacklist || '');
       setControlValue('cfgExts', normalizedCfg.captureExtensions || '');
+      if (showSafariDownloadAllowlist && document.getElementById('cfgSafariDownloadAllowlist')) {
+        setControlValue('cfgSafariDownloadAllowlist', normalizedCfg.safariDownloadAllowlist || '');
+      }
       if (!hideSmallDownloadSettings) {
         document.getElementById('cfgSkipSmallDownloads').checked = !!normalizedCfg.skipSmallDownloads;
         setControlValue('cfgSmallDownloadThresholdMb', ((Number(normalizedCfg.smallDownloadThresholdBytes) || 1048576) / 1024 / 1024).toString());
@@ -447,9 +454,11 @@
         'cfgMediaSniffingBlacklist',
         'cfgDownloadInterceptionBlacklist',
         'cfgExts',
+        ...(showSafariDownloadAllowlist ? ['cfgSafariDownloadAllowlist'] : []),
         ...(hideSmallDownloadSettings ? [] : ['cfgSmallDownloadThresholdMb']),
       ].forEach((id) => {
         const el = document.getElementById(id);
+        if (!el) return;
         el.addEventListener('input', () => {
           if (id === 'cfgRpc' && !isValidRpcDraft(el.value)) {
             // Cancel a save queued by the previous keystroke. Saving an

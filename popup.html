@@ -2059,6 +2059,14 @@
         <button class="btn btn-ghost" type="button" id="restoreDefaultCaptureExtensionsBtn" data-i18n="restoreDefaultCaptureExtensions">恢复默认</button>
       </div>
     </div>
+    <div class="settings-row col safari-download-allowlist-row settings-hidden">
+      <label for="cfgSafariDownloadAllowlist">
+        <span data-i18n="settingsSafariDownloadAllowlist">Safari 下载接管白名单</span>
+        <span class="settings-sub" data-i18n="settingsSafariDownloadAllowlistSub">逗号分隔，填写域名和路径。路径以 / 结尾时匹配前缀，也可加 ?参数=值。</span>
+      </label>
+      <input class="settings-input wide" id="cfgSafariDownloadAllowlist" type="text"
+        placeholder="cdn.example.com/file, downloads.example.com/files/" spellcheck="false" autocomplete="off"/>
+    </div>
     <div class="settings-row shortcut-settings-row">
       <label><span data-i18n="settingsAutoCaptureShortcut">拦截快捷键</span> <span class="settings-sub" data-i18n="settingsAutoCaptureShortcutSub">默认 Ctrl+Shift+D，可在浏览器扩展管理页中自定义</span></label>
       <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="customizeShortcutBtn" data-i18n="customizeShortcut">自定义</button>

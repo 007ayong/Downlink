@@ -115,6 +115,7 @@ const DEFAULT_CONFIG = {
   mediaSniffingBlacklist: DEFAULT_MEDIA_SNIFFING_BLACKLIST,
   downloadInterceptionBlacklist: DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST,
   captureExtensions: DEFAULT_CAPTURE_EXTENSIONS,
+  safariDownloadAllowlist: '',
   captureMime: true,
 };
 const MACOS_TAG_COLORS = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#007aff', '#af52de', '#8e8e93'];
@@ -179,7 +180,6 @@ let safariInstalledDownloadBridge = '';
 let safariBridgeKeepalivePending = false;
 const SAFARI_DOWNLOAD_REDIRECT_RULE_IDS = Array.from({ length: 100 }, (_, index) => 80000001 + index);
 const SAFARI_DOWNLOAD_BYPASS_RULE_ID_BASE = 81000000;
-const SAFARI_DOWNLOAD_ENDPOINT_REDIRECT_PATTERNS = [];
 const SAFARI_NATIVE_APP_ID = 'cc.winapps.downlink';
 const SAFARI_LOCAL_BRIDGE_KEEPALIVE_MS = 5000;
 const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
@@ -646,16 +646,26 @@ function buildSafariDownloadRedirectPatterns(nextConfig = config) {
       // the loopback bridge even when DNR runs before webRequest observers.
       return `^(https?://[^/?#]+/[^?#]*\\.${escaped}(?:[?][^#]*)?)$`;
     });
-  return [...SAFARI_DOWNLOAD_ENDPOINT_REDIRECT_PATTERNS, ...extensionPatterns];
+  const allowlistPatterns = globalThis.ConfigDefaults.buildSafariDownloadAllowlistPatterns(nextConfig.safariDownloadAllowlist);
+  return [
+    ...extensionPatterns.map((regexFilter) => ({ regexFilter, isUrlFilterCaseSensitive: false })),
+    ...allowlistPatterns.map((regexFilter) => ({ regexFilter, isUrlFilterCaseSensitive: true })),
+  ];
+}
+
+function isSafariDownloadAllowlisted(url) {
+  const allowlist = globalThis.ConfigDefaults.buildSafariDownloadAllowlistPatterns(config.safariDownloadAllowlist);
+  return allowlist.some((pattern) => new RegExp(pattern).test(url));
 }
 
 function isSafariDnrDownloadCandidate(url = '') {
   try {
     const parsed = new URL(String(url || ''));
     if (!['http:', 'https:'].includes(parsed.protocol)) return false;
-    // Opaque /download, /downloads/redirect and /export endpoints may still
-    // perform several redirects. Capturing them creates one task per hop.
-    // Only a configured file suffix is a terminal DNR takeover candidate.
+    parsed.hash = '';
+    if (isSafariDownloadAllowlisted(parsed.href)) return true;
+
+    // Unlisted opaque endpoints can still redirect to pages or other files.
     const extension = parsed.pathname.match(/\.([a-zA-Z0-9]+)$/)?.[1]?.toLowerCase() || '';
     if (!extension) return false;
     const configuredExtensions = String(config.captureExtensions || '')
@@ -1029,14 +1039,18 @@ async function syncSafariDownloadRedirectRules() {
   if (rulesKey === safariDownloadRulesKey) return true;
 
   const supportedPatterns = [];
-  for (let index = 0; index < redirectPatterns.length; index += 1) {
-    const regexFilter = redirectPatterns[index];
+  for (const { regexFilter, isUrlFilterCaseSensitive } of redirectPatterns) {
+    const ruleId = SAFARI_DOWNLOAD_REDIRECT_RULE_IDS[supportedPatterns.length];
+    if (ruleId === undefined) {
+      writeProbeLog('DNR download rule limit reached', { limit: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS.length });
+      break;
+    }
     if (chrome.declarativeNetRequest.isRegexSupported) {
       try {
         const validation = await chrome.declarativeNetRequest.isRegexSupported({ regex: regexFilter });
         if (!validation?.isSupported) {
           writeProbeLog('DNR download regex unsupported', {
-            ruleId: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS[index],
+            ruleId,
             regexFilter,
             reason: validation?.reason || '',
           });
@@ -1044,16 +1058,16 @@ async function syncSafariDownloadRedirectRules() {
         }
       } catch (error) {
         writeProbeLog('DNR download regex validation failed', {
-          ruleId: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS[index],
+          ruleId,
           message: error?.message || String(error),
         });
         continue;
       }
     }
-    supportedPatterns.push({ index, regexFilter });
+    supportedPatterns.push({ ruleId, regexFilter, isUrlFilterCaseSensitive });
   }
-  const addRules = supportedPatterns.map(({ index, regexFilter }) => ({
-    id: SAFARI_DOWNLOAD_REDIRECT_RULE_IDS[index],
+  const addRules = supportedPatterns.map(({ ruleId, regexFilter, isUrlFilterCaseSensitive }) => ({
+    id: ruleId,
     priority: 10,
     action: {
       type: 'redirect',
@@ -1065,7 +1079,7 @@ async function syncSafariDownloadRedirectRules() {
     },
     condition: {
       regexFilter,
-      isUrlFilterCaseSensitive: false,
+      isUrlFilterCaseSensitive,
       // Safari may reclassify a main-frame navigation as "other" after one or
       // more redirects when the response becomes a browser download.
       resourceTypes: ['main_frame', 'other'],
@@ -1183,6 +1197,7 @@ function normalizeConfig(nextConfig = {}) {
       : String(nextConfig.mediaSniffingBlacklist || '').trim(),
     downloadInterceptionBlacklist: String(nextConfig.downloadInterceptionBlacklist || '').trim(),
     captureExtensions: normalizeCaptureExtensionsConfig(nextConfig.captureExtensions),
+    safariDownloadAllowlist: String(nextConfig.safariDownloadAllowlist || '').trim(),
   };
   delete normalized.mediaSniffing;
   delete normalized.skipSmallDownloads;
@@ -1222,7 +1237,7 @@ async function saveConfigAndSync(nextConfig) {
   config = normalizeConfig({ ...config, ...nextConfig });
   applyLocaleFromConfig(config);
   const autoCaptureChanged = previousAutoCapture !== config.autoCapture;
-  if (autoCaptureChanged || Object.prototype.hasOwnProperty.call(nextConfig, 'captureExtensions')) {
+  if (autoCaptureChanged || 'captureExtensions' in nextConfig || 'safariDownloadAllowlist' in nextConfig) {
     await installSafariDownloadRedirectRules();
   }
   if (
@@ -1886,6 +1901,66 @@ async function queueOrSendCapturedDownload(taskInfo, { openPopupOnFailure = true
   return sendTask(taskInfo, {}, { openPopupOnFailure, shouldReportFailure });
 }
 
+async function resolveSafariDownloadMetadata(url, headers, referrer, { sourceFilename = '', downloadFilename = '' } = {}) {
+  const target = new URL(url);
+  target.hash = '';
+  const urlFilename = preferredUrlFilename(filenameFromUrl(target.href));
+
+  const cached = getCachedResponseHeaders(target.href);
+  const hasFreshResponse = cached.expiresAt > Date.now();
+  let contentDisposition = (hasFreshResponse && cached.contentDisposition)
+    || target.searchParams.get('response-content-disposition') || '';
+  let mime = hasFreshResponse ? cached.contentType || '' : '';
+  let filename = filenameFromCD(contentDisposition);
+
+  if (!filename && (isSafariDownloadAllowlisted(target.href)
+    || (!downloadFilename && (!urlFilename || isLowQualityFilename(urlFilename))))) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1000);
+    try {
+      const response = await fetch(target.href, {
+        method: 'HEAD',
+        credentials: 'include',
+        headers: headers.authorization ? { Authorization: headers.authorization } : {},
+        referrer: /^https?:\/\//i.test(referrer) ? referrer : '',
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        const disposition = response.headers.get('content-disposition') || '';
+        const contentType = response.headers.get('content-type') || '';
+        const responseFilename = filenameFromCD(disposition);
+        const isHtml = /^(?:text\/html|application\/xhtml\+xml)(?:\s*;|$)/i.test(contentType.trim());
+        if (!isHtml || (/^\s*attachment(?:\s*;|$)/i.test(disposition) && responseFilename)) {
+          contentDisposition = disposition || contentDisposition;
+          mime = contentType || mime;
+          filename = responseFilename || preferredUrlFilename(filenameFromUrl(response.url));
+        }
+      }
+    } catch {
+      // Let the downloader resolve the filename if the server rejects HEAD.
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  if (!filename) {
+    for (const key of ['filename', 'file_name']) {
+      const hint = normalizeSourceFilename(target.searchParams.get(key) || '');
+      if (preferredUrlFilename(hint) && !isLowQualityFilename(hint)) {
+        filename = hint;
+        break;
+      }
+    }
+  }
+  filename ||= downloadFilename || resolveCapturedFilename(urlFilename, {
+    sourceFilename: preferredUrlFilename(addExtensionFromCandidates(sourceFilename, { mime })),
+    mime,
+  });
+  filename = filename.split(/[/\\]/).pop().trim();
+  if (filename === '.' || filename === '..') filename = '';
+  return { filename, contentDisposition, mime, autoDetectFilename: !filename };
+}
+
 function captureSafariUrlDirectly({
   url = '',
   referrer = '',
@@ -1926,10 +2001,14 @@ function captureSafariUrlDirectly({
       sourceFilename,
       candidates: [redirectFilename, urlFilename],
     });
+    const metadata = isSafariDownloadAllowlisted(normalizeIntentUrl(url))
+      ? await resolveSafariDownloadMetadata(url, headers, referrer, { sourceFilename })
+      : {};
     const taskInfo = {
       key: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
       url,
       filename,
+      ...metadata,
       headers,
       method: 'GET',
       origin: deriveOrigin(url, referrer || sourcePageUrl),
@@ -1943,7 +2022,7 @@ function captureSafariUrlDirectly({
     };
     writeProbeLog('Safari URL captured before browser download', {
       url,
-      filename,
+      filename: taskInfo.filename,
       tabId,
       referrer,
       sourcePageUrl,
@@ -2477,7 +2556,9 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (changes.language) refreshContextMenus();
   const autoCaptureChanged = changes.autoCapture && previousAutoCapture !== config.autoCapture;
   const mediaSniffingEnabledChanged = changes.autoCapture && previousMediaSniffingEnabled !== isMediaSniffingEnabled(config);
-  if (autoCaptureChanged || changes.captureExtensions) installSafariDownloadRedirectRules().catch(() => {});
+  if (autoCaptureChanged || changes.captureExtensions || changes.safariDownloadAllowlist) {
+    installSafariDownloadRedirectRules().catch(() => {});
+  }
   if (autoCaptureChanged || mediaSniffingEnabledChanged || changes.mediaSniffingBlacklist || changes.mediaSniffing) {
     syncMediaSniffingStateForActiveTabs().then(() => {
       broadcastUpdate();
@@ -2933,7 +3014,7 @@ const responseHeaderExtraInfoSpec = ['responseHeaders'];
 writeProbeLog('runtime detection', { runtime: 'safari', requestHeaderExtraInfoSpec, responseHeaderExtraInfoSpec, userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'no navigator', hasDNR: Boolean(chrome.declarativeNetRequest), hasDNRDynamic: Boolean(chrome.declarativeNetRequest?.updateDynamicRules), hasWebRequestBlocking: false });
 
 function handleSafariSendHeaders(details) {
-    if (!config.autoCapture) return;
+    if (!config.autoCapture || details.method === 'HEAD') return;
     const headers = {};
     for (const header of details.requestHeaders || []) headers[header.name.toLowerCase()] = header.value;
     const bridgeTargetUrl = safariLocalBridgeRequestTargetUrl(details.url);
@@ -3023,6 +3104,7 @@ try {
 // Safari 的 webRequest 只能观察响应；返回 { cancel: true } 不会可靠地停止下载。
 // 响应头链路记录 302 目标，DNR 在目标请求发出前完成真正接管。
 async function handleSafariHeadersReceived(details) {
+    if (details.method === 'HEAD') return;
     // media sniffing：fire-and-forget，不阻塞监听器返回值
     runMediaSniffing(details);
     if (await isSafariDnrBypassActive(details.tabId, details.url)) {
@@ -3141,6 +3223,7 @@ async function handleSafariHeadersReceived(details) {
 try {
   chrome.webRequest.onBeforeRedirect?.addListener?.(
     (details) => {
+      if (details.method === 'HEAD') return;
       isSafariDnrBypassActive(details.tabId, details.redirectUrl || details.url).then((bypassed) => {
         if (!bypassed) navigateSafariRedirectToDnrBridge(details, details.redirectUrl, 'onBeforeRedirect');
       }).catch(() => {});
@@ -3344,8 +3427,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         const referrer = sourcePageUrl;
         const cachedRequest = requestHeadersCache.get(url) || {};
-        const cookieHeader = await getCookieHeaderForUrl(url);
         const headers = { ...(cachedRequest.headers || {}) };
+        const cookieHeader = await getCookieHeaderForUrl(url);
         if (cookieHeader) headers.cookie = cookieHeader;
         if (referrer && !headers.referer) headers.referer = referrer;
         if (!headers['user-agent'] && typeof navigator !== 'undefined' && navigator.userAgent) {
@@ -3354,10 +3437,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const taskInfo = {
           key: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
           url,
-          filename: resolveCapturedFilename(msg.filename || filenameFromUrl(url), {
-            sourceFilename: msg.filename || '',
-            candidates: [filenameFromUrl(url)],
-          }),
           headers,
           method: 'GET',
           origin: deriveOrigin(url, referrer),
@@ -3369,6 +3448,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sourcePageUrl,
           addedAt: Date.now(),
         };
+        const resolveMetadata = () => resolveSafariDownloadMetadata(url, headers, referrer, {
+          downloadFilename: String(msg.downloadFilename || ''),
+        }).catch(() => ({ filename: '', autoDetectFilename: true }));
+        if (shouldConfirmBeforeSend()) {
+          const key = await enqueuePendingDownload({
+            ...taskInfo,
+            filenameResolving: true,
+            autoDetectFilename: true,
+          }, { openSurface: false });
+          openTaskSurfaceForTask(taskInfo).catch(() => {});
+          sendResponse({ ok: true, pending: true, key });
+          const metadata = await resolveMetadata();
+          const pending = pendingDownloads[key];
+          if (pending) {
+            Object.assign(pending, metadata, { filenameResolving: false });
+            broadcastUpdate();
+          }
+          break;
+        }
+        Object.assign(taskInfo, await resolveMetadata());
         writeProbeLog('capture link before navigation', {
           url,
           filename: taskInfo.filename,
@@ -3383,7 +3482,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'CONFIRM_DOWNLOAD': {
         const info = pendingDownloads[msg.key];
         if (!info) break;
-        const result = await sendTask({ ...info, filename: msg.filename || info.filename }, msg.opts || {}, { openPopupOnFailure: false });
+        if (info.filenameResolving) {
+          sendResponse({ ok: false, filenameResolving: true });
+          break;
+        }
+        const filename = typeof msg.filename === 'string' ? msg.filename : info.filename;
+        const autoDetectFilename = !filename && (info.autoDetectFilename || info.captureSource === 'safari-link-click');
+        const result = await sendTask({ ...info, filename, autoDetectFilename }, msg.opts || {}, { openPopupOnFailure: false });
         if (result?.ok) delete pendingDownloads[msg.key];
         sendResponse(result);
         broadcastUpdate();

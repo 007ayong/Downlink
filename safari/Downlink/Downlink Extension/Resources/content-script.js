@@ -4,6 +4,7 @@
   const configStorageAreaKey = '__downlinkConfigStorageArea';
   const safariCaptureResponseTimeoutMs = 2500;
   let captureExtensionPattern = buildCaptureExtensionPattern(defaultCaptureExtensions);
+  let safariAllowlistPatterns = [];
   let activeConfigStorageArea = '';
 
   function isSafariExtensionRuntime() {
@@ -35,6 +36,18 @@
     captureExtensionPattern = buildCaptureExtensionPattern(normalizeCaptureExtensionsConfig(value));
   }
 
+  function applySafariDownloadAllowlist(value) {
+    if (!isSafariExtensionRuntime()) return;
+    const patterns = globalThis.ConfigDefaults?.buildSafariDownloadAllowlistPatterns?.(value) || [];
+    safariAllowlistPatterns = patterns.map((pattern) => new RegExp(pattern));
+  }
+
+  function applyStoredCaptureSettings(stored, fallback = {}) {
+    const settings = { ...fallback, ...stored };
+    applyCaptureExtensions(settings.captureExtensions);
+    applySafariDownloadAllowlist(settings.safariDownloadAllowlist);
+  }
+
   function getStoredConfig(storageArea, defaults = {}) {
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -59,7 +72,7 @@
     });
   }
 
-  async function loadStoredCaptureExtensions() {
+  async function loadStoredCaptureSettings() {
     let localStored = {};
     try {
       localStored = await getStoredConfig(chrome.storage.local, null);
@@ -68,7 +81,7 @@
     const localHasConfig = Object.prototype.hasOwnProperty.call(localStored, 'captureExtensions');
     if (localStored?.[configStorageAreaKey] === 'local') {
       activeConfigStorageArea = 'local';
-      applyCaptureExtensions(localHasConfig ? localStored.captureExtensions : defaultCaptureExtensions);
+      applyStoredCaptureSettings(localStored);
       return;
     }
 
@@ -77,18 +90,14 @@
       const syncHasConfig = Object.prototype.hasOwnProperty.call(syncStored, 'captureExtensions');
       if (localStored?.[configStorageAreaKey] === 'sync') {
         activeConfigStorageArea = 'sync';
-        applyCaptureExtensions(syncHasConfig
-          ? syncStored.captureExtensions
-          : (localHasConfig ? localStored.captureExtensions : defaultCaptureExtensions));
+        applyStoredCaptureSettings(syncStored, localStored);
         return;
       }
       activeConfigStorageArea = syncHasConfig ? 'sync' : (localHasConfig ? 'local' : 'sync');
-      applyCaptureExtensions(syncHasConfig
-        ? syncStored.captureExtensions
-        : (localHasConfig ? localStored.captureExtensions : defaultCaptureExtensions));
+      applyStoredCaptureSettings(activeConfigStorageArea === 'local' ? localStored : syncStored, localStored);
     } catch {
       activeConfigStorageArea = localStored?.[configStorageAreaKey] === 'sync' ? 'sync' : 'local';
-      applyCaptureExtensions(localHasConfig ? localStored.captureExtensions : defaultCaptureExtensions);
+      applyStoredCaptureSettings(localStored);
     }
   }
 
@@ -174,12 +183,17 @@
     const downloadAttr = link.getAttribute?.('download');
     const label = [link.getAttribute?.('aria-label') || '', link.textContent || ''].join(' ').trim();
     let path = '';
+    let matchesSafariAllowlist = false;
     try {
-      path = new URL(href).pathname;
+      const url = new URL(href);
+      path = url.pathname;
+      url.hash = '';
+      matchesSafariAllowlist = safariAllowlistPatterns.some((pattern) => pattern.test(url.href));
     } catch {}
     return Boolean(
       downloadAttr !== undefined && downloadAttr !== null ||
       captureExtensionPattern?.test(href) ||
+      matchesSafariAllowlist ||
       /\/artifacts?\/[^/]+\/?$/i.test(path) ||
       (/\bartifact\b/i.test(label) && /\/artifacts?(?:\/|$)/i.test(path))
     );
@@ -268,23 +282,17 @@
       url: link.href,
       referrer: window.location.href || '',
     };
-    const filename = inferLinkFilename(link);
-    if (filename) message.filename = filename;
+    const downloadFilename = String(link.getAttribute?.('download') || '').trim();
+    if (downloadFilename) message.downloadFilename = downloadFilename;
 
-    let settled = false;
     const restoreBrowserNavigation = () => {
-      if (settled) return;
-      settled = true;
       window.location.href = link.href;
     };
-    const responseTimeout = setTimeout(restoreBrowserNavigation, safariCaptureResponseTimeoutMs);
 
+    // The downloader can accept a task while its reply is still in flight.
     sendRuntimeMessage(message)
       .then((result) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(responseTimeout);
-        if (!result?.ok) window.location.href = link.href;
+        if (!result?.ok) restoreBrowserNavigation();
       })
       .catch(restoreBrowserNavigation);
 
@@ -301,22 +309,23 @@
     if (event.detail !== 0) return;
   }, true);
 
-  loadStoredCaptureExtensions().catch(() => applyCaptureExtensions(defaultCaptureExtensions));
+  loadStoredCaptureSettings().catch(() => applyCaptureExtensions(defaultCaptureExtensions));
   chrome.storage.onChanged?.addListener?.((changes, areaName) => {
     if (areaName && !['sync', 'local'].includes(areaName)) return;
     if (areaName === 'local' && Object.prototype.hasOwnProperty.call(changes || {}, configStorageAreaKey)) {
       const nextArea = changes[configStorageAreaKey]?.newValue;
       if (nextArea === 'sync' || nextArea === 'local') activeConfigStorageArea = nextArea;
-      if (activeConfigStorageArea === 'local' && Object.prototype.hasOwnProperty.call(changes || {}, 'captureExtensions')) {
+      if (activeConfigStorageArea === 'local' && changes.captureExtensions) {
         applyCaptureExtensions(changes.captureExtensions.newValue);
+        if (changes.safariDownloadAllowlist) applySafariDownloadAllowlist(changes.safariDownloadAllowlist.newValue);
       } else {
-        loadStoredCaptureExtensions().catch(() => {});
+        loadStoredCaptureSettings().catch(() => {});
       }
       return;
     }
     if (activeConfigStorageArea && areaName && areaName !== activeConfigStorageArea) return;
-    if (!Object.prototype.hasOwnProperty.call(changes || {}, 'captureExtensions')) return;
-    applyCaptureExtensions(changes.captureExtensions.newValue);
+    if (changes.captureExtensions) applyCaptureExtensions(changes.captureExtensions.newValue);
+    if (changes.safariDownloadAllowlist) applySafariDownloadAllowlist(changes.safariDownloadAllowlist.newValue);
   });
 
   function probeMediaMetadataInPage(message, sendResponse) {

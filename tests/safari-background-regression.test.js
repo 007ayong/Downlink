@@ -106,7 +106,7 @@ function loadSafariRedirectPatternBuilder() {
     source.indexOf('function buildSafariDownloadRedirectPatterns'),
     source.indexOf('function isSafariDnrDownloadCandidate')
   );
-  const context = { SAFARI_DOWNLOAD_ENDPOINT_REDIRECT_PATTERNS: [] };
+  const context = { ConfigDefaults: require('../lib/config-defaults.js') };
   vm.runInNewContext(`${functionSource}; this.buildPatterns = buildSafariDownloadRedirectPatterns;`, context);
   return context.buildPatterns;
 }
@@ -311,7 +311,7 @@ test('Safari DNR takeover redirects browser downloads to the native loopback bri
   assert.match(installFunction, /addRules: \[\]/);
   assert.match(installFunction, /type: 'redirect'/);
   assert.match(installFunction, /regexSubstitution: `\$\{bridgeUrl\}\/\?url=\\\\1#\\\\1`/);
-  assert.match(installFunction, /isUrlFilterCaseSensitive: false/);
+  assert.match(installFunction, /condition: \{\s+regexFilter,\s+isUrlFilterCaseSensitive,/);
   assert.doesNotMatch(installFunction, /extensionPath:/);
   assert.doesNotMatch(installFunction, /type: 'block'/);
 });
@@ -329,7 +329,9 @@ test('Safari queues session-rule mutations and avoids reinstalling unchanged red
     SAFARI_DOWNLOAD_BYPASS_RULE_ID_BASE: 81000000,
     safariDnrBypassRules: new Map(),
     safariDnrQueue: Promise.resolve(),
-    buildSafariDownloadRedirectPatterns: () => [context.config.pattern],
+    buildSafariDownloadRedirectPatterns: () => [
+      { regexFilter: context.config.pattern, isUrlFilterCaseSensitive: false },
+    ],
     ensureSafariLocalBridge: async () => context.safariLocalBridgeUrl,
     setTimeout: (callback) => timers.push(callback),
     writeProbeLog: () => {},
@@ -398,13 +400,160 @@ test('Safari queues session-rule mutations and avoids reinstalling unchanged red
 
 test('Safari wildcard DNR patterns require a file extension in the URL path', () => {
   const buildPatterns = loadSafariRedirectPatternBuilder();
-  const patterns = buildPatterns({ captureExtensions: '*' }).map((pattern) => new RegExp(pattern, 'i'));
+  const patterns = buildPatterns({ captureExtensions: '*' }).map(({ regexFilter }) => new RegExp(regexFilter, 'i'));
   const matches = (url) => patterns.some((pattern) => pattern.test(url));
 
   assert.equal(matches('https://google.com'), false);
   assert.equal(matches('https://sub.example.com?source=test'), false);
   assert.equal(matches('https://example.com/releases/file.zip'), true);
   assert.equal(matches('https://example.com/releases/file.zip?token=abc'), true);
+});
+
+test('Safari DNR allowlist matches opaque redirect targets and preserves the signed URL', () => {
+  const buildPatterns = loadSafariRedirectPatternBuilder();
+  const rules = buildPatterns({
+    captureExtensions: 'zip',
+    safariDownloadAllowlist: 'cdn.example.com/File, files.example.com/releases/?action=download, ignored.example',
+  });
+  const capture = (url) => rules
+    .map(({ regexFilter, isUrlFilterCaseSensitive }) =>
+      new RegExp(regexFilter, isUrlFilterCaseSensitive ? '' : 'i').exec(url)?.[1])
+    .find(Boolean);
+
+  const target = 'https://cdn.example.com/File?id=123&sig=a%2Fb%3D';
+  const prefixTarget = 'https://files.example.com/releases/build?sig=a%2Fb&action=download&part=1';
+  assert.equal(capture(target), target);
+  assert.equal(capture(prefixTarget), prefixTarget);
+  for (const url of [
+    'https://cdn.example.com/file',
+    'https://cdn.example.com/FilePreview',
+    'https://cdn.example.com.evil.test/File',
+    'https://files.example.com/releases-other/build?action=download',
+    'https://files.example.com/releases/build?action=preview',
+    'https://files.example.com/releases/build?xaction=download',
+    'https://files.example.com/releases/build?action=download-preview',
+    'https://ignored.example/login',
+  ]) assert.equal(capture(url), undefined, url);
+  assert.equal(capture('https://example.com/file.ZIP'), 'https://example.com/file.ZIP');
+});
+
+test('Safari resolves allowlisted filenames from headers and defers opaque names when HEAD fails', async () => {
+  const source = readSafariBackground();
+  const context = {
+    URL, AbortController, setTimeout, clearTimeout,
+    ...require('../filename-logic.js'),
+    config: { safariDownloadAllowlist: 'cdn.example.com/file' },
+    ConfigDefaults: require('../lib/config-defaults.js'),
+    responseHeadersCache: new Map(),
+  };
+  const code = source.slice(source.indexOf('function isSafariDownloadAllowlisted'), source.indexOf('function isSafariDnrDownloadCandidate'))
+    + source.slice(source.indexOf('function normalizeSourceFilename'), source.indexOf('function rememberDownloadClickIntent'))
+    + source.slice(source.indexOf('function preferredUrlFilename'), source.indexOf('function getResponseHeaderValue'))
+    + source.slice(source.indexOf('async function resolveSafariDownloadMetadata'), source.indexOf('function captureSafariUrlDirectly'));
+  vm.runInNewContext(code, context);
+
+  const url = 'https://cdn.example.com/file?token=a%2Fb';
+  const requests = [];
+  const disposition = "attachment; filename=fallback.zip; filename*=UTF-8''%E6%8A%A5%E5%91%8A.zip";
+  context.fetch = async (target, options) => {
+    requests.push({ target, options });
+    return new Response(null, { headers: { 'content-disposition': disposition, 'content-type': 'application/zip' } });
+  };
+  const resolve = (target = url, options) => context.resolveSafariDownloadMetadata(target, {}, '', options);
+  const result = await resolve();
+  assert.equal(result.filename, '报告.zip');
+  assert.equal(result.mime, 'application/zip');
+  assert.equal(requests[0].target, url);
+  assert.equal(requests[0].options.method, 'HEAD');
+  assert.equal(requests[0].options.credentials, 'include');
+
+  const signed = `${url}&response-content-disposition=${encodeURIComponent(disposition)}`;
+  assert.equal((await resolve(signed)).filename, '报告.zip');
+  assert.equal((await resolve('https://cdn.example.com/release.zip')).filename, 'release.zip');
+  assert.equal((await resolve('https://cdn.example.com/other', { downloadFilename: '报告.zip' })).filename, '报告.zip');
+  assert.equal(requests.length, 1);
+  assert.equal((await resolve('https://cdn.example.com/other')).filename, '报告.zip');
+
+  context.fetch = async () => new Response(null, { status: 405 });
+  assert.equal((await resolve(`${url}&filename=release.zip`)).filename, 'release.zip');
+  const fallback = await resolve();
+  assert.equal(fallback.filename, '');
+  assert.equal(fallback.autoDetectFilename, true);
+
+  context.fetch = async () => ({
+    ok: true,
+    url: 'https://cdn.example.com/login.html',
+    headers: new Headers({ 'content-type': 'text/html; charset=UTF-8' }),
+  });
+  const login = await resolve();
+  assert.equal(login.filename, '');
+  assert.equal(login.mime, '');
+  assert.equal(login.autoDetectFilename, true);
+
+  context.fetch = async () => new Response(null, {
+    headers: { 'content-type': 'text/html', 'content-disposition': 'attachment; filename=report.html' },
+  });
+  assert.equal((await resolve()).filename, 'report.html');
+});
+
+test('Safari opens direct-click confirmation before filename lookup and gates downloader submission', async () => {
+  const source = readSafariBackground();
+  const handler = source.slice(source.indexOf("case 'CAPTURE_LINK_DOWNLOAD'"), source.indexOf("case 'REJECT_DOWNLOAD'"));
+  const pendingDownloads = {};
+  const events = [];
+  let requiresConfirmation = true;
+  let finishLookup;
+  const context = {
+    URL,
+    config: { autoCapture: true },
+    requestHeadersCache: new Map(),
+    getCookieHeaderForUrl: async () => '',
+    pendingDownloads,
+    isDownloadInterceptionBlockedForSource: () => false,
+    deriveOrigin: () => '',
+    shouldConfirmBeforeSend: () => requiresConfirmation,
+    enqueuePendingDownload: async (item, { openSurface }) => {
+      assert.equal(openSurface, false);
+      pendingDownloads[item.key] = item;
+      events.push('queued');
+      return item.key;
+    },
+    openTaskSurfaceForTask: async () => { events.push('panel'); },
+    resolveSafariDownloadMetadata: () => new Promise((resolve) => {
+      events.push('lookup');
+      finishLookup = resolve;
+    }),
+    broadcastUpdate: () => {},
+    writeProbeLog: () => {},
+    sendTask: async (item) => { events.push(item.filename); return { ok: true }; },
+    queueOrSendCapturedDownload: async (item) => { events.push(item.filename); return { ok: true }; },
+  };
+  vm.runInNewContext(`this.handle = async (msg, sendResponse, sender = {}) => { switch (msg.type) { ${handler} } };`, context);
+
+  let reply;
+  const click = { type: 'CAPTURE_LINK_DOWNLOAD', url: 'https://example.com/file?id=1' };
+  const capture = context.handle(click, (result) => { reply = result; });
+  await new Promise(setImmediate);
+  assert.deepEqual(events, ['queued', 'panel', 'lookup']);
+  const key = reply.key;
+  assert.equal(pendingDownloads[key].filenameResolving, true);
+  await context.handle({ type: 'CONFIRM_DOWNLOAD', key }, (result) => { reply = result; });
+  assert.equal(reply.filenameResolving, true);
+  finishLookup({ filename: '报告.zip' });
+  await capture;
+  assert.equal(pendingDownloads[key].filename, '报告.zip');
+  await context.handle({ type: 'CONFIRM_DOWNLOAD', key, filename: '重命名.zip' }, () => {});
+  assert.equal(events.at(-1), '重命名.zip');
+  assert.equal(pendingDownloads[key], undefined);
+
+  events.length = 0;
+  requiresConfirmation = false;
+  const silent = context.handle(click, () => {});
+  await new Promise(setImmediate);
+  assert.deepEqual(events, ['lookup']);
+  finishLookup({ filename: '报告.zip' });
+  await silent;
+  assert.deepEqual(events, ['lookup', '报告.zip']);
 });
 
 test('Safari validates that the native bridge stays on randomized loopback HTTP', () => {

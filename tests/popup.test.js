@@ -538,6 +538,43 @@ test('pending confirmation filename edit survives state re-render', () => {
   assert.equal(card.querySelector('.pending-fname').value, 'renamed.zip');
 });
 
+test('pending filename detection updates in place and preserves filename edits and options', () => {
+  const popup = loadPopupRuntime();
+  Object.assign(popup.currentConfig, { downloaderType: 'aria2' });
+  const item = {
+    key: 'task1',
+    url: 'https://example.com/file?id=42',
+    filenameResolving: true,
+    autoDetectFilename: true,
+  };
+  const pending = { task1: item };
+  popup.renderTasks({}, pending);
+  const card = popup.document.getElementById('pendingList').children[0];
+  const input = card.querySelector('.pending-fname');
+  const confirm = card.querySelector('.confirm-btn');
+  const singleThread = card.querySelector('.aria2-single-thread');
+  assert.equal(input.value, '');
+  assert.match(input.placeholder, /正在识别|Detecting/);
+  assert.equal(confirm.disabled, true);
+  confirm.click();
+  assert.equal(popup.chrome._sentMessages.some(({ type }) => type === 'CONFIRM_DOWNLOAD'), false);
+  singleThread.checked = true;
+
+  popup.renderTasks({}, { task1: { ...item, filenameResolving: false, autoDetectFilename: false, filename: '报告.zip' } });
+  assert.strictEqual(popup.document.getElementById('pendingList').children[0], card);
+  assert.equal(input.value, '报告.zip');
+  assert.equal(confirm.disabled, false);
+  assert.equal(singleThread.checked, true);
+
+  popup.renderTasks({}, pending);
+  input.value = '自定义.zip';
+  input._listeners.input[0]({ currentTarget: input });
+  popup.renderTasks({}, { task1: { ...item, filenameResolving: false, autoDetectFilename: false, filename: '报告.zip' } });
+  assert.equal(input.value, '自定义.zip');
+  confirm.click();
+  assert.equal(popup.chrome._sentMessages.at(-1).filename, '自定义.zip');
+});
+
 test('aria2 pending confirmation can force single threaded download options', () => {
   const popup = loadPopupRuntime();
   Object.assign(popup.currentConfig, { downloaderType: 'aria2' });

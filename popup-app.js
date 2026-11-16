@@ -220,9 +220,9 @@ function getSingleThreadOptions(cfg = currentConfig) {
 }
 
 function getPendingFilenameValue(item) {
-  return pendingFilenameDrafts.has(item.key)
-    ? pendingFilenameDrafts.get(item.key)
-    : decodeDisplayFilename(item.filename || item.url.split('?')[0].split('/').pop() || '');
+  if (pendingFilenameDrafts.has(item.key)) return pendingFilenameDrafts.get(item.key);
+  if (item.autoDetectFilename) return '';
+  return decodeDisplayFilename(item.filename || item.url.split('?')[0].split('/').pop() || '');
 }
 
 function getMediaFilenameValue(item) {
@@ -344,7 +344,6 @@ function buildPendingConfirmRenderKey(pendingVals) {
   return pendingVals.map((item) => [
     item.key,
     item.url,
-    getPendingFilenameValue(item),
   ].join('\u0001')).join('\u0002')
     + `|${popupAppT('pendingDownload', undefined, '待确认下载')}`
     + `|${popupAppT('fileName', undefined, '文件名')}`
@@ -385,7 +384,6 @@ function createPendingCard(item, { filename, canForceSingleThread }) {
   filenameInput.type = 'text';
   filenameInput.className = 'pending-fname';
   filenameInput.value = filename || '';
-  filenameInput.placeholder = popupAppT('autoDetect', undefined, '自动识别');
   filenameInput.autocomplete = 'off';
   filenameInput.spellcheck = false;
   filenameRow.appendChild(filenameLabel);
@@ -947,6 +945,9 @@ function updateSettingsVisibility(type = currentConfig.downloaderType) {
   document.querySelectorAll('.shortcut-settings-row').forEach((el) => {
     el.classList.toggle('settings-hidden', isSafariPopupRuntime());
   });
+  document.querySelectorAll('.safari-download-allowlist-row').forEach((el) => {
+    el.classList.toggle('settings-hidden', !isSafariPopupRuntime());
+  });
   document.querySelectorAll('.downloader-config-group').forEach((el) => {
     el.classList.toggle('settings-hidden', !(isAria2 || isAbDownload || isGopeed));
   });
@@ -1014,9 +1015,9 @@ function renderTasks(tasks, pending) {
       pendingList.appendChild(card);
       card.querySelector('.pending-fname').addEventListener('input', (event) => {
         pendingFilenameDrafts.set(item.key, event.currentTarget.value);
-        lastRenderedPendingKey = buildPendingConfirmRenderKey(pendingVals);
       });
       card.querySelector('.confirm-btn').addEventListener('click', () => {
+        if (card.querySelector('.confirm-btn').disabled) return;
         const fname = card.querySelector('.pending-fname').value.trim();
         const opts = canForceSingleThread && card.querySelector('.aria2-single-thread')?.checked
           ? getSingleThreadOptions(currentConfig)
@@ -1024,6 +1025,7 @@ function renderTasks(tasks, pending) {
         const saveLocationPath = card.querySelector('.pending-save-location-menu')?.dataset.value || '';
         if (currentConfig.downloaderType === 'aria2' && saveLocationPath) opts.dir = saveLocationPath;
         chrome.runtime.sendMessage({ type: 'CONFIRM_DOWNLOAD', key: item.key, filename: fname, opts }, (res) => {
+          if (res?.filenameResolving) return;
           if (res?.ok) {
             pendingFilenameDrafts.delete(item.key);
             lastRenderedPendingKey = '';
@@ -1047,6 +1049,19 @@ function renderTasks(tasks, pending) {
     });
     lastRenderedPendingKey = pendingRenderKey;
   }
+  pendingVals.forEach((item, index) => {
+    const card = pendingList.children[index];
+    const input = card.querySelector('.pending-fname');
+    const filename = getPendingFilenameValue(item);
+    if (input.value !== filename) {
+      input.value = filename;
+      card.querySelector('.pending-head img').src = getFileIcon({ name: filename, mime: item.mime, kind: item.kind });
+    }
+    input.placeholder = item.filenameResolving
+      ? popupAppT('detectingFilename', undefined, '正在识别文件名…')
+      : popupAppT('autoDetect', undefined, '自动识别');
+    card.querySelector('.confirm-btn').disabled = !!item.filenameResolving;
+  });
 
   const taskList = document.getElementById('taskList');
   taskList.replaceChildren();
@@ -1756,6 +1771,7 @@ const settingsController = popupSettings.createSettingsController({
   defaultMediaSniffingBlacklist: POPUP_DEFAULT_MEDIA_SNIFFING_BLACKLIST,
   defaultDownloadInterceptionBlacklist: POPUP_DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST,
   hideSmallDownloadSettings: isSafariPopupRuntime(),
+  showSafariDownloadAllowlist: isSafariPopupRuntime(),
   getCurrentConfig: () => currentConfig,
   setCurrentConfig: (next) => { currentConfig = next; },
   getSavedConfig: () => savedConfig,

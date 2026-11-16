@@ -327,7 +327,11 @@ test('Safari captures direct file clicks before browser navigation', async () =>
       return { ok: true, pending: true };
     },
   });
-  const link = createElement({ href: 'https://files.example/file.zip' });
+  const link = createElement({
+    href: 'https://files.example/file.zip',
+    ariaLabel: '下载文件',
+    textContent: '立即下载',
+  });
 
   const event = await runtime.dispatchClick(link);
 
@@ -336,9 +340,45 @@ test('Safari captures direct file clicks before browser navigation', async () =>
   assert.deepEqual(JSON.parse(JSON.stringify(actionableMessages(messages))), [{
     type: 'CAPTURE_LINK_DOWNLOAD',
     url: 'https://files.example/file.zip',
-    filename: 'file.zip',
     referrer: 'https://page.example/current',
   }]);
+});
+
+test('Safari direct clicks send an explicit download filename instead of the link label', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true, pending: true };
+    },
+  });
+  const url = 'https://files.example/fetch?id=42';
+  await runtime.dispatchClick(createElement({ href: url, download: '报告.zip', textContent: '立即下载' }));
+  assert.equal(actionableMessages(messages)[0]?.downloadFilename, '报告.zip');
+});
+
+test('Safari updates allowlisted download clicks when settings change', async () => {
+  const messages = [];
+  const runtime = loadContentScript({
+    runtimeUrl: 'safari-web-extension://test/',
+    config: { safariDownloadAllowlist: 'cdn.example.com/file?action=download' },
+    sendMessage: async (message) => {
+      messages.push(message);
+      return { ok: true, pending: true };
+    },
+  });
+  await flushAsyncHandlers();
+
+  const url = 'https://cdn.example.com/file?sig=a%2Fb&action=download';
+  assert.equal((await runtime.dispatchClick(createElement({ href: url }))).defaultPrevented, true);
+  assert.equal(actionableMessages(messages)[0]?.url, url);
+  const preview = 'https://cdn.example.com/file?action=preview';
+  assert.equal((await runtime.dispatchClick(createElement({ href: preview }))).defaultPrevented, false);
+
+  runtime.dispatchStorageChange({ safariDownloadAllowlist: { newValue: '' } }, 'sync');
+  assert.equal((await runtime.dispatchClick(createElement({ href: url }))).defaultPrevented, false);
+  assert.equal(actionableMessages(messages).length, 1);
 });
 
 test('Safari restores navigation when direct link capture fails', async () => {
@@ -355,10 +395,13 @@ test('Safari restores navigation when direct link capture fails', async () => {
   assert.equal(runtime.locationHref, 'https://files.example/file.zip');
 });
 
-test('Safari restores navigation when background capture never responds', async () => {
+test('Safari waits for slow direct capture without restarting the browser download', async () => {
+  let finishCapture;
   const runtime = loadContentScript({
     runtimeUrl: 'safari-web-extension://test/',
-    sendMessage: () => new Promise(() => {}),
+    sendMessage: (message) => message.type === 'CAPTURE_LINK_DOWNLOAD'
+      ? new Promise((resolve) => { finishCapture = resolve; })
+      : Promise.resolve({ ok: true }),
     setTimeoutFn(callback) {
       callback();
       return 1;
@@ -370,7 +413,10 @@ test('Safari restores navigation when background capture never responds', async 
   const event = await runtime.dispatchClick(link);
 
   assert.equal(event.defaultPrevented, true);
-  assert.equal(runtime.locationHref, 'https://files.example/file.zip');
+  assert.equal(runtime.locationHref, 'https://page.example/current');
+  finishCapture({ ok: true });
+  await flushAsyncHandlers();
+  assert.equal(runtime.locationHref, 'https://page.example/current');
 });
 
 test('Safari does not track opaque export endpoints from path or label guesses', async () => {
