@@ -346,6 +346,7 @@
 				DD443B163009DC32007F0E9E /* Sources */,
 				DD443B173009DC32007F0E9E /* Frameworks */,
 				DD443B183009DC32007F0E9E /* Resources */,
+				D01234567890ABCDEF000001 /* Stamp build commit */,
 			);
 			buildRules = (
 			);
@@ -405,6 +406,21 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		D01234567890ABCDEF000001 /* Stamp build commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ();
+			name = "Stamp build commit";
+			outputPaths = ();
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/bin/sh \"$SRCROOT/../../scripts/stamp-safari-build.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
 		DD443AE53009DC31007F0E9E /* Resources */ = {
@@ -664,6 +680,7 @@
 		DD443B263009DC32007F0E9E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				CODE_SIGN_ENTITLEMENTS = "Downlink Extension/Downlink_Extension.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 14;
@@ -695,6 +712,7 @@
 		DD443B273009DC32007F0E9E /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				CODE_SIGN_ENTITLEMENTS = "Downlink Extension/Downlink_Extension.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 14;

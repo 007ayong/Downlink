@@ -124,6 +124,14 @@
       white-space: nowrap;
       flex: 0 0 auto;
     }
+    .header-build {
+      color: var(--text-3);
+      opacity: .55;
+      font: 9px 'JetBrains Mono', monospace;
+      white-space: nowrap;
+      user-select: text;
+    }
+    .header-build:hover { opacity: 1; }
     .header-status {
       font-size: 11px;
       color: var(--text-3);
@@ -1788,6 +1796,7 @@
     <div class="header-title">
       <span class="header-title-text" data-i18n="appTitle">Downlink</span>
       <span class="header-version" id="extensionVersionValue">—</span>
+      <span class="header-build" id="extensionBuildValue" hidden></span>
     </div>
     <div class="header-status">
       <div class="status-dot" id="statusDot"></div>

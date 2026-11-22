@@ -1,5 +1,8 @@
 // popup-app.js — Downlink popup wiring and rendering
 
+// Replaced by packaging / Xcode at build time; source loads remain unlabelled.
+const POPUP_BUILD_COMMIT = '__DOWNLINK_BUILD_COMMIT__';
+
 const popupSettings = globalThis.PopupSettings;
 const popupAppI18n = globalThis.Localization || {};
 const HEADER_STATUS_MIN_CHECKING_MS = 500;
@@ -777,6 +780,14 @@ function renderExtensionVersion() {
   const value = document.getElementById('extensionVersionValue');
   if (!value) return;
   value.textContent = getExtensionVersion();
+  const build = document.getElementById('extensionBuildValue');
+  if (!build) return;
+  const match = /^([0-9a-f]{40,64})(\*)?$/.exec(POPUP_BUILD_COMMIT);
+  build.hidden = !match;
+  if (match) {
+    build.textContent = `${match[1].slice(0, 8)}${match[2] || ''}`;
+    build.title = `Git: ${match[1]}${match[2] ? ' (uncommitted changes)' : ''}`;
+  }
 }
 
 function updateHeaderLogo(cfg = currentConfig) {

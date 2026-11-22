@@ -130,7 +130,18 @@ function manifestForTarget(baseManifest, buildTarget) {
   };
 }
 
-function prepareBuildDir(buildTarget) {
+function getBuildCommit() {
+  const git = (args) => spawnSync('git', ['--no-optional-locks', ...args], { cwd: repoRoot, encoding: 'utf8' });
+  const head = git(['rev-parse', 'HEAD']);
+  if (head.status !== 0 || !/^[0-9a-f]{40,64}$/.test(head.stdout.trim())) {
+    throw new Error('Cannot determine Git commit for this build');
+  }
+  const status = git(['status', '--porcelain', '--untracked-files=normal']);
+  if (status.status !== 0) throw new Error('Cannot determine Git working tree state');
+  return head.stdout.trim() + (status.stdout.trim() ? '*' : '');
+}
+
+function prepareBuildDir(buildTarget, buildCommit) {
   const buildDir = resolve(repoRoot, 'dist', buildTarget);
   rmSync(buildDir, { recursive: true, force: true });
   mkdirSync(buildDir, { recursive: true });
@@ -138,6 +149,8 @@ function prepareBuildDir(buildTarget) {
     if (archivePath === 'manifest.json') continue;
     cpSync(resolve(repoRoot, archivePath), resolve(buildDir, archivePath), { recursive: true });
   }
+  const popupPath = resolve(buildDir, 'popup-app.js');
+  writeFileSync(popupPath, readFileSync(popupPath, 'utf8').replace('__DOWNLINK_BUILD_COMMIT__', buildCommit));
   writeFileSync(
     resolve(buildDir, 'manifest.json'),
     `${JSON.stringify(manifestForTarget(manifest, buildTarget), null, 2)}\n`
@@ -182,6 +195,7 @@ function legacyOutputPathsForTarget(buildTarget) {
 }
 
 function buildOnce({ quiet = false } = {}) {
+  const buildCommit = getBuildCommit();
   const resultPaths = [];
   for (const buildTarget of buildTargets) {
     const outputPath = outputPathForTarget(buildTarget);
@@ -192,7 +206,7 @@ function buildOnce({ quiet = false } = {}) {
         rmSync(legacyOutputPath, { force: true });
       }
     }
-    const buildDir = prepareBuildDir(buildTarget);
+    const buildDir = prepareBuildDir(buildTarget, buildCommit);
     if (skipZip) {
       resultPaths.push(buildDir);
       continue;
@@ -258,6 +272,13 @@ function collectAllWatchPaths() {
     const sourcePath = resolve(repoRoot, archivePath);
     if (!existsSync(sourcePath)) continue;
     collectWatchPaths(sourcePath, watchedPaths);
+  }
+  // --git-path also resolves shared refs correctly in linked worktrees.
+  for (const entry of ['HEAD', 'index', 'packed-refs', 'refs']) {
+    const result = spawnSync('git', ['rev-parse', '--git-path', entry], { cwd: repoRoot, encoding: 'utf8' });
+    if (result.status !== 0) continue;
+    const path = resolve(repoRoot, result.stdout.trim());
+    if (existsSync(path)) collectWatchPaths(path, watchedPaths);
   }
   return watchedPaths;
 }

@@ -278,3 +278,17 @@ test('Safari extension bundles every shared top-level resource', async () => {
     assert.ok(phase.includes(build.trim().split(' ')[0]), file + ' is bundled in the extension');
   }
 });
+
+test('Safari commit stamp can read Git in both extension build configurations', () => {
+  const project = fs.readFileSync(path.join(rootDir, 'safari/Downlink/Downlink.xcodeproj/project.pbxproj'), 'utf8');
+  const target = project.match(/DD443B193009DC32007F0E9E \/\* Downlink Extension \*\/ = \{([\s\S]*?)\n\t\t\};/)[1];
+  assert.match(target, /Stamp build commit/);
+  const listId = target.match(/buildConfigurationList = (\w+)/)[1];
+  const list = project.match(new RegExp(listId + ' /\\*[^\\n]*\\*/ = \\{([\\s\\S]*?)\\n\\t\\t\\};'))[1];
+  const configurations = [...list.matchAll(/(\w+) \/\* (Debug|Release) \*\//g)];
+  assert.equal(configurations.length, 2);
+  for (const [, id, name] of configurations) {
+    const config = project.match(new RegExp(id + ' /\\* ' + name + ' \\*/ = \\{([\\s\\S]*?)\\n\\t\\t\\};'))[1];
+    assert.match(config, /ENABLE_USER_SCRIPT_SANDBOXING = NO;/, name);
+  }
+});
