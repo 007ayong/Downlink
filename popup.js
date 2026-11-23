@@ -11,8 +11,8 @@ const t = i18n.t || ((key, substitutions, fallback = key) => {
 });
 
 const POPUP_DEFAULT_CAPTURE_EXTENSIONS = globalThis.ConfigDefaults.DEFAULT_CAPTURE_EXTENSIONS;
-const POPUP_DEFAULT_MEDIA_SNIFFING_BLACKLIST = 'x.com,youtube.com';
-const POPUP_DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST = 'web.telegram.org';
+const POPUP_DEFAULT_MEDIA_SNIFFING_BLACKLIST = globalThis.ConfigDefaults.DEFAULT_MEDIA_SNIFFING_BLACKLIST;
+const POPUP_DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST = globalThis.ConfigDefaults.DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST;
 
 const POPUP_DEFAULT_CONFIG = {
   language: 'auto',

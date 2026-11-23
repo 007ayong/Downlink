@@ -788,6 +788,7 @@ function loadSafariConfigStorage(local, sync, { failLocalWrite = false, failLoca
     DEFAULT_CONFIG: { downloaderType: 'aria2', aria2Rpc: 'http://localhost:6800/jsonrpc', motrixNextPort: '29110' },
     CONFIG_STORAGE_AREA_KEY: '__downlinkConfigStorageArea',
     activeConfigStorageArea: '',
+    ConfigDefaults: require('../lib/config-defaults.js'),
     chrome: { storage: { local, sync } },
     async storageGet(area, keys) {
       if (failLocalRead && area === local) throw new Error('local read failed');
@@ -802,7 +803,7 @@ function loadSafariConfigStorage(local, sync, { failLocalWrite = false, failLoca
     },
   };
   vm.runInNewContext(source.slice(source.indexOf('async function loadStoredConfig()'),
-    source.indexOf('function normalizeCaptureExtensionsConfig')), context);
+    source.indexOf('function normalizeDomainBlacklist')), context);
   return context;
 }
 
@@ -878,4 +879,47 @@ test('Safari read failures never overwrite saved settings or commit migration', 
   await loadSafariConfigStorage(local, sync, { failSyncRead: true }).loadStoredConfig();
   assert.deepEqual(local, {});
   assert.equal((await loadSafariConfigStorage(local, sync).loadStoredConfig()).motrixNextPort, '17000');
+});
+
+test('Safari download rule edits persist while new built-in rules appear after an update', () => {
+  const { getSafariDownloadRuleOverrides, resolveSafariDownloadRules } = require('../lib/config-defaults.js');
+  const original = 'download.winapps.cc/download/';
+  const addedDefault = 'downloads.example.com/releases/';
+  const custom = 'cdn.example.com/file';
+  const updated = `${original}, ${addedDefault}`;
+
+  const overrides = getSafariDownloadRuleOverrides(custom, original);
+  assert.equal(resolveSafariDownloadRules(custom, overrides, updated), `${addedDefault}, ${custom}`);
+  const cleared = getSafariDownloadRuleOverrides('', original);
+  assert.equal(resolveSafariDownloadRules('', cleared, updated), addedDefault);
+  const restored = getSafariDownloadRuleOverrides(updated, updated);
+  assert.equal(resolveSafariDownloadRules(updated, restored, updated), updated);
+});
+
+test('download suffix preferences survive additions to the built-in list', () => {
+  const { DEFAULT_CAPTURE_EXTENSIONS, getCaptureExtensionOverrides, resolveCaptureExtensions } = require('../lib/config-defaults.js');
+  const updated = `${DEFAULT_CAPTURE_EXTENSIONS},newtype`;
+  const edited = DEFAULT_CAPTURE_EXTENSIONS.split(',').filter((suffix) => suffix !== 'zip').concat('custom').join(',');
+  const effective = resolveCaptureExtensions(edited, getCaptureExtensionOverrides(edited), updated);
+  assert.ok(effective.split(',').includes('newtype'));
+  assert.ok(effective.split(',').includes('custom'));
+  assert.ok(!effective.split(',').includes('zip'));
+  assert.equal(resolveCaptureExtensions(edited, null, updated), effective);
+  for (const wildcard of ['*', '']) {
+    assert.equal(resolveCaptureExtensions(wildcard, getCaptureExtensionOverrides(wildcard), updated), wildcard);
+  }
+});
+
+test('blacklist edits survive additions to both built-in lists', () => {
+  const filename = path.join(__dirname, '..', 'lib', 'config-defaults.js');
+  const defaults = require(filename);
+  const source = fs.readFileSync(filename, 'utf8')
+    .replace('= MEDIA_SNIFFING_BLACKLIST_BASELINE;', "= MEDIA_SNIFFING_BLACKLIST_BASELINE + ',new-media.example';")
+    .replace('= DOWNLOAD_INTERCEPTION_BLACKLIST_BASELINE;', "= DOWNLOAD_INTERCEPTION_BLACKLIST_BASELINE + ',new-download.example';");
+  const { ConfigDefaults: updated } = vm.runInNewContext(source + '\n;globalThis', {});
+  const media = defaults.getRuleListOverrides('youtube.com,custom.example', defaults.DEFAULT_MEDIA_SNIFFING_BLACKLIST);
+  const download = defaults.getRuleListOverrides('', defaults.DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST);
+  assert.equal(updated.resolveMediaSniffingBlacklist('youtube.com,custom.example', media), 'youtube.com,new-media.example,custom.example');
+  assert.equal(updated.resolveDownloadInterceptionBlacklist('', download), 'new-download.example');
+  assert.equal(updated.resolveDownloadInterceptionBlacklist('', null), 'new-download.example');
 });

@@ -13,11 +13,10 @@ try {
 } catch {}
 
 const {
-  LEGACY_DEFAULT_CAPTURE_EXTENSIONS,
   DEFAULT_CAPTURE_EXTENSIONS,
 } = globalThis.ConfigDefaults;
-const DEFAULT_MEDIA_SNIFFING_BLACKLIST = 'x.com,youtube.com';
-const DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST = 'web.telegram.org';
+const DEFAULT_MEDIA_SNIFFING_BLACKLIST = globalThis.ConfigDefaults.DEFAULT_MEDIA_SNIFFING_BLACKLIST;
+const DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST = globalThis.ConfigDefaults.DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST;
 const DEFAULT_ARIA2_TRACKER_SUBSCRIPTION = 'https://ngosang.github.io/trackerslist/trackers_best.txt';
 
 const DEFAULT_CONFIG = {
@@ -45,8 +44,11 @@ const DEFAULT_CONFIG = {
   abDownloadSilent: false,
   autoCapture: true,
   mediaSniffingBlacklist: DEFAULT_MEDIA_SNIFFING_BLACKLIST,
+  mediaSniffingBlacklistOverrides: null,
   downloadInterceptionBlacklist: DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST,
+  downloadInterceptionBlacklistOverrides: null,
   captureExtensions: DEFAULT_CAPTURE_EXTENSIONS,
+  captureExtensionOverrides: null,
   captureMime: true,
   skipSmallDownloads: false,
   smallDownloadThresholdBytes: 1048576,
@@ -380,7 +382,15 @@ function loadStoredConfigCallback(callback) {
   const finish = (stored) => {
     if (settled) return;
     settled = true;
-    callback(stored || DEFAULT_CONFIG);
+    if (!stored) return callback(DEFAULT_CONFIG);
+    const restored = { ...stored };
+    for (const [listKey, overrideKey] of SYNCED_RULE_LISTS) {
+      const overrides = restored[overrideKey];
+      if (overrides && Object.hasOwn(overrides, 'savedText') && overrides.savedText !== restored[listKey]) {
+        restored[overrideKey] = null;
+      }
+    }
+    callback(restored);
   };
   const finishWithLocalConfig = (stored) => {
     // Local settings include saves made while sync was unavailable.
@@ -439,12 +449,6 @@ async function saveStoredConfig(nextConfig) {
   } catch {
     return 'local';
   }
-}
-
-function normalizeCaptureExtensionsConfig(value) {
-  const normalized = String(value || '').replace(/\s+/g, '').toLowerCase();
-  if (normalized === LEGACY_DEFAULT_CAPTURE_EXTENSIONS) return DEFAULT_CAPTURE_EXTENSIONS;
-  return value;
 }
 
 function normalizeDomainBlacklist(value) {
@@ -578,6 +582,13 @@ function normalizeAria2Trackers(trackers = []) {
   return unique;
 }
 
+function resolveStoredBlacklist(value, overrides, resolveRules) {
+  const text = value == null ? undefined : String(value).trim();
+  const domains = text === undefined ? undefined : normalizeDomainBlacklist(text);
+  const effective = resolveRules(domains, overrides);
+  return effective === domains ? text : effective;
+}
+
 function normalizeConfig(nextConfig = {}) {
   const normalized = {
     ...nextConfig,
@@ -593,9 +604,13 @@ function normalizeConfig(nextConfig = {}) {
     externalLauncherHost: 'localhost',
     mediaSniffingBlacklist: nextConfig.mediaSniffing === false
       ? '*'
-      : String(nextConfig.mediaSniffingBlacklist || '').trim(),
-    downloadInterceptionBlacklist: String(nextConfig.downloadInterceptionBlacklist || '').trim(),
-    captureExtensions: normalizeCaptureExtensionsConfig(nextConfig.captureExtensions),
+      : resolveStoredBlacklist(
+        nextConfig.mediaSniffingBlacklist, nextConfig.mediaSniffingBlacklistOverrides, globalThis.ConfigDefaults.resolveMediaSniffingBlacklist
+      ),
+    downloadInterceptionBlacklist: resolveStoredBlacklist(
+        nextConfig.downloadInterceptionBlacklist, nextConfig.downloadInterceptionBlacklistOverrides, globalThis.ConfigDefaults.resolveDownloadInterceptionBlacklist
+      ),
+    captureExtensions: globalThis.ConfigDefaults.resolveCaptureExtensions(nextConfig.captureExtensions, nextConfig.captureExtensionOverrides),
   };
   delete normalized.mediaSniffing;
   return normalized;
@@ -623,11 +638,42 @@ async function saveConfigAndSync(nextConfig) {
     active.secret = merged.aria2Secret;
     nextConfig = { ...nextConfig, aria2Profiles: profiles, aria2ActiveProfileId: active.id };
   }
+  if ('captureExtensions' in nextConfig) {
+    nextConfig = {
+      ...nextConfig,
+      captureExtensionOverrides: globalThis.ConfigDefaults.getCaptureExtensionOverrides(nextConfig.captureExtensions),
+    };
+  }
+  if ('mediaSniffingBlacklist' in nextConfig || nextConfig.mediaSniffing === false) {
+    nextConfig = {
+      ...nextConfig,
+      mediaSniffingBlacklistOverrides: globalThis.ConfigDefaults.getRuleListOverrides(
+        normalizeDomainBlacklist(nextConfig.mediaSniffing === false ? '*' : nextConfig.mediaSniffingBlacklist),
+        DEFAULT_MEDIA_SNIFFING_BLACKLIST
+      ),
+    };
+  }
+  if ('downloadInterceptionBlacklist' in nextConfig) {
+    nextConfig = {
+      ...nextConfig,
+      downloadInterceptionBlacklistOverrides: globalThis.ConfigDefaults.getRuleListOverrides(
+        normalizeDomainBlacklist(nextConfig.downloadInterceptionBlacklist),
+        DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST
+      ),
+    };
+  }
   let storedConfig = nextConfig;
   if (nextConfig.mediaSniffing === false) {
     storedConfig = { ...nextConfig, mediaSniffing: true, mediaSniffingBlacklist: '*' };
   } else if (Object.prototype.hasOwnProperty.call(nextConfig, 'mediaSniffingBlacklist')) {
     storedConfig = { ...nextConfig, mediaSniffing: true };
+  }
+  // Tie overrides to their text so text-only writes from older clients
+  // cannot leave an unrelated set of overrides active after restart.
+  for (const [listKey, overrideKey] of SYNCED_RULE_LISTS) {
+    if (Object.hasOwn(storedConfig, listKey) && storedConfig[overrideKey]) {
+      storedConfig[overrideKey] = { ...storedConfig[overrideKey], savedText: storedConfig[listKey] };
+    }
   }
   await saveStoredConfig(storedConfig);
   config = normalizeConfig({ ...config, ...nextConfig });
@@ -1624,6 +1670,11 @@ function isRestoredBrowserDownloadItem(item = {}) {
   return startTime < backgroundSessionStartedAt - RESTORED_DOWNLOAD_GRACE_MS;
 }
 
+const SYNCED_RULE_LISTS = [
+  ['captureExtensions', 'captureExtensionOverrides'],
+  ['mediaSniffingBlacklist', 'mediaSniffingBlacklistOverrides'],
+  ['downloadInterceptionBlacklist', 'downloadInterceptionBlacklistOverrides'],
+];
 const configReady = new Promise((resolve) => {
   loadStoredConfigCallback((stored) => {
     config = normalizeConfig({ ...DEFAULT_CONFIG, ...stored });
@@ -1646,6 +1697,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
       if (['aria2Trackers', 'aria2TrackersUpdatedAt'].includes(key)) continue;
       values[key] = change.newValue === undefined ? DEFAULT_CONFIG[key] : change.newValue;
     }
+    for (const [listKey, overrideKey] of SYNCED_RULE_LISTS) {
+      if (Object.hasOwn(values, listKey) && !Object.hasOwn(values, overrideKey)) {
+        values[overrideKey] = null;
+      }
+    }
     if (!Object.keys(values).length) return;
     // Commit incoming sync updates to the same store used on restart.
     // The resulting local onChanged event applies the durable values.
@@ -1661,7 +1717,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (changes.language) refreshContextMenus();
   const autoCaptureChanged = changes.autoCapture && previousAutoCapture !== config.autoCapture;
   const mediaSniffingEnabledChanged = changes.autoCapture && previousMediaSniffingEnabled !== isMediaSniffingEnabled(config);
-  if (autoCaptureChanged || mediaSniffingEnabledChanged || changes.mediaSniffingBlacklist || changes.mediaSniffing) {
+  if (autoCaptureChanged || mediaSniffingEnabledChanged || changes.mediaSniffingBlacklist || changes.mediaSniffingBlacklistOverrides || changes.mediaSniffing) {
     syncMediaSniffingStateForActiveTabs().then(() => {
       broadcastUpdate();
     }).catch(() => {});

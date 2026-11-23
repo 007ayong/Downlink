@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const LEGACY_DEFAULT_CAPTURE_EXTENSIONS = 'zip,rar,7z,tar,gz,bz2,xz,iso,dmg,exe,msi,deb,pkg,apk,mp4,m4s,mkv,avi,mov,webm,mp3,flac,wav,pdf,torrent';
+const { DEFAULT_CAPTURE_EXTENSIONS } = require('../lib/config-defaults.js');
 
 function createChromeStub(storedConfig = {}) {
   const listeners = {
@@ -2292,12 +2292,12 @@ test('POST redirect intent prefers final content-disposition filename over hash 
   assert.equal(pending[0].captureReason, 'content-disposition');
 });
 
-test('legacy default extensions are upgraded to capture Windows ESD redirects', async () => {
+test('current default extensions capture Windows ESD redirects', async () => {
   const background = loadBackgroundRuntime({
     downloaderType: 'aria2',
     autoCapture: true,
     aria2Silent: false,
-    captureExtensions: LEGACY_DEFAULT_CAPTURE_EXTENSIONS,
+    captureExtensions: DEFAULT_CAPTURE_EXTENSIONS,
   });
 
   const postUrl = 'https://files.rg-adguard.net/file/token';
@@ -2729,7 +2729,7 @@ test('POST redirect final response capture cancels browser filename prompt for o
     downloaderType: 'aria2',
     autoCapture: true,
     aria2Silent: false,
-    captureExtensions: LEGACY_DEFAULT_CAPTURE_EXTENSIONS,
+    captureExtensions: DEFAULT_CAPTURE_EXTENSIONS,
   });
 
   const postUrl = 'https://files.rg-adguard.net/file/token';
@@ -2780,7 +2780,7 @@ test('Aria2 pending response claim cancels browser filename prompt before popup 
     downloaderType: 'aria2',
     autoCapture: true,
     aria2Silent: false,
-    captureExtensions: LEGACY_DEFAULT_CAPTURE_EXTENSIONS,
+    captureExtensions: DEFAULT_CAPTURE_EXTENSIONS,
   });
   background.chrome.action.openPopup = () => new Promise(() => {});
 
@@ -7086,6 +7086,45 @@ test('failed sync persistence does not apply a temporary config change', async (
   background.chrome.storage.local.set = async () => { throw new Error('write failed'); };
   await background.chrome._listeners.storageOnChanged({ motrixNextPort: { newValue: '17000' } }, 'sync');
   assert.equal((await invokeBackgroundMessage(background, { type: 'GET_STATE' })).config.motrixNextPort, '16999');
+});
+
+test('text-only list updates from older devices replace stale overrides and survive restart', async () => {
+  const lists = [
+    ['captureExtensions', 'captureExtensionOverrides', 'zip', 'dmg'],
+    ['mediaSniffingBlacklist', 'mediaSniffingBlacklistOverrides', 'x.com', 'media.example'],
+    ['downloadInterceptionBlacklist', 'downloadInterceptionBlacklistOverrides', 'web.telegram.org', 'download.example'],
+  ];
+  const local = {};
+  for (const [key, overrideKey, previous] of lists) {
+    local[key] = previous;
+    local[overrideKey] = { added: ['stale.example'], removed: [], savedText: previous };
+  }
+  let background;
+  const storage = {
+    local: {
+      get(defaults, callback) { callback({ ...defaults, ...local }); },
+      async set(values) {
+        Object.assign(local, values);
+        background.chrome._listeners.storageOnChanged(Object.fromEntries(
+          Object.entries(values).map(([key, newValue]) => [key, { newValue }])
+        ), 'local');
+      },
+    },
+  };
+  background = loadBackgroundRuntime({}, { storage });
+  await background.chrome._listeners.storageOnChanged(Object.fromEntries(
+    lists.map(([key, , , next]) => [key, { newValue: next }])
+  ), 'sync');
+  const current = (await invokeBackgroundMessage(background, { type: 'GET_STATE' })).config;
+  for (const [key, overrideKey, , next] of lists) {
+    assert.equal(current[key], next);
+    assert.equal(local[overrideKey], null);
+    // Simulate an old client writing into the same storage while this one is stopped.
+    local[overrideKey] = { added: ['stale.example'], removed: [], savedText: 'old-value' };
+  }
+  background = loadBackgroundRuntime({}, { storage });
+  const restarted = (await invokeBackgroundMessage(background, { type: 'GET_STATE' })).config;
+  for (const [key, , , next] of lists) assert.equal(restarted[key], next);
 });
 
 test('Rayburst v3 negotiates ownership, verification and fallback without replay storage', async () => {

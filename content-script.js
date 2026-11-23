@@ -1,9 +1,9 @@
 (function initDownloadClickTracking() {
   const defaultCaptureExtensions = globalThis.ConfigDefaults?.DEFAULT_CAPTURE_EXTENSIONS || '';
-  const legacyDefaultCaptureExtensions = globalThis.ConfigDefaults?.LEGACY_DEFAULT_CAPTURE_EXTENSIONS || '';
   const configStorageAreaKey = '__downlinkConfigStorageArea';
   const safariCaptureResponseTimeoutMs = 2500;
   let captureExtensionPattern = buildCaptureExtensionPattern(defaultCaptureExtensions);
+  let storedCaptureExtensions;
   let safariAllowlistPatterns = [];
   let activeConfigStorageArea = '';
 
@@ -13,13 +13,6 @@
     } catch {
       return false;
     }
-  }
-
-  function normalizeCaptureExtensionsConfig(value) {
-    if (value === undefined || value === null) return defaultCaptureExtensions;
-    const normalized = String(value || '').replace(/\s+/g, '').toLowerCase();
-    if (legacyDefaultCaptureExtensions && normalized === legacyDefaultCaptureExtensions) return defaultCaptureExtensions;
-    return value;
   }
 
   function buildCaptureExtensionPattern(value = '') {
@@ -32,20 +25,42 @@
     return exts.length ? new RegExp(`\\.(${exts.join('|')})(?:[?#]|$)`, 'i') : null;
   }
 
-  function applyCaptureExtensions(value) {
-    captureExtensionPattern = buildCaptureExtensionPattern(normalizeCaptureExtensionsConfig(value));
+  function applyCaptureExtensions(value, overrides) {
+    storedCaptureExtensions = value;
+    if (overrides && Object.hasOwn(overrides, 'savedText') && overrides.savedText !== value) {
+      overrides = null;
+    }
+    const rules = globalThis.ConfigDefaults?.resolveCaptureExtensions(value, overrides) ?? value ?? defaultCaptureExtensions;
+    captureExtensionPattern = buildCaptureExtensionPattern(rules);
   }
 
-  function applySafariDownloadAllowlist(value) {
+  function updateCaptureExtensions(changes) {
+    if (!changes.captureExtensions && !changes.captureExtensionOverrides) return;
+    const value = changes.captureExtensions ? changes.captureExtensions.newValue : storedCaptureExtensions;
+    applyCaptureExtensions(value, changes.captureExtensionOverrides?.newValue);
+  }
+
+  function applySafariDownloadAllowlist(value, overrides) {
     if (!isSafariExtensionRuntime()) return;
-    const patterns = globalThis.ConfigDefaults?.buildSafariDownloadAllowlistPatterns?.(value) || [];
+    const defaults = globalThis.ConfigDefaults;
+    const rules = defaults?.resolveSafariDownloadRules(value, overrides);
+    const patterns = defaults?.buildSafariDownloadAllowlistPatterns(rules) || [];
     safariAllowlistPatterns = patterns.map((pattern) => new RegExp(pattern));
   }
 
   function applyStoredCaptureSettings(stored, fallback = {}) {
     const settings = { ...fallback, ...stored };
-    applyCaptureExtensions(settings.captureExtensions);
-    applySafariDownloadAllowlist(settings.safariDownloadAllowlist);
+    applyCaptureExtensions(settings.captureExtensions, settings.captureExtensionOverrides);
+    applySafariDownloadAllowlist(settings.safariDownloadAllowlist, settings.safariDownloadRuleOverrides);
+  }
+
+  function updateSafariDownloadAllowlist(changes) {
+    if (changes.safariDownloadAllowlist || changes.safariDownloadRuleOverrides) {
+      applySafariDownloadAllowlist(
+        changes.safariDownloadAllowlist?.newValue,
+        changes.safariDownloadRuleOverrides?.newValue
+      );
+    }
   }
 
   function getStoredConfig(storageArea, defaults = {}) {
@@ -358,17 +373,17 @@
     if (areaName === 'local' && Object.prototype.hasOwnProperty.call(changes || {}, configStorageAreaKey)) {
       const nextArea = changes[configStorageAreaKey]?.newValue;
       if (nextArea === 'sync' || nextArea === 'local') activeConfigStorageArea = nextArea;
-      if (activeConfigStorageArea === 'local' && changes.captureExtensions) {
-        applyCaptureExtensions(changes.captureExtensions.newValue);
-        if (changes.safariDownloadAllowlist) applySafariDownloadAllowlist(changes.safariDownloadAllowlist.newValue);
+      if (activeConfigStorageArea === 'local' && (changes.captureExtensions || changes.captureExtensionOverrides)) {
+        updateCaptureExtensions(changes);
+        updateSafariDownloadAllowlist(changes);
       } else {
         loadStoredCaptureSettings().catch(() => {});
       }
       return;
     }
     if (activeConfigStorageArea && areaName && areaName !== activeConfigStorageArea) return;
-    if (changes.captureExtensions) applyCaptureExtensions(changes.captureExtensions.newValue);
-    if (changes.safariDownloadAllowlist) applySafariDownloadAllowlist(changes.safariDownloadAllowlist.newValue);
+    updateCaptureExtensions(changes);
+    updateSafariDownloadAllowlist(changes);
   });
 
   function probeMediaMetadataInPage(message, sendResponse) {

@@ -80,11 +80,10 @@ if (!globalThis.ConfigDefaults || !globalThis.BackgroundShared || !globalThis.Ba
   writeProbeLog('manifest background dependencies ready');
 }
 const {
-  LEGACY_DEFAULT_CAPTURE_EXTENSIONS,
   DEFAULT_CAPTURE_EXTENSIONS,
 } = globalThis.ConfigDefaults;
-const DEFAULT_MEDIA_SNIFFING_BLACKLIST = 'x.com,youtube.com';
-const DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST = 'web.telegram.org';
+const DEFAULT_MEDIA_SNIFFING_BLACKLIST = globalThis.ConfigDefaults.DEFAULT_MEDIA_SNIFFING_BLACKLIST;
+const DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST = globalThis.ConfigDefaults.DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST;
 const DEFAULT_ARIA2_TRACKER_SUBSCRIPTION = 'https://ngosang.github.io/trackerslist/trackers_best.txt';
 const CONFIG_STORAGE_AREA_KEY = '__downlinkConfigStorageArea';
 
@@ -113,9 +112,13 @@ const DEFAULT_CONFIG = {
   abDownloadSilent: false,
   autoCapture: true,
   mediaSniffingBlacklist: DEFAULT_MEDIA_SNIFFING_BLACKLIST,
+  mediaSniffingBlacklistOverrides: null,
   downloadInterceptionBlacklist: DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST,
+  downloadInterceptionBlacklistOverrides: null,
   captureExtensions: DEFAULT_CAPTURE_EXTENSIONS,
-  safariDownloadAllowlist: '',
+  captureExtensionOverrides: null,
+  safariDownloadAllowlist: globalThis.ConfigDefaults.DEFAULT_SAFARI_DOWNLOAD_ALLOWLIST,
+  safariDownloadRuleOverrides: null,
   captureMime: true,
 };
 const MACOS_TAG_COLORS = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#007aff', '#af52de', '#8e8e93'];
@@ -532,6 +535,7 @@ async function loadStoredConfig() {
   // Migrate older sync-backed profiles, preserving the device's saved values
   // even when Safari returns an older, nonempty sync snapshot after restart.
   const restored = { ...DEFAULT_CONFIG, ...syncStored, ...localConfig };
+  restored.safariDownloadRuleOverrides ??= globalThis.ConfigDefaults.getSafariDownloadRuleOverrides(restored.safariDownloadAllowlist);
   // An unreadable store is not an empty store. Never commit fallback values
   // or a migration marker until every required read has succeeded.
   if (canMigrate) {
@@ -556,12 +560,6 @@ async function saveStoredConfig(nextConfig) {
   });
   activeConfigStorageArea = 'local';
   return 'local';
-}
-
-function normalizeCaptureExtensionsConfig(value) {
-  const normalized = String(value || '').replace(/\s+/g, '').toLowerCase();
-  if (normalized === LEGACY_DEFAULT_CAPTURE_EXTENSIONS) return DEFAULT_CAPTURE_EXTENSIONS;
-  return value;
 }
 
 function normalizeDomainBlacklist(value) {
@@ -1180,6 +1178,13 @@ function normalizeAria2Trackers(trackers = []) {
   return unique;
 }
 
+function resolveStoredBlacklist(value, overrides, resolveRules) {
+  const text = value == null ? undefined : String(value).trim();
+  const domains = text === undefined ? undefined : normalizeDomainBlacklist(text);
+  const effective = resolveRules(domains, overrides);
+  return effective === domains ? text : effective;
+}
+
 function normalizeConfig(nextConfig = {}) {
   const normalized = {
     ...nextConfig,
@@ -1195,10 +1200,14 @@ function normalizeConfig(nextConfig = {}) {
     externalLauncherHost: 'localhost',
     mediaSniffingBlacklist: nextConfig.mediaSniffing === false
       ? '*'
-      : String(nextConfig.mediaSniffingBlacklist || '').trim(),
-    downloadInterceptionBlacklist: String(nextConfig.downloadInterceptionBlacklist || '').trim(),
-    captureExtensions: normalizeCaptureExtensionsConfig(nextConfig.captureExtensions),
-    safariDownloadAllowlist: String(nextConfig.safariDownloadAllowlist || '').trim(),
+      : resolveStoredBlacklist(
+        nextConfig.mediaSniffingBlacklist, nextConfig.mediaSniffingBlacklistOverrides, globalThis.ConfigDefaults.resolveMediaSniffingBlacklist
+      ),
+    downloadInterceptionBlacklist: resolveStoredBlacklist(
+        nextConfig.downloadInterceptionBlacklist, nextConfig.downloadInterceptionBlacklistOverrides, globalThis.ConfigDefaults.resolveDownloadInterceptionBlacklist
+      ),
+    captureExtensions: globalThis.ConfigDefaults.resolveCaptureExtensions(nextConfig.captureExtensions, nextConfig.captureExtensionOverrides),
+    safariDownloadAllowlist: globalThis.ConfigDefaults.resolveSafariDownloadRules(nextConfig.safariDownloadAllowlist, nextConfig.safariDownloadRuleOverrides),
   };
   delete normalized.mediaSniffing;
   delete normalized.skipSmallDownloads;
@@ -1228,6 +1237,36 @@ async function saveConfigAndSync(nextConfig) {
     active.secret = merged.aria2Secret;
     nextConfig = { ...nextConfig, aria2Profiles: profiles, aria2ActiveProfileId: active.id };
   }
+  if ('safariDownloadAllowlist' in nextConfig) {
+    nextConfig = {
+      ...nextConfig,
+      safariDownloadRuleOverrides: globalThis.ConfigDefaults.getSafariDownloadRuleOverrides(nextConfig.safariDownloadAllowlist),
+    };
+  }
+  if ('captureExtensions' in nextConfig) {
+    nextConfig = {
+      ...nextConfig,
+      captureExtensionOverrides: globalThis.ConfigDefaults.getCaptureExtensionOverrides(nextConfig.captureExtensions),
+    };
+  }
+  if ('mediaSniffingBlacklist' in nextConfig || nextConfig.mediaSniffing === false) {
+    nextConfig = {
+      ...nextConfig,
+      mediaSniffingBlacklistOverrides: globalThis.ConfigDefaults.getRuleListOverrides(
+        normalizeDomainBlacklist(nextConfig.mediaSniffing === false ? '*' : nextConfig.mediaSniffingBlacklist),
+        DEFAULT_MEDIA_SNIFFING_BLACKLIST
+      ),
+    };
+  }
+  if ('downloadInterceptionBlacklist' in nextConfig) {
+    nextConfig = {
+      ...nextConfig,
+      downloadInterceptionBlacklistOverrides: globalThis.ConfigDefaults.getRuleListOverrides(
+        normalizeDomainBlacklist(nextConfig.downloadInterceptionBlacklist),
+        DEFAULT_DOWNLOAD_INTERCEPTION_BLACKLIST
+      ),
+    };
+  }
   let storedConfig = nextConfig;
   if (nextConfig.mediaSniffing === false) {
     storedConfig = { ...nextConfig, mediaSniffing: true, mediaSniffingBlacklist: '*' };
@@ -1238,7 +1277,7 @@ async function saveConfigAndSync(nextConfig) {
   config = normalizeConfig({ ...config, ...nextConfig });
   applyLocaleFromConfig(config);
   const autoCaptureChanged = previousAutoCapture !== config.autoCapture;
-  if (autoCaptureChanged || 'captureExtensions' in nextConfig || 'safariDownloadAllowlist' in nextConfig) {
+  if (autoCaptureChanged || 'captureExtensions' in nextConfig || 'captureExtensionOverrides' in nextConfig || 'safariDownloadAllowlist' in nextConfig) {
     await installSafariDownloadRedirectRules();
   }
   if (
@@ -2587,10 +2626,10 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (changes.language) refreshContextMenus();
   const autoCaptureChanged = changes.autoCapture && previousAutoCapture !== config.autoCapture;
   const mediaSniffingEnabledChanged = changes.autoCapture && previousMediaSniffingEnabled !== isMediaSniffingEnabled(config);
-  if (autoCaptureChanged || changes.captureExtensions || changes.safariDownloadAllowlist) {
+  if (autoCaptureChanged || changes.captureExtensions || changes.captureExtensionOverrides || changes.safariDownloadAllowlist || changes.safariDownloadRuleOverrides) {
     installSafariDownloadRedirectRules().catch(() => {});
   }
-  if (autoCaptureChanged || mediaSniffingEnabledChanged || changes.mediaSniffingBlacklist || changes.mediaSniffing) {
+  if (autoCaptureChanged || mediaSniffingEnabledChanged || changes.mediaSniffingBlacklist || changes.mediaSniffingBlacklistOverrides || changes.mediaSniffing) {
     syncMediaSniffingStateForActiveTabs().then(() => {
       broadcastUpdate();
     }).catch(() => {});
