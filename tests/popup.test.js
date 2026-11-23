@@ -974,6 +974,55 @@ test('Rayburst matches after duration metadata arrives and lets the user overrid
   assert.equal(popup.findRayburstCompanion(low, [audio]).id, audio.id);
   assert.equal(popup.findRayburstCompanion(low, [audio, duplicateAudio]), null);
   assert.equal(popup.findRayburstCompanion(low, [{ ...audio, duration: 62 }]), null);
+  const shortVideo = { ...low, duration: 30 };
+  const shortAudio = { ...audio, duration: 30.302 };
+  assert.equal(popup.findRayburstCompanion(shortVideo, [shortAudio]), null);
+  assert.equal(popup.findRayburstCompanion(shortAudio, [shortVideo]), null);
+
+});
+
+test('Rayburst drops an automatic Bilibili match when late durations disagree', async () => {
+  const track = (id, kind, duration, representation) => ({
+    id, kind, duration, metadataProbed: true,
+    resourceUrl: `https://cdn.bilivideo.com/123456/123456-1-${representation}.m4s`,
+  });
+  const video = track('video', 'video', 60, 100026);
+  const audio = track('audio', 'audio', 0, 30280);
+  const popup = loadPopupRuntime({
+    state: { config: { downloaderType: 'motrixnext' }, media: { 1: [video, audio] } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const checkbox = (index) => popup.document.getElementById('mediaList')
+    .children[index].querySelector('[data-select-media-id]');
+  const select = (index) => {
+    const input = checkbox(index);
+    input.checked = true;
+    input._listeners.change[0]();
+  };
+  const button = popup.document.getElementById('mergeRayburstMediaBtn');
+  select(0);
+  assert.equal(checkbox(1).checked, true);
+  assert.equal(button.disabled, false);
+
+  const updatedMedia = [video, { ...audio, duration: 75 }];
+  popup.renderState({ media: { 1: updatedMedia } });
+  assert.equal(checkbox(0).checked, true);
+  assert.equal(checkbox(1).checked, false);
+  assert.equal(button.disabled, true);
+
+  select(1);
+  assert.equal(checkbox(0).checked, true);
+  assert.equal(checkbox(1).checked, false);
+  assert.equal(button.disabled, true);
+
+  const compatibleAudio = track('compatible', 'audio', 60, 30232);
+  popup.renderState({ media: { 1: [...updatedMedia, compatibleAudio] } });
+  assert.equal(checkbox(2).checked, true);
+  select(1);
+  assert.equal(checkbox(1).checked, false);
+  assert.equal(checkbox(2).checked, true);
+  assert.equal(button.disabled, false);
 });
 
 test('Rayburst uses Bilibili collection CID titles for retained tracks across CDN hosts', async () => {
@@ -1004,7 +1053,7 @@ test('Rayburst uses Bilibili collection CID titles for retained tracks across CD
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(requests, [[String(second), String(first)]]);
   assert.equal(popup.rayburstDefaultMergeBasename([
-    { ...track(123, 'video', 'cdn-five'), filename: 'unknown.m4s' },
+    { ...track(123, 'video', 'cdn-five'), filename: 'unknown.m4s', pageTitle: '' },
   ]), 'unknown');
   assert.equal(popup.rayburstDefaultMergeBasename(media.slice(0, 2)), 'Second episode');
   assert.equal(popup.rayburstDefaultMergeBasename(media.slice(2)), 'First episode');
@@ -1056,6 +1105,12 @@ test('Rayburst uses Bilibili collection CID titles for retained tracks across CD
   assert.equal(popup.findRayburstCompanion(media[2], media.slice(0, 2)), null);
   const unidentifiedAudio = { ...media[3], resourceUrl: 'https://cdn.bilivideo.cn/opaque.m4s' };
   assert.equal(popup.findRayburstCompanion(media[2], [media[2], unidentifiedAudio]), null);
+  assert.equal(popup.findRayburstCompanion(unidentifiedAudio, [media[2], unidentifiedAudio]), null);
+  const wrongLengthAudio = { ...media[3], duration: media[2].duration + 10 };
+  assert.equal(popup.findRayburstCompanion(media[2], [media[2], wrongLengthAudio]), null);
+  assert.equal(popup.findRayburstCompanion(wrongLengthAudio, [media[2], wrongLengthAudio]), null);
+  assert.equal(popup.findRayburstCompanion(media[3], [media[3], media[0], media[2]]).id, media[2].id);
+
   const mediaList = popup.document.getElementById('mediaList');
   const card = mediaList.children[0];
   const input = card.querySelector('.media-name-input');
@@ -1070,14 +1125,14 @@ test('Rayburst uses Bilibili collection CID titles for retained tracks across CD
   const currentAudio = track(30620780023, 'audio', 'cdn-six');
   assert.equal(popup.rayburstDefaultMergeBasename(
     [currentVideo, currentAudio], [currentVideo, currentAudio, media[0]],
-  ), '30620780023-1-100026');
+  ), popup.getMediaDisplayFilename(currentVideo));
   const variant = {
     ...media[0], id: 'variant',
     resourceUrl: `https://mcdn.bilivideo.cn/v1/resource/${second}/${second}-1-100026.m4s`,
   };
   assert.equal(popup.rayburstDefaultMergeBasename([variant, media[1]], [...media, variant]), 'Second episode');
   const opaque = { ...variant, filename: 'opaque.m4s', resourceUrl: 'https://cdn.bilivideo.cn/opaque.m4s' };
-  assert.equal(popup.rayburstDefaultMergeBasename([opaque, media[1]], [opaque, media[1]]), 'opaque');
+  assert.equal(popup.rayburstDefaultMergeBasename([opaque, media[1]], [opaque, media[1]]), 'Stale title');
 });
 
 test('Rayburst reads the current player title for a new pair on the same page', async () => {

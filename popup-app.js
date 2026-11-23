@@ -630,14 +630,34 @@ function bilibiliTrackTitle(item) {
   return bilibiliTitlesByCid.get(bilibiliTrackCid(item)) || '';
 }
 
+function rayburstDurationTolerance(duration) {
+  return Math.min(1, Math.max(0.25, duration * 0.01));
+}
+
+function rayburstDurationsConflict(anchor, companion) {
+  const duration = anchor.duration;
+  const other = companion.duration;
+  return Number.isFinite(duration) && duration > 0 && Number.isFinite(other) && other > 0
+    && Math.abs(duration - other) > rayburstDurationTolerance(Math.min(duration, other));
+}
+
+function rayburstDurationConflictMessage() {
+  return popupAppT('rayburstMergeDurationMismatch', undefined, '音频和视频时长不一致，请选择时长匹配的轨道。');
+}
+
 function findRayburstCompanion(anchor, media) {
   const anchorKind = rayburstMergeTrackType(anchor);
   if (!anchorKind) return null;
   const oppositeKind = anchorKind === 'video' ? 'audio' : 'video';
   const cid = bilibiliTrackCid(anchor);
+  // A shared page title and duration cannot identify an opaque Bilibili track.
+  if (!cid && bilibiliTrackUrl(anchor)) return null;
+
+  const duration = anchor.duration;
   if (cid) {
     const sameEpisode = media.filter((item) => rayburstMergeTrackType(item) === oppositeKind
-      && bilibiliTrackCid(item) === cid);
+      && bilibiliTrackCid(item) === cid
+      && !rayburstDurationsConflict(anchor, item));
     if (sameEpisode.length) {
       const anchorHost = bilibiliTrackUrl(anchor).hostname;
       const tracks = new Map();
@@ -654,18 +674,16 @@ function findRayburstCompanion(anchor, media) {
       if (media.length === 1) return media[0];
     }
   }
-  const duration = anchor.duration;
   if (!Number.isFinite(duration) || duration <= 0) return null;
   const anchorPage = rayburstPageUrl(anchor.pageUrl)?.href;
-  const tolerance = Math.min(1, Math.max(0.25, duration * 0.01));
   const candidates = media.filter((item) => {
     const page = rayburstPageUrl(item.pageUrl)?.href;
     const candidateCid = bilibiliTrackCid(item);
     const sameEpisode = Boolean(cid && cid === candidateCid);
-    if (cid && !sameEpisode) return false;
+    if (cid ? !sameEpisode : bilibiliTrackUrl(item)) return false;
     return rayburstMergeTrackType(item) === oppositeKind
       && Number.isFinite(item.duration) && item.duration > 0
-      && Math.abs(item.duration - duration) <= tolerance
+      && !rayburstDurationsConflict(anchor, item)
       && (sameEpisode || ((!anchorPage || !page || page === anchorPage)
         && (!anchor.pageTitle || !item.pageTitle || anchor.pageTitle === item.pageTitle)));
   }).map((item) => ({
@@ -717,6 +735,7 @@ function rayburstPageUrl(value) {
 function rayburstDefaultMergeBasename(items = [], media = currentState.media?.[currentTabId] || []) {
   const video = items.find((item) => rayburstMergeTrackType(item) === 'video');
   if (!video) return '';
+  if (bilibiliTrackUrl(video)) return rayburstOutputBasename(getMediaDisplayFilename(video));
   const audio = items.find((item) => rayburstMergeTrackType(item) === 'audio');
   const referrer = rayburstPageUrl(video.referrer || video.headers?.referer);
   const capturedUrl = rayburstPageUrl(video.pageUrl);
@@ -730,16 +749,10 @@ function rayburstDefaultMergeBasename(items = [], media = currentState.media?.[c
     && rayburstPageUrl(audio.pageUrl)?.href === tabUrl.href;
   const refersToCurrentPage = hasPageReferrer && referrer.href === tabUrl?.href
     && referrer.href !== capturedUrl?.href;
-  const pageTitle = bilibiliTrackUrl(video)
-    ? bilibiliTrackTitle(video)
-    : ((pairOnCurrentPage || refersToCurrentPage) && currentTabTitle.trim()) || video.pageTitle?.trim() || '';
+  const pageTitle = ((pairOnCurrentPage || refersToCurrentPage) && currentTabTitle.trim())
+    || video.pageTitle?.trim() || '';
   const cleanTitle = globalThis.FilenameLogic?.sanitizeFilenamePart?.(pageTitle) ?? pageTitle;
-  const rawTrackName = bilibiliTrackCid(video) && globalThis.FilenameLogic?.filenameFromUrl(video.resourceUrl);
-  const mediaName = getMediaFilenameValue(video);
-  const fallbackName = rawTrackName && !mediaFilenameDrafts.has(video.id) && mediaName.endsWith(`-${rawTrackName}`)
-    ? rawTrackName
-    : mediaName;
-  return rayburstOutputBasename(cleanTitle) || rayburstOutputBasename(fallbackName);
+  return rayburstOutputBasename(cleanTitle) || rayburstOutputBasename(getMediaFilenameValue(video));
 }
 
 function refreshRayburstPageTitle() {
@@ -810,6 +823,15 @@ function updateRayburstMergeControls(media = []) {
     if (!existingIds.has(id)) selectedRayburstMediaIds.delete(id);
   }
   if (!selectedRayburstMediaIds.has(rayburstAutoCompanionId)) rayburstAutoCompanionId = null;
+  if (rayburstAutoCompanionId !== null) {
+    const companion = media.find((item) => item.id === rayburstAutoCompanionId);
+    const anchor = media.find((item) => item.id !== rayburstAutoCompanionId && selectedRayburstMediaIds.has(item.id));
+    if (!anchor || rayburstDurationsConflict(anchor, companion)) {
+      selectedRayburstMediaIds.delete(rayburstAutoCompanionId);
+      rayburstAutoCompanionId = null;
+      rayburstMatchAnchorId = anchor?.id ?? null;
+    }
+  }
   if (enabled && rayburstMatchAnchorId !== null && selectedRayburstMediaIds.size === 1
       && selectedRayburstMediaIds.has(rayburstMatchAnchorId)) {
     const anchor = media.find((item) => item.id === rayburstMatchAnchorId);
@@ -826,14 +848,16 @@ function updateRayburstMergeControls(media = []) {
   if (bar) bar.hidden = !enabled || selected.length === 0;
   const types = selected.map(rayburstMergeTrackType).sort();
   const selectedVideo = selected.find((item) => rayburstMergeTrackType(item) === 'video');
-  const validPair = selected.length === 2 && types[0] === 'audio' && types[1] === 'video';
+  const selectedAudio = selected.find((item) => rayburstMergeTrackType(item) === 'audio');
+  const durationConflict = selectedVideo && selectedAudio && rayburstDurationsConflict(selectedVideo, selectedAudio);
+  const validPair = !durationConflict && selected.length === 2 && types[0] === 'audio' && types[1] === 'video';
   button.disabled = !validPair || rayburstMergeSubmitting;
   button.textContent = rayburstMergeSubmitting
     ? popupAppT('rayburstMergeSending', undefined, '正在合并发送…')
     : popupAppT('mergeWithRayburst', undefined, '合并下载');
-  button.title = validPair ? '' : popupAppT('rayburstMergeSelectionHint', undefined, '请选择一条视频和一条音频');
+  button.title = durationConflict ? rayburstDurationConflictMessage() : validPair ? '' : popupAppT('rayburstMergeSelectionHint', undefined, '请选择一条视频和一条音频');
   if (status) {
-    status.textContent = validPair
+    status.textContent = durationConflict ? rayburstDurationConflictMessage() : validPair
       ? popupAppT('rayburstMergeReady', undefined, '已选中视频与音频')
       : types[0] === 'video'
         ? popupAppT('rayburstMergeNeedAudio', undefined, '已选择视频，还需选择音频')
@@ -1844,10 +1868,19 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
     if (selectCheckbox) {
       selectCheckbox.addEventListener('change', () => {
         const currentMedia = currentState.media?.[currentTabId] || [];
-        rayburstMatchAnchorId = null;
         if (selectCheckbox.checked) {
           const selectedType = rayburstMergeTrackType(item);
-          if (rayburstAutoCompanionId) selectedRayburstMediaIds.delete(rayburstAutoCompanionId);
+          const currentItem = currentMedia.find((candidate) => candidate.id === item.id) || item;
+          const opposite = currentMedia.find((candidate) => selectedRayburstMediaIds.has(candidate.id)
+            && rayburstMergeTrackType(candidate) !== selectedType);
+          const video = selectedType === 'video' ? currentItem : opposite;
+          const audio = selectedType === 'audio' ? currentItem : opposite;
+          if (video && audio && rayburstDurationsConflict(video, audio)) {
+            selectCheckbox.checked = false;
+            showToast(rayburstDurationConflictMessage());
+            return;
+          }
+          rayburstMatchAnchorId = null;
           rayburstAutoCompanionId = null;
           for (const selectedId of selectedRayburstMediaIds) {
             const selectedItem = currentMedia.find((candidate) => candidate.id === selectedId);
@@ -1856,6 +1889,7 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
           selectedRayburstMediaIds.add(item.id);
           if (selectedRayburstMediaIds.size === 1) rayburstMatchAnchorId = item.id;
         } else {
+          rayburstMatchAnchorId = null;
           selectedRayburstMediaIds.delete(item.id);
           if (rayburstAutoCompanionId && rayburstAutoCompanionId !== item.id) {
             selectedRayburstMediaIds.delete(rayburstAutoCompanionId);
@@ -2292,6 +2326,10 @@ document.getElementById('mergeRayburstMediaBtn').addEventListener('click', async
     showToast(popupAppT('rayburstMergeSelectionHint', undefined, '请选择一条视频和一条音频'));
     return;
   }
+  if (rayburstDurationsConflict(video, audio)) {
+    showToast(rayburstDurationConflictMessage());
+    return;
+  }
   const filenameInput = document.getElementById('rayburstMergeFilename');
   const formatSelect = document.getElementById('rayburstMergeFormat');
   rayburstMergeSubmitting = true;
@@ -2302,6 +2340,15 @@ document.getElementById('mergeRayburstMediaBtn').addEventListener('click', async
   if (tabId !== currentTabId || !selected.every((item) => selectedRayburstMediaIds.has(item.id))) {
     rayburstMergeSubmitting = false;
     updateRayburstMergeControls(currentState.media?.[currentTabId] || []);
+    return;
+  }
+  const latestMedia = currentState.media?.[tabId] || [];
+  const latestVideo = latestMedia.find((item) => item.id === video.id);
+  const latestAudio = latestMedia.find((item) => item.id === audio.id);
+  if (latestVideo && latestAudio && rayburstDurationsConflict(latestVideo, latestAudio)) {
+    rayburstMergeSubmitting = false;
+    updateRayburstMergeControls(latestMedia);
+    showToast(rayburstDurationConflictMessage());
     return;
   }
   chrome.runtime.sendMessage({
