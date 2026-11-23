@@ -852,7 +852,8 @@ test('Safari settings flow keeps the persistent host app alive', () => {
   assert.match(source, /hideSetupWindow\(\)/);
   assert.match(source, /setActivationPolicy\(\.accessory\)/);
   assert.match(source, /return false/);
-  assert.doesNotMatch(source, /terminate\(/);
+  const settingsHandler = source.slice(source.indexOf('guard command == "open-preferences"'));
+  assert.doesNotMatch(settingsHandler, /terminate\(/);
   assert.match(appDelegateSource, /applicationShouldTerminateAfterLastWindowClosed/);
   assert.match(appDelegateSource, /applicationShouldHandleReopen/);
   assert.match(appDelegateSource, /SO_NOSIGPIPE/);

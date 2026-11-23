@@ -1783,7 +1783,60 @@
         -webkit-backdrop-filter: blur(16px) saturate(1.15);
       }
     }
-  </style>
+  /* Safari host connection is separate from the downloader connection. */
+.host-service-notice button { display: inline-block; padding: 0; white-space: nowrap; font: inherit; font-size: 10px; color: #b42318; background: none; border: 0; cursor: pointer; }
+.host-service-notice:not(:empty) { margin-inline-start: 4px; }
+.host-service-notice button:hover { text-decoration: underline; }
+.host-service-notice button[hidden] { display: none; }
+body:has(#panel-settings.active) .host-service-notice { display: none; }
+@media (prefers-color-scheme: dark) { .host-service-notice button { color: #ff9e91; } }
+.host-service-banner[hidden] { display: none; }
+.host-service-banner { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: center; gap: 6px 12px; font-size: 12px; }
+.host-service-banner strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 500;
+}
+.host-service-banner strong::before {
+  content: "";
+  flex: 0 0 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.host-service-banner[data-state="online"] strong::before { background: var(--green); }
+.host-service-banner[data-state="offline"] strong::before { background: var(--red); }
+.host-service-banner p {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding-inline-start: 13px;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.host-service-banner .host-service-retry {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 17px;
+  line-height: 1;
+}
+.host-service-retry:hover:not(:disabled) { color: var(--text); }
+.host-service-retry:disabled { opacity: .5; cursor: default; }
+#safariSettingsGroup .settings-group-title { text-transform: none; }
+.safari-download-allowlist-row > summary {
+  font-size: 12px;
+  font-weight: 500;
+}
+.safari-download-allowlist-row > summary::marker { color: var(--text-3); }
+</style>
 </head>
 <body>
 
@@ -1801,6 +1854,9 @@
     <div class="header-status">
       <div class="status-dot" id="statusDot"></div>
       <span id="statusText" data-i18n="statusChecking">检测中…</span>
+      <span class="host-service-notice" aria-live="polite">
+        <button id="hostServiceNotice" type="button" hidden></button>
+      </span>
     </div>
   </div>
   <div class="header-actions">
@@ -1903,6 +1959,21 @@
 
 <!-- Panel: Settings -->
 <div class="panel" id="panel-settings">
+
+  <div class="settings-group settings-hidden" id="safariSettingsGroup">
+    <div class="settings-group-title" data-i18n="settingsSafariGroup">Safari 专属设置</div>
+    <aside id="hostServiceBanner" class="settings-row host-service-banner" hidden aria-live="polite">
+      <strong id="hostServiceLabel"></strong>
+      <button id="hostServiceRetry" type="button" class="host-service-retry" aria-label="重新检测" title="重新检测"><span aria-hidden="true">↻</span></button>
+      <p id="hostServiceHelp" hidden></p>
+    </aside>
+    <details class="settings-row col safari-download-allowlist-row settings-hidden">
+      <summary id="safariDownloadAllowlistTitle" data-i18n="settingsSafariDownloadAllowlist">Safari 自定义下载规则（可选）</summary>
+      <label class="settings-sub" id="safariDownloadAllowlistHelp" for="cfgSafariDownloadAllowlist" data-i18n="settingsSafariDownloadAllowlistSub">只在 Safari 漏接管没有文件后缀的下载链接时填写。每条规则包含域名和路径，用逗号分隔。以 / 结尾时匹配路径本身及其子路径，也可加 ?参数=值 缩小范围。</label>
+      <input class="settings-input wide" id="cfgSafariDownloadAllowlist" type="text" aria-labelledby="safariDownloadAllowlistTitle" aria-describedby="safariDownloadAllowlistHelp"
+        placeholder="cdn.example.com/file, downloads.example.com/files/" spellcheck="false" autocomplete="off"/>
+    </details>
+  </div>
   <div class="settings-group">
     <div class="settings-group-title" data-i18n="settingsDownloaderGroup">下载器</div>
     <div class="settings-row col">
@@ -2071,12 +2142,7 @@
         <button class="btn btn-ghost" type="button" id="restoreDefaultCaptureExtensionsBtn" data-i18n="restoreDefaultCaptureExtensions">恢复默认</button>
       </div>
     </div>
-    <details class="settings-row col safari-download-allowlist-row settings-hidden">
-      <summary id="safariDownloadAllowlistTitle" data-i18n="settingsSafariDownloadAllowlist">Safari 自定义下载规则（可选）</summary>
-      <label class="settings-sub" id="safariDownloadAllowlistHelp" for="cfgSafariDownloadAllowlist" data-i18n="settingsSafariDownloadAllowlistSub">只在 Safari 漏接管没有文件后缀的下载链接时填写。每条规则包含域名和路径，用逗号分隔。以 / 结尾时匹配路径本身及其子路径，也可加 ?参数=值 缩小范围。</label>
-      <input class="settings-input wide" id="cfgSafariDownloadAllowlist" type="text" aria-labelledby="safariDownloadAllowlistTitle" aria-describedby="safariDownloadAllowlistHelp"
-        placeholder="cdn.example.com/file, downloads.example.com/files/" spellcheck="false" autocomplete="off"/>
-    </details>
+
     <div class="settings-row shortcut-settings-row">
       <label><span data-i18n="settingsAutoCaptureShortcut">拦截快捷键</span> <span class="settings-sub" data-i18n="settingsAutoCaptureShortcutSub">默认 Ctrl+Shift+D，可在浏览器扩展管理页中自定义</span></label>
       <button class="btn btn-ghost" style="flex:0 0 auto;padding:6px 14px" id="customizeShortcutBtn" data-i18n="customizeShortcut">自定义</button>

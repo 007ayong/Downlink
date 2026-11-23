@@ -1,22 +1,41 @@
-function show(enabled, useSettingsInsteadOfPreferences) {
-    if (useSettingsInsteadOfPreferences) {
-        document.getElementsByClassName('state-on')[0].innerText = "Downlink’s extension is currently on. You can turn it off in the Extensions section of Safari Settings.";
-        document.getElementsByClassName('state-off')[0].innerText = "Downlink’s extension is currently off. You can turn it on in the Extensions section of Safari Settings.";
-        document.getElementsByClassName('state-unknown')[0].innerText = "You can turn on Downlink’s extension in the Extensions section of Safari Settings.";
-        document.getElementsByClassName('open-preferences')[0].innerText = "Open Safari Settings…";
-    }
-
-    if (typeof enabled === "boolean") {
-        document.body.classList.toggle(`state-on`, enabled);
-        document.body.classList.toggle(`state-off`, !enabled);
-    } else {
-        document.body.classList.remove(`state-on`);
-        document.body.classList.remove(`state-off`);
-    }
+const send = (command) => webkit.messageHandlers.controller.postMessage(command);
+function show(enabled, stale) {
+    const status = document.querySelector('#extension-status');
+    status.textContent = typeof enabled === 'boolean' ? (enabled ? '已启用' : '未启用') : '无法确认';
+    if (stale && typeof enabled === 'boolean') status.textContent += '（上次确认）';
+    status.dataset.state = enabled === true && !stale ? 'ok' : 'warning';
 }
-
-function openPreferences() {
-    webkit.messageHandlers.controller.postMessage("open-preferences");
+function showLoginItem(state) {
+    document.querySelector('.login-item-state').textContent = state.error ? '无法更改登录时启动：' + state.error : state.message;
+    const checkbox = document.querySelector('#launch-at-login');
+    checkbox.checked = state.action === 'unregister';
+    checkbox.indeterminate = state.settings === 'true';
+    checkbox.disabled = !['register', 'unregister'].includes(state.action);
+    document.querySelector('#login-settings').hidden = state.settings !== 'true' && state.action !== 'settings';
 }
+function showService(state) {
+    const status = document.querySelector('#service-status');
+    status.textContent = state.running ? '运行中' : (state.error ? '启动失败' : '已停止');
+    status.dataset.state = state.running ? 'ok' : 'warning';
+    document.querySelector('#service-description').textContent = state.running
+        ? '本地桥接已就绪。关闭此窗口后，服务仍会在后台运行。'
+        : 'Safari 下载接管可能不可用。启动服务后，可在插件中重新检测连接。';
+    const error = document.querySelector('#service-error');
+    error.hidden = !state.error;
+    error.textContent = state.error;
+    const button = document.querySelector('#toggle-service');
+    button.disabled = false;
+    button.textContent = state.running ? '停止服务' : '启动服务';
+    button.dataset.running = String(state.running);
+}
+document.querySelector('.open-preferences').addEventListener('click', () => send('open-preferences'));
+document.querySelector('#launch-at-login').addEventListener('change', ({ currentTarget }) => {
+    currentTarget.disabled = true;
+    send(currentTarget.checked ? 'login-enable' : 'login-disable');
+});
+document.querySelector('#toggle-service').addEventListener('click', () => send('toggle-service'));
+document.querySelector('#refresh').addEventListener('click', () => send('refresh'));
 
-document.querySelector("button.open-preferences").addEventListener("click", openPreferences);
+document.querySelector('#login-settings').addEventListener('click', () => send('login-settings'));
+
+document.querySelector('#quit-downlink').addEventListener('click', () => send('quit-downlink'));

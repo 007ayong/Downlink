@@ -285,6 +285,9 @@ function loadPopupRuntime(options = {}) {
     URLSearchParams,
     setTimeout,
     clearTimeout,
+    setInterval: () => 0,
+    clearInterval: () => {},
+    addEventListener: () => {},
     document,
     chrome,
     navigator: {

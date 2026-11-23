@@ -19,8 +19,29 @@ private final class PersistentLocalDNRBridge {
     private let queue = DispatchQueue(label: "cc.winapps.downlink.host-dnr-bridge")
     private var serverSocket: Int32 = -1
     private var acceptSource: DispatchSourceRead?
+    private var listenerClosed: DispatchSemaphore?
+
+    var isRunning: Bool { queue.sync { serverSocket >= 0 } }
+
+    func stop() {
+        let closed = queue.sync { () -> DispatchSemaphore? in
+            guard let source = acceptSource else { return nil }
+            let closed = listenerClosed
+            source.cancel()
+            acceptSource = nil
+            listenerClosed = nil
+            serverSocket = -1
+            return closed
+        }
+        // Wait outside the listener queue so the cancellation handler can run.
+        closed?.wait()
+    }
 
     func start() throws {
+        try queue.sync { try startListener() }
+    }
+
+    private func startListener() throws {
         if serverSocket >= 0 { return }
 
         let socketFD = Darwin.socket(AF_INET, SOCK_STREAM, 0)
@@ -63,7 +84,12 @@ private final class PersistentLocalDNRBridge {
         serverSocket = socketFD
         let source = DispatchSource.makeReadSource(fileDescriptor: socketFD, queue: queue)
         source.setEventHandler { [weak self] in self?.acceptPendingConnections() }
-        source.setCancelHandler { Darwin.close(socketFD) }
+        let closed = DispatchSemaphore(value: 0)
+        source.setCancelHandler {
+            Darwin.close(socketFD)
+            closed.signal()
+        }
+        listenerClosed = closed
         acceptSource = source
         source.resume()
         os_log(.default, "Persistent local DNR bridge listening on 127.0.0.1:%d", Self.port)
@@ -113,9 +139,12 @@ private final class PersistentLocalDNRBridge {
             request.hasPrefix("GET \(expectedPath)?") ||
             request.hasPrefix("HEAD \(expectedPath) ") ||
             request.hasPrefix("HEAD \(expectedPath)?")
-        let body = "<!doctype html><meta charset=utf-8><title>Downlink</title>"
-        let response = validRequest
-            ? "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Security-Policy: default-src 'none'; img-src safari-web-extension:\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: \(body.utf8.count)\r\n\r\n\(body)"
+        let isHealth = request.hasPrefix("GET \(expectedPath)health ")
+        let healthy = validRequest || isHealth
+        let body = isHealth ? "{\"service\":\"downlink\",\"protocol\":1}" : "<!doctype html><meta charset=utf-8><title>Downlink</title>"
+        let contentType = isHealth ? "application/json" : "text/html; charset=utf-8"
+        let response = healthy
+            ? "HTTP/1.1 200 OK\r\nContent-Type: \(contentType)\r\nContent-Security-Policy: default-src 'none'; img-src safari-web-extension:\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: \(body.utf8.count)\r\n\r\n\(body)"
             : "HTTP/1.1 404 Not Found\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
         sendAll(Data(response.utf8), to: clientSocket)
         Darwin.shutdown(clientSocket, SHUT_RDWR)
@@ -147,10 +176,69 @@ private final class PersistentLocalDNRBridge {
     }
 }
 
+// Share the actual registration result with the setup window.
+enum LoginItemController {
+    static var registrationError: String?
+    static var isInstalled: Bool {
+        let path = Bundle.main.bundleURL.resolvingSymlinksInPath().path
+        return path == "/Applications/Downlink.app" ||
+            path == FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Applications/Downlink.app").path
+    }
+
+    static func setEnabled(_ enabled: Bool) {
+        guard ProcessInfo.processInfo.environment["DOWNLINK_SKIP_LOGIN_ITEM"] != "1",
+              isInstalled else { return }
+        if #available(macOS 13.0, *) {
+            registrationError = nil
+            do {
+                if enabled {
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
+                }
+            } catch {
+                registrationError = error.localizedDescription
+                os_log(.error, "Unable to change Downlink login item: %@", error.localizedDescription)
+            }
+        }
+    }
+
+    static func state() -> [String: String] {
+        guard isInstalled else {
+            return ["message": "请先将 Downlink 安装到「应用程序」，再启用登录时启动。", "action": "none"]
+        }
+        if #available(macOS 13.0, *) {
+            switch SMAppService.mainApp.status {
+            case .enabled:
+                return ["message": "已启用登录时启动：登录 Mac 后后台服务会自动运行。", "action": "unregister"]
+            case .requiresApproval:
+                return ["message": "自启动尚未获准。请在系统设置的「登录项」中允许 Downlink。", "action": "unregister", "settings": "true"]
+            case .notRegistered:
+                return ["message": registrationError.map { "自启动注册失败：" + $0 } ?? "尚未启用登录时启动。", "action": "register"]
+            case .notFound:
+                return ["message": registrationError.map { "自启动注册失败：" + $0 } ?? "系统尚未找到登录项，请点击下方按钮注册。", "action": "register"]
+            @unknown default:
+                return ["message": "无法确认自启动状态，请检查系统登录项设置。", "action": "settings"]
+            }
+        }
+        return ["message": "此系统版本请在系统设置中手动将 Downlink 加入登录项。", "action": "none"]
+    }
+}
+
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var launchedAsLoginItem = false
+    private(set) var serviceError: String?
+    var serviceRunning: Bool { PersistentLocalDNRBridge.shared.isRunning }
+
+    func stopService() {
+        PersistentLocalDNRBridge.shared.stop()
+        serviceError = nil
+    }
+
+    func startService() { startLocalBridge() }
 
     override init() {
         super.init()
@@ -170,8 +258,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // bridge URL. Keep this idempotent call as a lifecycle safety net.
         startLocalBridge()
 
-        registerAsLoginItemIfNeeded()
-
         if launchedAsLoginItem {
             // A login item provides the loopback bridge only; it must not show
             // the Safari extension setup window on every system login.
@@ -184,26 +270,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func startLocalBridge() {
         do {
             try PersistentLocalDNRBridge.shared.start()
+            serviceError = nil
         } catch {
+            serviceError = error.localizedDescription
             os_log(.error, "Unable to start persistent local DNR bridge: %@", error.localizedDescription)
-        }
-    }
-
-    private func registerAsLoginItemIfNeeded() {
-        // Allows an unsigned development build to run beside an installed copy
-        // with the same bundle identifier without Launch Services replacing it.
-        if ProcessInfo.processInfo.environment["DOWNLINK_SKIP_LOGIN_ITEM"] == "1" {
-            return
-        }
-
-        if #available(macOS 13.0, *) {
-            do {
-                if SMAppService.mainApp.status == .notRegistered {
-                    try SMAppService.mainApp.register()
-                }
-            } catch {
-                os_log(.error, "Unable to register Downlink as a login item: %@", error.localizedDescription)
-            }
         }
     }
 

@@ -128,6 +128,15 @@ CODE_SIGNING_ALLOWED=NO npm run safari:build
 
 Safari 工程位于 `safari/Downlink/Downlink.xcodeproj`，构建产物目录为 `dist/safari/DerivedData`。
 
+运行 `npm run safari:pkg` 生成安装包 `dist/downlink-v<版本号>-safari.pkg`。双击安装到 `/Applications`，然后从「应用程序」打开 Downlink 并启用 Safari 扩展。直接分发 PKG 无需挂载磁盘，也不会暴露安装介质内的可运行 App。更新前请退出正在运行的 Downlink。
+
+
+从「应用程序」打开 Downlink 后，可在控制面板开启或关闭登录时启动。新安装默认关闭。宿主窗口会显示实际状态；若提示需要授权，请通过窗口按钮打开系统「登录项」设置允许 Downlink。关闭窗口会保留后台服务，主动退出 App 后需再次打开。
+
+宿主控制面板分别显示 Safari 扩展、后台服务和登录时启动状态。可在窗口内停止或启动后台服务；停止不会改变登录项设置。Safari 弹窗会显示后台连接状态，无法连接时提示启动方法，并支持重新检测。
+
+发布时可通过 `DOWNLINK_INSTALLER_SIGN_IDENTITY` 指定 Developer ID Installer 证书签署安装包；未设置时生成未签名安装包，供本地验证使用。安装包签名独立于 App 签名，公开分发还需完成相应公证流程。
+
 ## 脚本
 
 ### npm 脚本

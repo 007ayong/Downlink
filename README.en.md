@@ -128,6 +128,15 @@ CODE_SIGNING_ALLOWED=NO npm run safari:build
 
 The Safari project lives in `safari/Downlink/Downlink.xcodeproj`; build artifacts go to `dist/safari/DerivedData`.
 
+Run `npm run safari:pkg` to generate `dist/downlink-v<version>-safari.pkg`. Double-click it to install in `/Applications`, then open Downlink from Applications to enable the Safari extension. Distributing the PKG directly avoids mounting a disk or exposing another runnable app on installation media. Quit Downlink before updating.
+
+
+Open Downlink from Applications to turn launch at login on or off in the dashboard. It is off by default for new installations. The host window shows the actual status and links to system Login Items settings when approval is needed. Closing the window keeps the service running; explicitly quitting the app requires reopening it.
+
+The host dashboard shows Safari extension, background service and launch-at-login status separately. Stop or start the service in the window without changing login-item settings. The Safari popup checks the host connection and offers recovery instructions and a retry action when unavailable.
+
+For releases, set `DOWNLINK_INSTALLER_SIGN_IDENTITY` to a Developer ID Installer certificate to sign the package. Without it, the package is unsigned and intended for local validation. Installer signing is separate from app signing; public distribution also requires the appropriate notarization workflow.
+
 ## Scripts
 
 ### npm Scripts

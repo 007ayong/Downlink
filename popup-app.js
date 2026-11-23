@@ -2409,3 +2409,61 @@ const _defer = (typeof requestAnimationFrame === 'function')
   ? (cb) => requestAnimationFrame(cb)
   : (cb) => setTimeout(cb, 0);
 _defer(() => { setTimeout(() => refreshAll(), 0); });
+
+// The native health check is read-only; it never launches a stopped host.
+function initializeHostServiceStatus() {
+  if (!isSafariPopupRuntime()) return;
+  document.getElementById('safariSettingsGroup')?.classList.remove('settings-hidden');
+  const banner = document.getElementById('hostServiceBanner');
+  if (!banner) return;
+  const label = document.getElementById('hostServiceLabel');
+  const help = document.getElementById('hostServiceHelp');
+  const retry = document.getElementById('hostServiceRetry');
+  const notice = document.getElementById('hostServiceNotice');
+  const english = !String(chrome.i18n?.getUILanguage?.() || navigator.language).startsWith('zh');
+  retry.title = english ? 'Check again' : '重新检测';
+  retry.setAttribute?.('aria-label', retry.title);
+  let pending = false;
+  async function check() {
+    if (pending) return;
+    pending = true;
+    retry.disabled = true;
+    banner.hidden = false;
+    if (!banner.dataset.state) label.textContent = english ? 'Checking Downlink background service…' : '正在检测 Downlink 后台服务…';
+    let timer;
+    try {
+      const status = await Promise.race([
+        new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({ type: 'GET_HOST_SERVICE_STATUS' }, response => {
+            const error = chrome.runtime.lastError;
+            if (error) reject(new Error(error.message)); else resolve(response);
+          });
+        }),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 3000); }),
+      ]);
+      render(status?.connected === true);
+    } catch (_) { render(false); }
+    finally { clearTimeout(timer); pending = false; retry.disabled = false; }
+  }
+  function render(connected) {
+    banner.dataset.state = connected ? 'online' : 'offline';
+    label.textContent = connected
+      ? (english ? 'Downlink background service connected' : 'Downlink 后台服务已连接')
+      : (english ? 'Cannot connect to Downlink background service' : '无法连接 Downlink 后台服务');
+    if (notice) {
+      notice.hidden = connected;
+      notice.textContent = english ? 'Downlink service not running' : 'Downlink 后台服务未启动';
+    }
+    help.hidden = connected;
+    help.textContent = english
+      ? 'Open Downlink from Applications and start its background service to restore download capture.'
+      : '请从「应用程序」打开 Downlink，启动后台服务以恢复下载接管。';
+  }
+  notice?.addEventListener('click', () => switchTab('settings'));
+  retry.addEventListener('click', check);
+  void check();
+  const interval = setInterval(() => { if (!document.hidden) void check(); }, 5000);
+  window.addEventListener('pagehide', () => clearInterval(interval), { once: true });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeHostServiceStatus, { once: true });
+else initializeHostServiceStatus();

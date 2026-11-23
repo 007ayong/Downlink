@@ -7,6 +7,7 @@
 
 import Cocoa
 import SafariServices
+import ServiceManagement
 import WebKit
 
 let extensionBundleIdentifier = "cc.winapps.downlink.extension"
@@ -15,9 +16,18 @@ class ViewController: NSViewController, NSWindowDelegate, WKNavigationDelegate, 
 
     @IBOutlet var webView: WKWebView!
 
+    private var safariStatusQueryInFlight = false
+    private var lastSafariExtensionEnabled: Bool?
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
+        NotificationCenter.default.addObserver(self, selector: #selector(refreshDashboard),
+            name: NSApplication.didBecomeActiveNotification, object: nil)
         self.webView.navigationDelegate = self
 
         self.webView.configuration.userContentController.add(self, name: "controller")
@@ -43,33 +53,95 @@ class ViewController: NSViewController, NSWindowDelegate, WKNavigationDelegate, 
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        SFSafariExtensionManager.getStateOfSafariExtension(withIdentifier: extensionBundleIdentifier) { (state, error) in
-            guard let state = state, error == nil else {
-                // Insert code to inform the user that something went wrong.
-                return
-            }
+        refreshDashboard()
+    }
 
+    @objc private func refreshDashboard() {
+        guard isViewLoaded else { return }
+        refreshLoginItemState()
+        guard !safariStatusQueryInFlight else { return }
+        safariStatusQueryInFlight = true
+        querySafariExtensionStatus(retriesRemaining: 2)
+    }
+
+    private func querySafariExtensionStatus(retriesRemaining: Int) {
+        SFSafariExtensionManager.getStateOfSafariExtension(withIdentifier: extensionBundleIdentifier) { [weak self] state, error in
+            let enabled = error == nil ? state?.isEnabled : nil
             DispatchQueue.main.async {
-                if #available(macOS 13, *) {
-                    webView.evaluateJavaScript("show(\(state.isEnabled), true)")
-                } else {
-                    webView.evaluateJavaScript("show(\(state.isEnabled), false)")
+                guard let self = self else { return }
+                if enabled == nil, retriesRemaining > 0 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                        self?.querySafariExtensionStatus(retriesRemaining: retriesRemaining - 1)
+                    }
+                    return
                 }
+
+                self.safariStatusQueryInFlight = false
+                if let enabled = enabled { self.lastSafariExtensionEnabled = enabled }
+                let value = self.lastSafariExtensionEnabled.map { $0 ? "true" : "false" } ?? "null"
+                self.webView.evaluateJavaScript("show(\(value), \(enabled == nil))")
             }
         }
     }
 
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        if (message.body as! String != "open-preferences") {
-            return;
+    @objc private func refreshLoginItemState() {
+        guard isViewLoaded,
+              let data = try? JSONSerialization.data(withJSONObject: LoginItemController.state().merging(["error": LoginItemController.registrationError ?? ""], uniquingKeysWith: { current, _ in current })),
+              let json = String(data: data, encoding: .utf8) else { return }
+        self.webView.evaluateJavaScript("showLoginItem(\(json))", completionHandler: nil)
+        if let app = NSApp.delegate as? AppDelegate,
+           let serviceData = try? JSONSerialization.data(withJSONObject: ["running": app.serviceRunning, "error": app.serviceError ?? ""]),
+           let serviceJSON = String(data: serviceData, encoding: .utf8) {
+            self.webView.evaluateJavaScript("showService(\(serviceJSON))", completionHandler: nil)
         }
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let command = message.body as? String else { return }
+        if command == "quit-downlink" {
+            NSApp.terminate(self)
+            return
+        }
+        if command == "toggle-service", let app = NSApp.delegate as? AppDelegate {
+            if app.serviceRunning {
+                let alert = NSAlert()
+                alert.messageText = "停止后台服务？"
+                alert.informativeText = "Safari 下载接管可能不可用。你可以随时在此重新启动服务；登录时启动设置不会改变。"
+                alert.addButton(withTitle: "停止服务")
+                alert.addButton(withTitle: "取消")
+                if alert.runModal() == .alertFirstButtonReturn { app.stopService() }
+            } else { app.startService() }
+            refreshDashboard()
+            return
+        }
+        if command == "refresh" { refreshDashboard(); return }
+        if command == "login-settings" {
+            if #available(macOS 13.0, *) { SMAppService.openSystemSettingsLoginItems() }
+            return
+        }
+        if command == "login-enable" || command == "login-disable" {
+            if #available(macOS 13.0, *) {
+                let action = LoginItemController.state()["action"]
+                if command == "login-enable", action == "register" {
+                    LoginItemController.setEnabled(true)
+                } else if command == "login-disable", action == "unregister" {
+                    LoginItemController.setEnabled(false)
+                }
+            }
+            refreshLoginItemState()
+            return
+        }
+        guard command == "open-preferences" else { return }
 
         SFSafariApplication.showPreferencesForExtension(withIdentifier: extensionBundleIdentifier) { [weak self] error in
             DispatchQueue.main.async {
-                // The containing app owns the persistent loopback bridge.
-                // Hide the setup window after opening Safari settings, but keep
-                // the app and its 127.0.0.1 listener alive in the background.
-                self?.hideSetupWindow()
+                if let error = error {
+                    let alert = NSAlert()
+                    alert.messageText = "无法打开 Safari 设置"
+                    alert.informativeText = error.localizedDescription
+                    alert.runModal()
+                }
+                self?.refreshDashboard()
             }
         }
     }

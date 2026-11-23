@@ -65,6 +65,20 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
 
         os_log(.default, "Received message from browser.runtime.sendNativeMessage: %@ (profile: %@)", String(describing: message), profile?.uuidString ?? "none")
 
+        if let payload = message as? [String: Any], payload["type"] as? String == "HOST_SERVICE_STATUS" {
+            var healthRequest = URLRequest(url: URL(string: localDNRBridgeURL + "/health")!)
+            healthRequest.timeoutInterval = 1
+            healthRequest.cachePolicy = .reloadIgnoringLocalCacheData
+            Self.loopbackSession.dataTask(with: healthRequest) { data, response, _ in
+                let body = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+                let connected = (response as? HTTPURLResponse)?.statusCode == 200
+                    && body?["service"] as? String == "downlink"
+                    && body?["protocol"] as? Int == 1
+                self.complete(context, reply: ["connected": connected])
+            }.resume()
+            return
+        }
+
         if let payload = message as? [String: Any], payload["type"] as? String == "START_DNR_BRIDGE" {
             // The containing macOS app owns the persistent loopback listener.
             // JavaScript probes this URL before it installs any DNR rule.

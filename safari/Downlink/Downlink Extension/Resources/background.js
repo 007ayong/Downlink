@@ -3331,6 +3331,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     switch (msg.type) {
+      case 'GET_HOST_SERVICE_STATUS': {
+        let connected = false;
+        try {
+          const status = await Promise.race([
+            sendSafariNativeMessage({ type: 'HOST_SERVICE_STATUS' }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('host-status-timeout')), 2200)),
+          ]);
+          connected = status?.connected === true;
+        } catch (_) { /* A failed probe must never start the host app. */ }
+        sendResponse({ connected });
+        // Refresh redirect rules as well, so stopping the host removes stale
+        // redirects and restarting it restores capture without reloading Safari.
+        await ensureSafariLocalBridge({ force: true });
+        await installSafariDownloadRedirectRules({ useCachedBridge: true });
+        break;
+      }
       case 'GET_STATE':
         {
           const mediaState = mediaManager.getState();

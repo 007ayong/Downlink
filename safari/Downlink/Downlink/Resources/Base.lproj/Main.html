@@ -1,19 +1,20 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="zh-CN">
 <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'">
-
-    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-
-    <link rel="stylesheet" href="../Style.css">
-    <script src="../Script.js" defer></script>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../Style.css">
+<script src="../Script.js" defer></script>
+<title>Downlink 控制面板</title>
 </head>
 <body>
-    <img src="../Icon.png" width="128" height="128" alt="Downlink Icon">
-    <p class="state-unknown">You can turn on Downlink’s extension in Safari Extensions preferences.</p>
-    <p class="state-on">Downlink’s extension is currently on. You can turn it off in Safari Extensions preferences.</p>
-    <p class="state-off">Downlink’s extension is currently off. You can turn it on in Safari Extensions preferences.</p>
-    <button class="open-preferences">Open Safari Extensions Preferences…</button>
-</body>
-</html>
+<header><img src="../Icon.png" width="52" height="52" alt=""><div><h1>Downlink</h1><p>Safari 下载助手 · 控制面板</p></div><button id="refresh" class="quiet">刷新状态</button></header>
+<p class="intro">扩展负责浏览器内的操作，后台服务为 Safari 下载接管提供本地桥接。两者配合使用。</p>
+<main>
+<section><div class="section-heading"><h2>Safari 扩展</h2><span id="extension-status" class="badge">检查中</span></div><p>在网页中捕获下载、发现媒体，并发送到你选择的下载器。</p><button class="open-preferences">打开 Safari 扩展设置…</button></section>
+<section><div class="section-heading"><h2>后台服务</h2><span id="service-status" class="badge">检查中</span></div><p id="service-description">正在检查服务状态…</p><p id="service-error" class="error" hidden></p><button id="toggle-service" disabled>检查中…</button><p class="hint">停止服务只影响当前运行，不会修改登录时启动设置。</p></section>
+<section><div class="section-heading"><h2>登录时启动</h2></div><label class="login-item-option"><input id="launch-at-login" type="checkbox" aria-describedby="login-item-state" disabled>登录 Mac 时启动 Downlink</label><p id="login-item-state" class="login-item-state" aria-live="polite">正在检查自启动状态…</p> <button id="login-settings" hidden>打开系统登录项…</button></section>
+</main>
+<footer><p>关闭窗口后，后台服务继续运行。退出 Downlink 会停止服务。</p><button id="quit-downlink" class="quiet" type="button">退出 Downlink</button></footer>
+</body></html>

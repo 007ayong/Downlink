@@ -1,45 +1,31 @@
-* {
-    -webkit-user-select: none;
-    -webkit-user-drag: none;
-    cursor: default;
-}
+:root { color-scheme: light dark; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; --muted: #64748b; --card: #fff; --border: #e2e8f0; --bg: #f5f7fb; --text: #172033; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px; background: var(--bg); color: var(--text); }
+header { display: flex; align-items: center; gap: 12px; }
+header div { flex: 1; }
+h1 { font-size: 23px; letter-spacing: -.6px; margin: 0 0 3px; }
+p { margin: 0; color: var(--muted); line-height: 1.6; }
+.intro { margin: 20px 0; }
+main { display: grid; gap: 12px; }
+section { padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.section-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+h2 { margin: 0; font-size: 14px; }
+.badge { font-size: 12px; padding: 3px 9px; border-radius: 20px; background: #e9edf3; color: #475569; }
+.badge[data-state=ok] { background: #e0f5e8; color: #176239; }
+.badge[data-state=warning] { background: #fff0d2; color: #865500; }
+button { font: inherit; padding: 7px 12px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); color: var(--text); cursor: pointer; margin-top: 12px; }
+button:hover { border-color: #7189af; }
+button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+button.quiet { margin: 0; font-size: 12px; }
+#toggle-service[data-running=false] { color: white; background: #2563eb; border-color: #2563eb; }
+.hint { font-size: 11px; margin-top: 10px; }
+.error { color: #b42318; overflow-wrap: anywhere; margin-top: 8px; }
+footer { font-size: 11px; line-height: 1.7; color: var(--muted); margin-top: 18px; }
+[hidden] { display: none !important; }
+@media (prefers-color-scheme: dark) { :root { --muted: #a4afc0; --card: #222936; --border: #394252; --bg: #181e28; --text: #edf1f7; } .error { color: #ff9e91; } }
 
-:root {
-    color-scheme: light dark;
+.login-item-option { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; }
+.login-item-option input { margin: 0; }
 
-    --spacing: 20px;
-}
-
-html {
-    height: 100%;
-}
-
-body {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-
-    gap: var(--spacing);
-    margin: 0 calc(var(--spacing) * 2);
-    height: 100%;
-
-    font: -apple-system-short-body;
-    text-align: center;
-}
-
-body:not(.state-on, .state-off) :is(.state-on, .state-off) {
-    display: none;
-}
-
-body.state-on :is(.state-off, .state-unknown) {
-    display: none;
-}
-
-body.state-off :is(.state-on, .state-unknown) {
-    display: none;
-}
-
-button {
-    font-size: 1em;
-}
+footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+footer button { flex-shrink: 0; }
