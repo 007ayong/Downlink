@@ -64,10 +64,15 @@ function loadContentScript({
   runtimeUrl = 'chrome-extension://test/',
   initialLocation = 'https://page.example/current',
   referrer = '',
+  title = '',
+  mediaSessionTitle = '',
+  querySelector = () => null,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
 } = {}) {
   const listeners = {};
+  let messageListener;
+  let mutationListener;
   const storageChangeListeners = [];
   const openedWindows = [];
   let assignedLocation = initialLocation;
@@ -75,6 +80,11 @@ function loadContentScript({
   let windowCloseCount = 0;
 
   const context = {
+    MutationObserver: class {
+      constructor(listener) { mutationListener = listener; }
+      observe() {}
+      disconnect() {}
+    },
     URL,
     setTimeout: setTimeoutFn,
     clearTimeout: clearTimeoutFn,
@@ -101,8 +111,11 @@ function loadContentScript({
     location: {
       href: assignedLocation,
     },
+    navigator: { mediaSession: { metadata: { title: mediaSessionTitle } } },
     document: {
       referrer,
+      title,
+      querySelector,
       addEventListener(type, listener, options) {
         listeners[type] ||= [];
         listeners[type].push({ listener, options });
@@ -110,6 +123,7 @@ function loadContentScript({
     },
     chrome: {
       runtime: {
+        onMessage: { addListener(listener) { messageListener = listener; } },
         getURL() {
           return runtimeUrl;
         },
@@ -198,6 +212,14 @@ function loadContentScript({
   }
 
   return {
+    removeInlineScript(textContent) {
+      mutationListener([{ addedNodes: [], removedNodes: [{ nodeName: 'SCRIPT', textContent }] }]);
+    },
+    readMediaPageTitle(cids) {
+      let response;
+      messageListener({ type: 'GET_MEDIA_PAGE_TITLE', cids }, {}, (value) => { response = value; });
+      return response;
+    },
     dispatchClick,
     dispatchPointerdown,
     dispatchStorageChange(changes, areaName = 'sync') {
@@ -785,4 +807,60 @@ test('new-window artifact links report their source tab without intercepting nav
   }]);
   assert.deepEqual(runtime.openedWindows, []);
   assert.equal(runtime.locationHref, 'https://page.example/current');
+});
+
+test('active Bilibili part supplies the title even when browser and player metadata are stale', () => {
+  let partTitle = 'Part One';
+  const url = 'https://www.bilibili.com/video/BV123';
+  const page = loadContentScript({
+    initialLocation: url,
+    title: 'Part One - Bilibili',
+    mediaSessionTitle: 'Part One',
+    querySelector(selector) {
+      return selector.includes('.cur-list li.on .part') ? { textContent: partTitle } : null;
+    },
+  });
+  assert.equal(page.readMediaPageTitle().title, 'Part One');
+  partTitle = 'Part Two';
+  assert.equal(page.readMediaPageTitle().title, 'Part Two');
+  assert.equal(page.readMediaPageTitle().url, url);
+});
+
+test('Bilibili titles are read from a removed initialization script without executing it', () => {
+  const page = loadContentScript({
+    initialLocation: 'https://www.bilibili.com/video/BV13wiLe5ELS',
+    title: 'Current title',
+  });
+  const first = '500001636716833';
+  const second = '500001646121947';
+  const related = '30620780023';
+  const data = { related: [{ cid: Number(related), title: '敬 妃 被 告 发' }], videoData: {
+    cid: Number(first),
+    title: '小镇姑娘',
+    ugc_season: { sections: [{ episodes: [{ cid: Number(second), title: '七里香 \"}\"' }] }] },
+  } };
+  page.removeInlineScript(`window.__INITIAL_STATE__=${JSON.stringify(data)};(function(){throw new Error('must not run')})();`);
+  const response = page.readMediaPageTitle([first, second, related, '123']);
+  assert.deepEqual(JSON.parse(JSON.stringify(response.titlesByCid)), [
+    [first, '小镇姑娘'], [second, data.videoData.ugc_season.sections[0].episodes[0].title],
+    [related, '敬 妃 被 告 发'],
+  ]);
+});
+
+test('Bilibili keeps mappings from later inline video state alongside older tracks', () => {
+  const page = loadContentScript({ initialLocation: 'https://www.bilibili.com/video/BV13wiLe5ELS' });
+  page.removeInlineScript('window.__INITIAL_STATE__={"videoData":{"cid":1,"title":"First"}};');
+  page.removeInlineScript('window.__INITIAL_STATE__={"videoData":{"cid":2,"title":"Later"}};');
+  const response = page.readMediaPageTitle(['1', '2']);
+  assert.deepEqual(JSON.parse(JSON.stringify(response.titlesByCid)), [['1', 'First'], ['2', 'Later']]);
+});
+
+test('Bilibili bangumi names the initial player CID from the server-rendered episode title', () => {
+  const page = loadContentScript({
+    initialLocation: 'https://www.bilibili.com/bangumi/play/ep314796',
+    title: '哆啦A梦 第一季第1集-番剧-全集-高清正版在线观看-bilibili-哔哩哔哩',
+  });
+  page.removeInlineScript('const playurlSSRData = {"data":{"result":{"arc":{"cid":815297421}}}};');
+  const response = page.readMediaPageTitle(['815297421', '123']);
+  assert.deepEqual(JSON.parse(JSON.stringify(response.titlesByCid)), [['815297421', '哆啦A梦 第一季第1集']]);
 });

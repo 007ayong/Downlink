@@ -138,3 +138,17 @@ test('detects media kind from Chinese filenames and mime', () => {
   assert.equal(mediaKindOf('https://example.com/live.flv', ''), 'video');
   assert.equal(mediaKindOf('https://example.com/stream', 'audio/mpeg'), 'audio');
 });
+
+test('falls back to the page title for hexadecimal resource names with numeric suffixes', () => {
+  const filename = '01ea87d3f8b3f6fd01037001a022cb79bc_108.mp4';
+  assert.equal(pickDisplayFilename({ filename, pageTitle: 'Episode title' }),
+    'Episode title-01ea87d3f8b3f6fd01037001a022cb79bc_108');
+});
+
+test('falls back to the page title for numeric resource names with hyphens', () => {
+  assert.equal(pickDisplayFilename({
+    filename: '123456789-1-30080.m4s',
+    resourceUrl: 'https://example.com/123456789-1-30080.m4s',
+    pageTitle: 'Episode title',
+  }), 'Episode title-123456789-1-30080');
+});

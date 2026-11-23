@@ -101,6 +101,7 @@ const downloadClickIntents = new Map();
 const responseCaptureClaims = new Map();
 const pendingBrowserDownloadCaptures = new Map();
 const requestHeadersCache = new Map();
+const mediaRequestHeadersCache = new Map();
 const responseHeadersCache = new Map();
 const redirectIntents = new Map();
 const EXTERNAL_LAUNCHER_TIMEOUT_MS = 3000;
@@ -2008,7 +2009,13 @@ const mediaManager = mediaModule.createMediaManager({
   deriveOrigin,
   updateActionBadgeForTab,
   broadcastUpdate,
-  getRequestHeaders: (url) => requestHeadersCache.get(url)?.headers || {},
+  getRequestHeaders: ({ requestId, tabId, url }) => {
+    const request = mediaRequestHeadersCache.get(requestId);
+    if (request?.tabId === tabId && request.url === url && request.expiresAt > Date.now()) {
+      return request.headers;
+    }
+    return {};
+  },
   getTabSnapshot,
   probeMediaMetadata: probeMediaMetadataInTab,
   canAutoProbeMediaMetadata: Boolean(chrome.tabs?.sendMessage),
@@ -2090,6 +2097,15 @@ chrome.webRequest.onSendHeaders.addListener(
     const headers = {};
     for (const header of details.requestHeaders || []) headers[header.name.toLowerCase()] = header.value;
     const clickIntent = getDownloadClickIntent(details.url);
+    if (details.requestId != null && details.tabId >= 0) {
+      mediaRequestHeadersCache.set(details.requestId, {
+        headers,
+        tabId: details.tabId,
+        url: details.url,
+        expiresAt: Date.now() + 60000,
+      });
+      cleanExpired(mediaRequestHeadersCache);
+    }
     requestHeadersCache.set(details.url, {
       headers,
       method: details.method,

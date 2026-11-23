@@ -16,6 +16,12 @@ const popupAppT = popupAppI18n.t || ((key, substitutions, fallback = key) => {
 const pendingFilenameDrafts = new Map();
 const mediaFilenameDrafts = new Map();
 const selectedRayburstMediaIds = new Set();
+let rayburstMatchAnchorId = null;
+let rayburstAutoCompanionId = null;
+let currentTabTitle = '';
+let currentTabUrl = '';
+let rayburstTitleRequest = 0;
+let rayburstMergeSubmitting = false;
 const menuOriginalParents = new Map();
 const MEDIA_HOVER_PREVIEW_DELAY_MS = 280;
 const MEDIA_HOVER_PREVIEW_HIDE_DELAY_MS = 360;
@@ -121,7 +127,7 @@ function openMediaHoverPreview(item, card) {
 
   const header = document.createElement('div');
   header.className = 'media-hover-preview-title';
-  header.textContent = getMediaFilenameValue(item);
+  header.textContent = getMediaDisplayFilename(item);
   popover.appendChild(header);
 
   const shell = document.createElement('div');
@@ -232,6 +238,27 @@ function getMediaFilenameValue(item) {
   return mediaFilenameDrafts.has(item.id)
     ? mediaFilenameDrafts.get(item.id)
     : (item.filename || popupAppT('untitledMedia', undefined, '未命名媒体'));
+}
+
+function getMediaPageFilename(item) {
+  const logic = globalThis.FilenameLogic;
+  const title = logic?.sanitizeFilenamePart(bilibiliTrackTitle(item) || item.pageTitle || '');
+  if (!title || logic.isLowQualityFilename(title)) return '';
+  return title;
+}
+
+function getMediaDisplayFilename(item) {
+  if (mediaFilenameDrafts.has(item.id)) return getMediaFilenameValue(item);
+  return getMediaPageFilename(item) || getMediaFilenameValue(item);
+}
+
+function getMediaDownloadFilename(item) {
+  if (mediaFilenameDrafts.has(item.id)) return getMediaFilenameValue(item);
+  const title = getMediaPageFilename(item);
+  if (!title) return getMediaFilenameValue(item);
+  const logic = globalThis.FilenameLogic;
+  const ext = logic.extOf(item.filename || '') || logic.guessMediaExtension(item.resourceUrl, item.mime);
+  return ext && !title.toLowerCase().endsWith(`.${ext}`) ? `${title}.${ext}` : title;
 }
 
 function createTextElement(tagName, className, text = '') {
@@ -585,16 +612,171 @@ function rayburstMergeTrackType(item = {}) {
   return category === 'audio' || category === 'video' ? category : '';
 }
 
+function bilibiliTrackUrl(item) {
+  const url = rayburstPageUrl(item?.resourceUrl);
+  return url && /(?:^|\.)bilivideo\.(?:com|cn)$/.test(url.hostname) ? url : null;
+}
+
+function bilibiliTrackCid(item) {
+  const url = bilibiliTrackUrl(item);
+  if (!url) return '';
+  const match = url.pathname.match(/\/(\d+)(?:_da\d+)?-\d+-\d+\.m4s$/i);
+  return match?.[1] || '';
+}
+
+const bilibiliTitlesByCid = new Map();
+
+function bilibiliTrackTitle(item) {
+  return bilibiliTitlesByCid.get(bilibiliTrackCid(item)) || '';
+}
+
+function findRayburstCompanion(anchor, media) {
+  const anchorKind = rayburstMergeTrackType(anchor);
+  if (!anchorKind) return null;
+  const oppositeKind = anchorKind === 'video' ? 'audio' : 'video';
+  const cid = bilibiliTrackCid(anchor);
+  if (cid) {
+    const sameEpisode = media.filter((item) => rayburstMergeTrackType(item) === oppositeKind
+      && bilibiliTrackCid(item) === cid);
+    if (sameEpisode.length) {
+      const anchorHost = bilibiliTrackUrl(anchor).hostname;
+      const tracks = new Map();
+      for (const item of sameEpisode) {
+        const url = bilibiliTrackUrl(item);
+        // Bilibili uses the same CID and representation filename on alternate CDNs.
+        const key = url.pathname.split('/').pop().toLowerCase();
+        const existing = tracks.get(key);
+        if (!existing || (url.hostname === anchorHost && bilibiliTrackUrl(existing).hostname !== anchorHost)) {
+          tracks.set(key, item);
+        }
+      }
+      media = [...tracks.values()];
+      if (media.length === 1) return media[0];
+    }
+  }
+  const duration = anchor.duration;
+  if (!Number.isFinite(duration) || duration <= 0) return null;
+  const anchorPage = rayburstPageUrl(anchor.pageUrl)?.href;
+  const tolerance = Math.min(1, Math.max(0.25, duration * 0.01));
+  const candidates = media.filter((item) => {
+    const page = rayburstPageUrl(item.pageUrl)?.href;
+    const candidateCid = bilibiliTrackCid(item);
+    const sameEpisode = Boolean(cid && cid === candidateCid);
+    if (cid && !sameEpisode) return false;
+    return rayburstMergeTrackType(item) === oppositeKind
+      && Number.isFinite(item.duration) && item.duration > 0
+      && Math.abs(item.duration - duration) <= tolerance
+      && (sameEpisode || ((!anchorPage || !page || page === anchorPage)
+        && (!anchor.pageTitle || !item.pageTitle || anchor.pageTitle === item.pageTitle)));
+  }).map((item) => ({
+    item,
+    difference: Math.abs(item.duration - duration),
+    samePage: Boolean(anchorPage && rayburstPageUrl(item.pageUrl)?.href === anchorPage),
+  })).sort((a, b) => Number(b.samePage) - Number(a.samePage) || a.difference - b.difference);
+
+  const best = candidates[0];
+  if (!best) return null;
+  // Treat small duration differences as a tie, since audio and video containers can round differently.
+  const tied = candidates.filter((candidate) => candidate.samePage === best.samePage
+    && candidate.difference - best.difference <= 0.15);
+  if (tied.length === 1) return best.item;
+  const sameVideo = tied.every(({ item, samePage }) => (
+    cid && bilibiliTrackCid(item) === cid
+  ) || (anchorPage && anchor.pageTitle && samePage && item.pageTitle === anchor.pageTitle));
+  if (oppositeKind === 'audio' && cid && tied.every(({ item }) => (
+    bilibiliTrackCid(item) === cid && Number.isFinite(item.size) && item.size > 0
+  ))) {
+    // For the same episode and near-identical durations, size favors higher-bitrate audio.
+    const ranked = tied.map(({ item }) => item).sort((a, b) => b.size - a.size);
+    return ranked[0].size > ranked[1].size ? ranked[0] : null;
+  }
+  if (oppositeKind !== 'video' || !sameVideo) return null;
+
+  // Same-page video variants can share a duration. Prefer a unique highest resolution.
+  const ranked = tied.map(({ item }) => ({
+    item,
+    pixels: (Number(item.width) || 0) * (Number(item.height) || 0),
+  })).sort((a, b) => b.pixels - a.pixels);
+  return ranked[0].pixels > ranked[1].pixels ? ranked[0].item : null;
+}
+
 function rayburstOutputBasename(filename = '') {
   return String(filename || '').trim().replace(/\.(?:mp4|mkv|webm|mov|m4v|m4s|avi|flv|ts)$/i, '');
 }
 
-function rayburstDefaultMergeBasename(items = []) {
-  const pageTitle = items.find((item) => String(item?.pageTitle || '').trim())?.pageTitle || '';
-  const cleanTitle = globalThis.FilenameLogic?.sanitizeFilenamePart?.(pageTitle) || String(pageTitle).trim();
-  if (cleanTitle) return rayburstOutputBasename(cleanTitle);
+function rayburstPageUrl(value) {
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol)) return '';
+    return url;
+  } catch {
+    return '';
+  }
+}
+
+function rayburstDefaultMergeBasename(items = [], media = currentState.media?.[currentTabId] || []) {
   const video = items.find((item) => rayburstMergeTrackType(item) === 'video');
-  return video ? rayburstOutputBasename(getMediaFilenameValue(video)) : '';
+  if (!video) return '';
+  const audio = items.find((item) => rayburstMergeTrackType(item) === 'audio');
+  const referrer = rayburstPageUrl(video.referrer || video.headers?.referer);
+  const capturedUrl = rayburstPageUrl(video.pageUrl);
+  const tabUrl = rayburstPageUrl(currentTabUrl);
+  const hasPageReferrer = referrer && (referrer.pathname !== '/' || referrer.search);
+  const newestPair = audio && ['video', 'audio'].every((kind) => {
+    const newest = media.find((item) => rayburstMergeTrackType(item) === kind);
+    return newest?.id === (kind === 'video' ? video.id : audio.id);
+  });
+  const pairOnCurrentPage = newestPair && tabUrl && capturedUrl?.href === tabUrl.href
+    && rayburstPageUrl(audio.pageUrl)?.href === tabUrl.href;
+  const refersToCurrentPage = hasPageReferrer && referrer.href === tabUrl?.href
+    && referrer.href !== capturedUrl?.href;
+  const pageTitle = bilibiliTrackUrl(video)
+    ? bilibiliTrackTitle(video)
+    : ((pairOnCurrentPage || refersToCurrentPage) && currentTabTitle.trim()) || video.pageTitle?.trim() || '';
+  const cleanTitle = globalThis.FilenameLogic?.sanitizeFilenamePart?.(pageTitle) ?? pageTitle;
+  const rawTrackName = bilibiliTrackCid(video) && globalThis.FilenameLogic?.filenameFromUrl(video.resourceUrl);
+  const mediaName = getMediaFilenameValue(video);
+  const fallbackName = rawTrackName && !mediaFilenameDrafts.has(video.id) && mediaName.endsWith(`-${rawTrackName}`)
+    ? rawTrackName
+    : mediaName;
+  return rayburstOutputBasename(cleanTitle) || rayburstOutputBasename(fallbackName);
+}
+
+function refreshRayburstPageTitle() {
+  const tabId = currentTabId;
+  const tabUrl = currentTabUrl;
+  if (tabId == null) return Promise.resolve();
+  const cids = [...new Set((currentState.media?.[tabId] || []).map(bilibiliTrackCid).filter(Boolean))];
+  if (currentConfig.downloaderType !== 'motrixnext' && !cids.length) return Promise.resolve();
+  const request = ++rayburstTitleRequest;
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      if (request === rayburstTitleRequest) rayburstTitleRequest++;
+      resolve();
+    }, 600);
+    chrome.tabs.sendMessage(tabId, { type: 'GET_MEDIA_PAGE_TITLE', cids }, { frameId: 0 }, (response) => {
+      clearTimeout(timeout);
+      const liveUrl = rayburstPageUrl(response?.url);
+      const snapshot = rayburstPageUrl(tabUrl);
+      if (!chrome.runtime.lastError && response && request === rayburstTitleRequest
+        && tabId === currentTabId && tabUrl === currentTabUrl
+        && liveUrl && liveUrl.origin === snapshot?.origin) {
+        for (const entry of Array.isArray(response.titlesByCid) ? response.titlesByCid : []) {
+          if (!Array.isArray(entry)) continue;
+          const [cid, title] = entry;
+          if (cids.includes(cid) && typeof title === 'string' && title.trim()) bilibiliTitlesByCid.set(cid, title);
+        }
+        if (response.title && liveUrl.pathname === snapshot.pathname) {
+          currentTabUrl = liveUrl.href;
+          currentTabTitle = response.title;
+        }
+        const media = currentState.media?.[tabId] || [];
+        refreshMediaCardTitles(media);
+        updateRayburstMergeControls(media);
+      }
+      resolve();
+    });
+  });
 }
 
 function setRayburstMergeFormat(value = 'mp4') {
@@ -627,17 +809,32 @@ function updateRayburstMergeControls(media = []) {
   for (const id of selectedRayburstMediaIds) {
     if (!existingIds.has(id)) selectedRayburstMediaIds.delete(id);
   }
+  if (!selectedRayburstMediaIds.has(rayburstAutoCompanionId)) rayburstAutoCompanionId = null;
+  if (enabled && rayburstMatchAnchorId !== null && selectedRayburstMediaIds.size === 1
+      && selectedRayburstMediaIds.has(rayburstMatchAnchorId)) {
+    const anchor = media.find((item) => item.id === rayburstMatchAnchorId);
+    const companion = findRayburstCompanion(anchor, media);
+    if (companion) {
+      selectedRayburstMediaIds.add(companion.id);
+      rayburstAutoCompanionId = companion.id;
+      rayburstMatchAnchorId = null;
+    }
+  } else {
+    rayburstMatchAnchorId = null;
+  }
   const selected = media.filter((item) => selectedRayburstMediaIds.has(item.id));
   if (bar) bar.hidden = !enabled || selected.length === 0;
   const types = selected.map(rayburstMergeTrackType).sort();
   const selectedVideo = selected.find((item) => rayburstMergeTrackType(item) === 'video');
   const validPair = selected.length === 2 && types[0] === 'audio' && types[1] === 'video';
-  button.disabled = !validPair;
-  button.textContent = popupAppT('mergeWithRayburst', undefined, '合并下载');
+  button.disabled = !validPair || rayburstMergeSubmitting;
+  button.textContent = rayburstMergeSubmitting
+    ? popupAppT('rayburstMergeSending', undefined, '正在合并发送…')
+    : popupAppT('mergeWithRayburst', undefined, '合并下载');
   button.title = validPair ? '' : popupAppT('rayburstMergeSelectionHint', undefined, '请选择一条视频和一条音频');
   if (status) {
     status.textContent = validPair
-      ? popupAppT('rayburstMergeReady', undefined, '已自动匹配视频与音频')
+      ? popupAppT('rayburstMergeReady', undefined, '已选中视频与音频')
       : types[0] === 'video'
         ? popupAppT('rayburstMergeNeedAudio', undefined, '已选择视频，还需选择音频')
         : types[0] === 'audio'
@@ -646,14 +843,17 @@ function updateRayburstMergeControls(media = []) {
   }
   if (filenameInput) {
     const videoId = selectedVideo?.id || '';
-    if (filenameInput.dataset.videoId !== videoId) {
-      filenameInput.dataset.videoId = videoId;
-      filenameInput.value = selectedVideo ? rayburstDefaultMergeBasename(selected) : '';
-      if (formatSelect) setRayburstMergeFormat('mp4');
+    const videoChanged = filenameInput.dataset.videoId !== videoId;
+    const defaultBasename = selectedVideo ? rayburstDefaultMergeBasename(selected, media) : '';
+    if (videoChanged || filenameInput.value === filenameInput.dataset.defaultBasename) {
+      filenameInput.value = defaultBasename;
     }
+    filenameInput.dataset.videoId = videoId;
+    filenameInput.dataset.defaultBasename = defaultBasename;
+    if (videoChanged && formatSelect) setRayburstMergeFormat('mp4');
     filenameInput.disabled = !selectedVideo;
   }
-  document.querySelectorAll('[data-select-media-id]').forEach((checkbox) => {
+  document.getElementById('mediaList')?.querySelectorAll('[data-select-media-id]').forEach((checkbox) => {
     checkbox.checked = selectedRayburstMediaIds.has(checkbox.dataset.selectMediaId);
     checkbox.closest?.('.media-card')?.classList.toggle('media-card-selected', checkbox.checked);
   });
@@ -1431,7 +1631,7 @@ function loadMediaMetadata(item, card) {
   mediaEl.style.opacity = '0';
   mediaEl.muted = true;
   mediaEl.addEventListener('loadedmetadata', () => {
-    if (item.kind === 'video' || item.kind === 'media') {
+    if (rayburstMergeTrackType(item) === 'audio' || item.kind === 'video' || item.kind === 'media') {
       const width = mediaEl.videoWidth || 0;
       const height = mediaEl.videoHeight || 0;
       const inferredKind = inferMediaKindFromMetadata(item, { loaded: true, width, height });
@@ -1504,6 +1704,26 @@ function loadMediaMetadata(item, card) {
   queueMediaMetadataProbe(batchEntry);
 }
 
+function refreshMediaCardTitles(media) {
+  const byId = new Map(media.map((item) => [item.id, item]));
+  const list = document.getElementById('mediaList');
+  for (const card of list?.children || []) {
+    const item = byId.get(card.dataset.mediaId);
+    if (!item) continue;
+    const filename = getMediaDisplayFilename(item);
+    const name = card.querySelector('.media-name');
+    if (name) {
+      name.textContent = filename;
+      name.title = filename;
+    }
+    const checkbox = card.querySelector('[data-select-media-id]');
+    checkbox?.setAttribute('aria-label', `${popupAppT('mergeWithRayburst', undefined, '合并下载')}：${filename}`);
+  }
+  const hoverItem = byId.get(mediaHoverPreviewState.itemId);
+  const hoverTitle = mediaHoverPreviewState.popover?.querySelector?.('.media-hover-preview-title');
+  if (hoverItem && hoverTitle) hoverTitle.textContent = getMediaDisplayFilename(hoverItem);
+}
+
 function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []) {
   const listEl = document.getElementById('mediaList');
   const emptyEl = document.getElementById('mediaEmpty');
@@ -1516,7 +1736,7 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
   const addSiteToMediaBlacklistBtn = document.getElementById('addSiteToMediaBlacklistBtn');
   renderInlineAlert('mediaAlert');
   const media = currentTabId == null ? [] : (mediaByTab?.[currentTabId] || []);
-  const mediaKey = `${currentConfig.downloaderType}:${buildMediaRenderKey(media)}`;
+  const mediaKey = `${currentConfig.downloaderType}:${buildMediaRenderKey(media)}:${JSON.stringify(media.map((item) => item.pageTitle))}`;
   const mediaCount = media.length;
   const isBlacklistBlocked = currentTabId != null && mediaBlacklistBlockedTabs.includes(currentTabId);
   const blacklistBlockedLabel = popupAppT('mediaSniffingBlocked', undefined, '当前网站已在媒体嗅探黑名单中');
@@ -1599,14 +1819,14 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
     closeMediaHoverPreview();
   } else {
     const title = mediaHoverPreviewState.popover?.querySelector?.('.media-hover-preview-title');
-    if (title) title.textContent = getMediaFilenameValue(activeHoverItem);
+    if (title) title.textContent = getMediaDisplayFilename(activeHoverItem);
   }
   listEl.replaceChildren();
   media.forEach((item) => {
     const iconSrc = getFileIcon({ name: item.filename, mime: item.mime, kind: item.kind });
     const durationText = mediaDurationLabel(item.duration);
     const resolutionText = item.kind === 'video' || item.kind === 'media' ? mediaResolutionLabel(item) : '';
-    const displayFilename = getMediaFilenameValue(item);
+    const displayFilename = getMediaDisplayFilename(item);
     const card = createMediaCard(item, { iconSrc, durationText, resolutionText, displayFilename });
     listEl.appendChild(card);
     if (mediaHoverPreviewState.itemId === item.id && mediaHoverPreviewState.popover) {
@@ -1623,19 +1843,34 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
     const selectCheckbox = card.querySelector('[data-select-media-id]');
     if (selectCheckbox) {
       selectCheckbox.addEventListener('change', () => {
+        const currentMedia = currentState.media?.[currentTabId] || [];
+        rayburstMatchAnchorId = null;
         if (selectCheckbox.checked) {
           const selectedType = rayburstMergeTrackType(item);
+          if (rayburstAutoCompanionId) selectedRayburstMediaIds.delete(rayburstAutoCompanionId);
+          rayburstAutoCompanionId = null;
           for (const selectedId of selectedRayburstMediaIds) {
-            const selectedItem = media.find((candidate) => candidate.id === selectedId);
+            const selectedItem = currentMedia.find((candidate) => candidate.id === selectedId);
             if (rayburstMergeTrackType(selectedItem) === selectedType) selectedRayburstMediaIds.delete(selectedId);
           }
           selectedRayburstMediaIds.add(item.id);
-        } else selectedRayburstMediaIds.delete(item.id);
-        updateRayburstMergeControls(media);
+          if (selectedRayburstMediaIds.size === 1) rayburstMatchAnchorId = item.id;
+        } else {
+          selectedRayburstMediaIds.delete(item.id);
+          if (rayburstAutoCompanionId && rayburstAutoCompanionId !== item.id) {
+            selectedRayburstMediaIds.delete(rayburstAutoCompanionId);
+          }
+          rayburstAutoCompanionId = null;
+        }
+        updateRayburstMergeControls(currentMedia);
+        refreshRayburstPageTitle();
       });
     }
 
-    if ((item.kind === 'video' || item.kind === 'media') && (!item.width || !item.height) && !item.metadataFailed && !item.metadataProbed) {
+    const shouldProbeResolution = (item.kind === 'video' || item.kind === 'media') && (!item.width || !item.height);
+    const shouldProbeDuration = currentConfig.downloaderType === 'motrixnext'
+      && rayburstMergeTrackType(item) && !item.duration;
+    if ((shouldProbeResolution || shouldProbeDuration) && !item.metadataFailed && !item.metadataProbed) {
       // Defer metadata loading slightly to allow initial UI paint and avoid
       // triggering many network requests during popup open.
       setTimeout(() => loadMediaMetadata(item, card), MEDIA_METADATA_LOAD_DELAY_MS);
@@ -1646,12 +1881,12 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
     const editNameBtn = card.querySelector('.media-name-edit');
     let editingOriginalName = displayFilename;
     const commitMediaName = ({ cancel = false } = {}) => {
-      if (!nameEl || !nameInput) return getMediaFilenameValue(item);
-      const fallbackName = item.filename || popupAppT('untitledMedia', undefined, '未命名媒体');
+      if (!nameEl || !nameInput) return getMediaDownloadFilename(item);
+      const fallbackName = getMediaDownloadFilename(item);
       const nextName = cancel ? editingOriginalName : (nameInput.value.trim() || fallbackName);
-      mediaFilenameDrafts.set(item.id, nextName);
-      nameEl.textContent = nextName;
-      nameEl.title = nextName;
+      if (!cancel) mediaFilenameDrafts.set(item.id, nextName);
+      nameEl.textContent = getMediaDisplayFilename(item);
+      nameEl.title = nameEl.textContent;
       nameInput.value = nextName;
       nameInput.hidden = true;
       nameEl.hidden = false;
@@ -1659,7 +1894,7 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
     };
     const openMediaNameEditor = () => {
       if (!nameEl || !nameInput) return;
-      editingOriginalName = getMediaFilenameValue(item);
+      editingOriginalName = getMediaDownloadFilename(item);
       nameInput.value = editingOriginalName;
       nameEl.hidden = true;
       nameInput.hidden = false;
@@ -1692,7 +1927,7 @@ function renderMedia(mediaByTab, pausedTabs = [], mediaBlacklistBlockedTabs = []
 
     card.querySelector('[data-send-id]').addEventListener('click', (event) => {
       const btn = event.currentTarget;
-      const filename = commitMediaName();
+      const filename = nameInput?.hidden === false ? commitMediaName() : getMediaDownloadFilename(item);
       const sendConfig = getTestConnectionConfig();
       const connectionConfig = sendConfig.downloaderType === 'motrixnext'
         ? { motrixNextPort: sendConfig.motrixNextPort, motrixNextSecret: sendConfig.motrixNextSecret }
@@ -1765,7 +2000,10 @@ function renderState(state) {
 }
 
 async function refreshAll() {
-  currentTabId = await getCurrentTabId();
+  const tab = await getCurrentTab();
+  currentTabId = tab?.id ?? null;
+  currentTabTitle = tab?.title || '';
+  currentTabUrl = tab?.url || '';
   lastRenderedMediaKey = '';
   previousMediaCount = 0;
   lastAutoSwitchedMediaCount = 0;
@@ -1774,6 +2012,7 @@ async function refreshAll() {
     if (!res) return;
     const config = normalizePopupConfig(res.config);
     renderState({ ...res, config });
+    refreshRayburstPageTitle();
   });
 }
 
@@ -2042,8 +2281,9 @@ document.getElementById('rayburstMergeFormatPicker')?.addEventListener('keydown'
   }
 });
 
-document.getElementById('mergeRayburstMediaBtn').addEventListener('click', (event) => {
-  const button = event.currentTarget;
+document.getElementById('mergeRayburstMediaBtn').addEventListener('click', async () => {
+  if (rayburstMergeSubmitting) return;
+  const tabId = currentTabId;
   const media = currentTabId == null ? [] : (currentState.media?.[currentTabId] || []);
   const selected = media.filter((item) => selectedRayburstMediaIds.has(item.id));
   const video = selected.find((item) => rayburstMergeTrackType(item) === 'video');
@@ -2052,11 +2292,18 @@ document.getElementById('mergeRayburstMediaBtn').addEventListener('click', (even
     showToast(popupAppT('rayburstMergeSelectionHint', undefined, '请选择一条视频和一条音频'));
     return;
   }
-  const originalText = button.textContent;
   const filenameInput = document.getElementById('rayburstMergeFilename');
   const formatSelect = document.getElementById('rayburstMergeFormat');
-  button.disabled = true;
-  button.textContent = popupAppT('rayburstMergeSending', undefined, '正在合并发送…');
+  rayburstMergeSubmitting = true;
+  updateRayburstMergeControls(media);
+  if (filenameInput?.value === filenameInput?.dataset.defaultBasename) {
+    await refreshRayburstPageTitle();
+  }
+  if (tabId !== currentTabId || !selected.every((item) => selectedRayburstMediaIds.has(item.id))) {
+    rayburstMergeSubmitting = false;
+    updateRayburstMergeControls(currentState.media?.[currentTabId] || []);
+    return;
+  }
   chrome.runtime.sendMessage({
     type: 'ADD_RAYBURST_MEDIA_COLLECTION',
     ids: selected.map((item) => item.id),
@@ -2075,8 +2322,8 @@ document.getElementById('mergeRayburstMediaBtn').addEventListener('click', (even
     } else {
       showToast(res?.error || popupAppT('sendToDownloaderFailed', undefined, '发送到下载器失败。'));
     }
-    button.textContent = originalText;
-    updateRayburstMergeControls(media);
+    rayburstMergeSubmitting = false;
+    updateRayburstMergeControls(currentState.media?.[currentTabId] || []);
   });
 });
 
@@ -2128,8 +2375,25 @@ document.getElementById('toggleSniffingBtn').addEventListener('click', () => {
   });
 });
 
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (tabId !== currentTabId) return;
+  const nextUrl = changeInfo.url ?? tab?.url ?? currentTabUrl;
+  const urlChanged = nextUrl !== currentTabUrl;
+  const titleChanged = typeof changeInfo.title === 'string';
+  if (!urlChanged && !titleChanged) return;
+  currentTabUrl = nextUrl;
+  currentTabTitle = changeInfo.title ?? tab?.title ?? '';
+  updateRayburstMergeControls(currentState.media?.[tabId] || []);
+});
+
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === 'TASKS_UPDATE') renderState(msg);
+  if (msg.type !== 'TASKS_UPDATE') return;
+  const previousMedia = currentState.media?.[currentTabId];
+  renderState(msg);
+  const media = currentState.media?.[currentTabId];
+  if (media !== previousMedia && media?.some((item) => bilibiliTrackCid(item) && !bilibiliTrackTitle(item))) {
+    refreshRayburstPageTitle();
+  }
 });
 
 // Apply runtime-specific visibility before the deferred state refresh so Safari

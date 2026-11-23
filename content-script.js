@@ -557,7 +557,99 @@
     return true;
   }
 
+  const bilibiliTitlesByCid = new Map();
+  const readBilibiliScripts = new WeakSet();
+
+  function readBilibiliMediaState(script) {
+    if (script.nodeName !== 'SCRIPT' || readBilibiliScripts.has(script)) return;
+    const source = script.textContent || '';
+    const assignment = /^\s*(window\.__INITIAL_STATE__|const playurlSSRData)\s*=\s*(?=\{)/.exec(source);
+    if (!assignment) return;
+    const start = assignment[0].length;
+    // Find the end of the JSON object without executing the script that follows it.
+    let depth = 0;
+    let quoted = false;
+    let end = start;
+    for (; end < source.length; end++) {
+      const char = source[end];
+      if (quoted) {
+        if (char === '\\') end++;
+        else if (char === '"') quoted = false;
+      } else if (char === '"') {
+        quoted = true;
+      } else if (char === '{') {
+        depth++;
+      } else if (char === '}' && --depth === 0) {
+        break;
+      }
+    }
+    try {
+      const data = JSON.parse(source.slice(start, end + 1));
+      readBilibiliScripts.add(script);
+      if (assignment[1] === 'const playurlSSRData') {
+        const cid = data.data?.result?.arc?.cid;
+        const title = document.title.trim();
+        // The server-rendered player data and heading refer to the initial episode.
+        if (cid && title && location.href === mediaPage.href && mediaPage.pathname.startsWith('/bangumi/play/')) {
+          bilibiliTitlesByCid.set(String(cid), title.replace(/[-_](?:番剧|电影|电视剧|纪录片)[-_].*$/, ''));
+        }
+        return;
+      }
+      const { videoData, related } = data;
+      if (!videoData) return;
+      for (const video of Array.isArray(related) ? related : []) {
+        if (video.cid && video.title) bilibiliTitlesByCid.set(String(video.cid), video.title);
+      }
+      for (const section of videoData.ugc_season?.sections || []) {
+        for (const episode of section.episodes || []) {
+          if (episode.cid && episode.title) bilibiliTitlesByCid.set(String(episode.cid), episode.title);
+        }
+      }
+      if (videoData.cid && videoData.title) bilibiliTitlesByCid.set(String(videoData.cid), videoData.title);
+      if (videoData.pages?.length > 1) {
+        for (const part of videoData.pages) {
+          if (part.cid && part.part) bilibiliTitlesByCid.set(String(part.cid), part.part);
+        }
+      }
+    } catch {
+      // An incomplete or unrelated script is not a title source.
+    }
+  }
+
+  const mediaPage = new URL(location.href);
+  if (mediaPage.hostname === 'www.bilibili.com' &&
+      /^\/(?:video\/|bangumi\/play\/)/.test(mediaPage.pathname)) {
+    for (const script of document.scripts || []) readBilibiliMediaState(script);
+    const observer = new MutationObserver((records) => {
+      for (const { addedNodes, removedNodes } of records) {
+        // The site can remove an inline data script immediately after execution.
+        for (const script of addedNodes) readBilibiliMediaState(script);
+        for (const script of removedNodes) readBilibiliMediaState(script);
+      }
+    });
+    observer.observe(document, { childList: true, subtree: true });
+  }
+
   chrome.runtime.onMessage?.addListener?.((message, _sender, sendResponse) => {
+    if (message?.type === 'GET_MEDIA_PAGE_TITLE') {
+      const url = new URL(location.href);
+      // Bilibili can change the active part without updating the document or Media Session title.
+      const isBilibiliVideo = url.hostname === 'www.bilibili.com' && url.pathname.startsWith('/video/');
+      const part = isBilibiliVideo
+        ? document.querySelector(
+          '#multi_page .cur-list li.on .part, .multi-page-v1 .cur-list li.on .part'
+        )
+        : null;
+      const heading = isBilibiliVideo ? document.querySelector('h1.video-title')?.textContent.trim() : '';
+      sendResponse({
+        url: url.href,
+        titlesByCid: Array.isArray(message.cids)
+          ? message.cids.flatMap((cid) => bilibiliTitlesByCid.has(cid) ? [[cid, bilibiliTitlesByCid.get(cid)]] : [])
+          : [],
+        title: part?.textContent.trim() || heading || navigator.mediaSession?.metadata?.title?.trim() || document.title.trim(),
+      });
+      return undefined;
+    }
     if (message?.type !== 'PROBE_MEDIA_METADATA_IN_PAGE') return undefined;
     return probeMediaMetadataInPage(message, sendResponse);
   });

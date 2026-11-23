@@ -187,8 +187,9 @@
     const basename = cleanName.replace(/\.[a-z0-9]{2,5}$/i, '');
     if (!basename) return true;
     if (/^(media|video|audio|play|stream|download|file|index|master|playlist|movie)$/.test(basename)) return true;
-    if (/^[a-f0-9]{16,}$/i.test(basename)) return true;
+    if (/^[a-f0-9]{16,}(?:_\d+)?$/i.test(basename)) return true;
     if (/^\d{10,}$/.test(basename)) return true;
+    if (/^\d{6,}(?:_da\d+)?(?:-\d+){2,}$/.test(basename)) return true;
     return false;
   }
 

@@ -164,6 +164,7 @@ const downloadClickIntents = new Map();
 const responseCaptureClaims = new Map();
 const pendingBrowserDownloadCaptures = new Map();
 const requestHeadersCache = new Map();
+const mediaRequestHeadersCache = new Map();
 const responseHeadersCache = new Map();
 const redirectIntents = new Map();
 const dnrNavigationCandidates = new Map();
@@ -2950,7 +2951,13 @@ const mediaManager = mediaModule.createMediaManager({
   deriveOrigin,
   updateActionBadgeForTab,
   broadcastUpdate,
-  getRequestHeaders: (url) => requestHeadersCache.get(url)?.headers || {},
+  getRequestHeaders: ({ requestId, tabId, url }) => {
+    const request = mediaRequestHeadersCache.get(requestId);
+    if (request?.tabId === tabId && request.url === url && request.expiresAt > Date.now()) {
+      return request.headers;
+    }
+    return {};
+  },
   getTabSnapshot,
   probeMediaMetadata: probeMediaMetadataInTab,
   canAutoProbeMediaMetadata: Boolean(chrome.tabs?.sendMessage),
@@ -3103,6 +3110,15 @@ function handleSafariSendHeaders(details) {
       });
     }
     const clickIntent = getDownloadClickIntent(details.url);
+    if (details.requestId != null && details.tabId >= 0) {
+      mediaRequestHeadersCache.set(details.requestId, {
+        headers,
+        tabId: details.tabId,
+        url: details.url,
+        expiresAt: Date.now() + 60000,
+      });
+      cleanExpired(mediaRequestHeadersCache);
+    }
     requestHeadersCache.set(details.url, {
       headers,
       method: details.method,

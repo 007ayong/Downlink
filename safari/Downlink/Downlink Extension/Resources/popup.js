@@ -143,10 +143,10 @@ function showToast(message) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
 }
 
-function getCurrentTabId() {
+function getCurrentTab() {
   return new Promise((resolve) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      resolve(tabs?.[0]?.id ?? null);
+      resolve(tabs?.[0] ?? null);
     });
   });
 }
@@ -192,7 +192,7 @@ globalThis.decodeDisplayFilename = decodeDisplayFilename;
 globalThis.escHtml = escHtml;
 globalThis.fmt = fmt;
 globalThis.fmtSpeed = fmtSpeed;
-globalThis.getCurrentTabId = getCurrentTabId;
+globalThis.getCurrentTab = getCurrentTab;
 globalThis.getDownloaderName = getDownloaderName;
 globalThis.getFileCategory = getFileCategory;
 globalThis.getFileIcon = getFileIcon;

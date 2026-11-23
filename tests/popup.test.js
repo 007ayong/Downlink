@@ -245,14 +245,19 @@ function loadPopupRuntime(options = {}) {
     },
     permissions: options.permissions,
     tabs: {
+      onUpdated: {
+        addListener(callback) {
+          chrome._listeners.tabUpdated = callback;
+        },
+      },
       query(_query, callback) {
-        callback?.([{ id: 1 }]);
+        callback?.([{ id: 1, title: options.tabTitle, url: options.tabUrl }]);
       },
       create(_opts, callback) {
         chrome._createdTabs.push(_opts);
         callback?.({ id: 2 });
       },
-      sendMessage(tabId, message, callback) {
+      sendMessage(tabId, message, optionsOrCallback, callback = optionsOrCallback) {
         chrome._tabMessages.push({ tabId, message });
         const response = typeof options.tabMessageResponse === 'function'
           ? options.tabMessageResponse(tabId, message)
@@ -845,14 +850,18 @@ test('Rayburst media list enables smart merge for one selected video and audio',
   const video = {
     id: 'video_1', resourceUrl: 'https://cdn.example/video.m4s', filename: 'movie.mp4',
     kind: 'video', mime: 'video/mp4', width: 1920, height: 1080,
-    pageTitle: 'Example: Current / Page Title',
+    pageTitle: 'Previous Page Title',
+    pageUrl: 'https://example.com/watch?v=a',
+    referrer: 'https://example.com/watch?v=b',
   };
   const audio = {
     id: 'audio_1', resourceUrl: 'https://cdn.example/audio.m4s', filename: 'audio.m4a',
-    kind: 'audio', mime: 'audio/mp4', pageTitle: 'Example: Current / Page Title',
+    kind: 'audio', mime: 'audio/mp4', pageTitle: 'Previous Page Title',
   };
   const popup = loadPopupRuntime({
     state: { config: { downloaderType: 'motrixnext', motrixNextPort: '29110', motrixNextSecret: 'secret' }, media: { 1: [video, audio] } },
+    tabTitle: 'Example: Current / Page Title',
+    tabUrl: 'https://example.com/watch?v=b',
     messageResponses: { ADD_RAYBURST_MEDIA_COLLECTION: { ok: true, gid: 'merged' } },
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -875,7 +884,40 @@ test('Rayburst media list enables smart merge for one selected video and audio',
   const formatSelect = popup.document.getElementById('rayburstMergeFormat');
   assert.equal(filenameInput.value, 'Example Current Page Title');
   assert.equal(formatSelect.value, 'mp4');
+
+  const defaultBasename = (track) => popup.rayburstDefaultMergeBasename([track, audio]);
+  assert.equal(defaultBasename({ ...video, referrer: video.pageUrl }), 'Previous Page Title');
+  assert.equal(defaultBasename({ ...video, referrer: 'https://example.com/' }), 'Previous Page Title');
+  assert.equal(defaultBasename({ ...video, referrer: '' }), 'Previous Page Title');
+  assert.equal(defaultBasename({
+    ...video, referrer: 'https://example.com/', pageUrl: video.referrer,
+    pageTitle: 'Example: Current / Page Title',
+  }), 'Example Current Page Title');
+  assert.equal(defaultBasename({
+    ...video, pageUrl: video.referrer, pageTitle: 'Title captured at the same URL',
+  }), 'Title captured at the same URL');
+
+  const currentVideo = { ...video, id: 'new_video', pageUrl: video.referrer, referrer: '' };
+  const currentAudio = { ...audio, id: 'new_audio', pageUrl: video.referrer };
+  const latestTracks = [currentVideo, currentAudio, video, audio];
+  assert.equal(popup.rayburstDefaultMergeBasename([currentVideo, currentAudio], latestTracks), 'Example Current Page Title');
+  assert.equal(popup.rayburstDefaultMergeBasename([{ ...video, referrer: '' }, audio], latestTracks), 'Previous Page Title');
+
+  popup.chrome._listeners.tabUpdated(1, { url: 'https://example.com/watch?v=c' });
+  assert.equal(filenameInput.value, 'Previous Page Title');
+  popup.chrome._listeners.tabUpdated(1, { title: 'Example: Current / Page Title' });
+  assert.equal(filenameInput.value, 'Previous Page Title');
+  popup.chrome._listeners.tabUpdated(1, { url: 'https://example.com/watch?v=b' }, {
+    url: 'https://example.com/watch?v=b', title: 'Example: Current / Page Title',
+  });
+  assert.equal(filenameInput.value, 'Example Current Page Title');
+  popup.chrome._listeners.tabUpdated(2, { title: 'Another Tab' });
+  assert.equal(filenameInput.value, 'Example Current Page Title');
+  popup.chrome._listeners.tabUpdated(1, { title: 'Autoplay / Next Video' });
+  assert.equal(filenameInput.value, 'Autoplay Next Video');
   filenameInput.value = 'renamed-output.mp4';
+  popup.chrome._listeners.tabUpdated(1, { title: 'Updated Video Title' });
+  assert.equal(filenameInput.value, 'renamed-output.mp4');
   formatSelect.value = 'mkv';
   mergeButton.click();
   const message = popup.chrome._sentMessages.findLast((item) => item?.type === 'ADD_RAYBURST_MEDIA_COLLECTION');
@@ -886,6 +928,198 @@ test('Rayburst media list enables smart merge for one selected video and audio',
     format: 'mkv',
     connectionConfig: { motrixNextPort: '29110', motrixNextSecret: 'secret' },
   });
+});
+
+test('Rayburst matches after duration metadata arrives and lets the user override the match', async () => {
+  const pageUrl = 'https://example.com/watch';
+  const track = (id, kind, duration, width, height) => ({
+    id, kind, duration, width, height, filename: `${id}.mp4`,
+    pageUrl, pageTitle: 'Example', resourceUrl: `https://${id}.example/track.mp4`,
+  });
+  const audio = track('audio', 'audio', 60);
+  const low = track('low', 'video', 60, 1280, 720);
+  const high = track('high', 'video', 60.08, 1920, 1080);
+  const otherPage = { ...high, id: 'other', duration: 60, pageUrl: pageUrl + '/other' };
+  const duplicateAudio = { ...audio, id: 'duplicate', resourceUrl: 'https://backup.example/audio.mp4' };
+  const popup = loadPopupRuntime({
+    state: { config: { downloaderType: 'motrixnext' }, media: { 1: [{ ...audio, duration: 0, metadataProbed: true }, low, high, otherPage] } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const getCheckbox = (index) => popup.document.getElementById('mediaList')
+    .children[index].querySelector('[data-select-media-id]');
+  const setChecked = (index, checked) => {
+    const checkbox = getCheckbox(index);
+    checkbox.checked = checked;
+    checkbox._listeners.change[0]();
+  };
+  const mergeButton = popup.document.getElementById('mergeRayburstMediaBtn');
+  setChecked(0, true);
+  assert.equal(mergeButton.disabled, true);
+  popup.renderState({ media: { 1: [audio, low, high, otherPage] } });
+  assert.equal(getCheckbox(2).checked, true);
+  assert.equal(getCheckbox(3).checked, false);
+  assert.equal(mergeButton.disabled, false);
+
+  setChecked(1, true);
+  assert.equal(getCheckbox(1).checked, true);
+  assert.equal(getCheckbox(2).checked, false);
+  setChecked(1, false);
+  popup.renderState({ media: { 1: [audio, low, high, otherPage] } });
+  assert.equal(mergeButton.disabled, true);
+
+  assert.equal(popup.findRayburstCompanion(low, [audio]).id, audio.id);
+  assert.equal(popup.findRayburstCompanion(low, [audio, duplicateAudio]), null);
+  assert.equal(popup.findRayburstCompanion(low, [{ ...audio, duration: 62 }]), null);
+});
+
+test('Rayburst uses Bilibili collection CID titles for retained tracks across CDN hosts', async () => {
+  const pageUrl = 'https://www.bilibili.com/video/BV13wiLe5ELS';
+  const track = (cid, kind, host) => ({
+    id: `${cid}-${kind}`, kind, duration: 422, pageUrl, pageTitle: 'Stale title',
+    width: kind === 'video' ? 1920 : 0, height: kind === 'video' ? 1080 : 0,
+    resourceUrl: `https://${host}.bilivideo.com/upgcxcode/33/68/${cid}/${cid}-1-${kind === 'video' ? '30080' : '30280'}.m4s`,
+  });
+  const first = 500001646121947;
+  const second = 500001636716833;
+  const media = [track(second, 'video', 'cdn-one'), track(second, 'audio', 'cdn-two'),
+    track(first, 'video', 'cdn-three'), track(first, 'audio', 'cdn-four')];
+  const requests = [];
+  const popup = loadPopupRuntime({
+    state: { config: { downloaderType: 'motrixnext' }, media: { 1: media } },
+    tabUrl: pageUrl,
+    tabTitle: 'Stale title',
+    tabMessageResponse: (_tabId, message) => {
+      if (message.type !== 'GET_MEDIA_PAGE_TITLE') return null;
+      requests.push(Array.from(message.cids));
+      return { url: pageUrl, title: 'Stale title', titlesByCid: [
+        [String(second), 'Second episode'], [String(first), 'First episode'],
+      ] };
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(requests, [[String(second), String(first)]]);
+  assert.equal(popup.rayburstDefaultMergeBasename([
+    { ...track(123, 'video', 'cdn-five'), filename: 'unknown.m4s' },
+  ]), 'unknown');
+  assert.equal(popup.rayburstDefaultMergeBasename(media.slice(0, 2)), 'Second episode');
+  assert.equal(popup.rayburstDefaultMergeBasename(media.slice(2)), 'First episode');
+  assert.equal(popup.getMediaDisplayFilename(media[0]), 'Second episode');
+  const numericTrack = {
+    filename: '43831265202-1-100026.m4s',
+    resourceUrl: 'https://mcdn.bilivideo.cn/v1/resource/43831265202-1-100026.m4s',
+    pageTitle: 'Captured page',
+  };
+  assert.equal(popup.bilibiliTrackCid(numericTrack), '43831265202');
+  const daTrack = {
+    ...numericTrack,
+    kind: 'video',
+    filename: '354880018_da2-1-100113.m4s',
+    resourceUrl: 'https://mcdn.bilivideo.cn/v1/resource/354880018_da2-1-100113.m4s',
+  };
+  const daAudio = track(354880018, 'audio', 'cdn-two');
+  assert.equal(popup.bilibiliTrackCid(daTrack), '354880018');
+  assert.equal(popup.findRayburstCompanion(daTrack, [daTrack, daAudio]).id, daAudio.id);
+  assert.equal(popup.getMediaDisplayFilename(daTrack), 'Captured page');
+
+  assert.equal(popup.getMediaDisplayFilename(numericTrack), 'Captured page');
+
+  assert.equal(popup.getMediaDisplayFilename(media[3]), 'First episode');
+  assert.equal(popup.getMediaDisplayFilename({ filename: '抖音视频.mp4' }), '抖音视频.mp4');
+  const genericMedia = { filename: 'server-name.mp4', pageTitle: '网页标题' };
+  assert.equal(popup.getMediaDisplayFilename(genericMedia), '网页标题');
+  assert.equal(popup.getMediaDownloadFilename(genericMedia), '网页标题.mp4');
+  assert.equal(popup.getMediaDownloadFilename({ ...genericMedia, pageTitle: 'video' }), 'server-name.mp4');
+
+  assert.equal(popup.findRayburstCompanion(media[2], media).id, media[3].id);
+  const alternateAudio = { ...track(second, 'audio', 'cdn-one'), id: 'alternate-audio' };
+  const audioCandidates = [...media, alternateAudio];
+  assert.equal(popup.findRayburstCompanion(media[0], audioCandidates).id, alternateAudio.id);
+  assert.equal(popup.findRayburstCompanion(alternateAudio, audioCandidates).id, media[0].id);
+  const otherAudio = {
+    ...alternateAudio,
+    resourceUrl: alternateAudio.resourceUrl.replace('30280.m4s', '30232.m4s'),
+  };
+  assert.equal(popup.findRayburstCompanion(media[0], [...media, otherAudio]), null);
+  const highAudio = { ...media[1], size: 5_000_000 };
+  const highAudioMirror = { ...alternateAudio, size: highAudio.size };
+  const lowAudio = { ...otherAudio, id: 'lower-bitrate-audio', size: 1_800_000 };
+  assert.equal(popup.findRayburstCompanion(
+    media[0], [lowAudio, highAudio, highAudioMirror, media[0], ...media.slice(2)]
+  ).id, highAudioMirror.id);
+
+
+  assert.equal(popup.findRayburstCompanion(media[2], media.slice(0, 2)), null);
+  const unidentifiedAudio = { ...media[3], resourceUrl: 'https://cdn.bilivideo.cn/opaque.m4s' };
+  assert.equal(popup.findRayburstCompanion(media[2], [media[2], unidentifiedAudio]), null);
+  const mediaList = popup.document.getElementById('mediaList');
+  const card = mediaList.children[0];
+  const input = card.querySelector('.media-name-input');
+  input.hidden = false;
+  input.value = 'Unsubmitted filename';
+  popup.refreshMediaCardTitles(media);
+  assert.equal(mediaList.children[0], card);
+  assert.equal(input.hidden, false);
+  assert.equal(input.value, 'Unsubmitted filename');
+
+  const currentVideo = { ...track(30620780023, 'video', 'cdn-five'), filename: '30620780023-1-100026.m4s' };
+  const currentAudio = track(30620780023, 'audio', 'cdn-six');
+  assert.equal(popup.rayburstDefaultMergeBasename(
+    [currentVideo, currentAudio], [currentVideo, currentAudio, media[0]],
+  ), '30620780023-1-100026');
+  const variant = {
+    ...media[0], id: 'variant',
+    resourceUrl: `https://mcdn.bilivideo.cn/v1/resource/${second}/${second}-1-100026.m4s`,
+  };
+  assert.equal(popup.rayburstDefaultMergeBasename([variant, media[1]], [...media, variant]), 'Second episode');
+  const opaque = { ...variant, filename: 'opaque.m4s', resourceUrl: 'https://cdn.bilivideo.cn/opaque.m4s' };
+  assert.equal(popup.rayburstDefaultMergeBasename([opaque, media[1]], [opaque, media[1]]), 'opaque');
+});
+
+test('Rayburst reads the current player title for a new pair on the same page', async () => {
+  const url = 'https://example.com/watch?p=2';
+  let liveTitle = 'Part Two';
+  const track = (id, kind) => ({
+    id, kind, mime: `${kind}/mp4`, filename: `${id}.m4s`,
+    resourceUrl: `https://cdn.example/${id}.m4s`,
+    pageUrl: url, pageTitle: 'Part One', referrer: 'https://example.com/',
+    ...(kind === 'video' ? { width: 1920, height: 1080 } : {}),
+  });
+  const media = [
+    track('new-video', 'video'), track('new-audio', 'audio'),
+    track('old-video', 'video'), track('old-audio', 'audio'),
+  ];
+  const popup = loadPopupRuntime({
+    state: { config: { downloaderType: 'motrixnext' }, media: { 1: media } },
+    tabTitle: 'Part One',
+    tabUrl: 'https://example.com/watch?p=1',
+    messageResponses: { ADD_RAYBURST_MEDIA_COLLECTION: { ok: true } },
+    tabMessageResponse: (_tabId, message) => message.type === 'GET_MEDIA_PAGE_TITLE'
+      ? { url, title: liveTitle } : null,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const cards = popup.document.getElementById('mediaList').children;
+  const select = (index) => {
+    const checkbox = cards[index].querySelector('[data-select-media-id]');
+    checkbox.checked = true;
+    checkbox._listeners.change[0]();
+  };
+  const filenameInput = popup.document.getElementById('rayburstMergeFilename');
+  select(0);
+  select(1);
+  assert.equal(filenameInput.value, 'Part Two');
+  select(2);
+  select(3);
+  assert.equal(filenameInput.value, 'Part One');
+  select(0);
+  select(1);
+  liveTitle = 'Updated Part Two';
+  popup.document.getElementById('mergeRayburstMediaBtn').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const message = popup.chrome._sentMessages.findLast((item) => item?.type === 'ADD_RAYBURST_MEDIA_COLLECTION');
+  assert.equal(message.filename, 'Updated Part Two');
 });
 
 test('switching to Rayburst immediately adds media merge checkboxes', async () => {

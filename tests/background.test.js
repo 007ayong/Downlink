@@ -513,6 +513,7 @@ test('cross-origin manifest unwrapping does not forward resolver credentials', a
   const wrapperUrl = 'https://resolver.example.com/m3u8/?url=https%3A%2F%2Fcdn.example.net%2Findex.m3u8';
 
   await invokeSendHeaders(background, {
+    requestId: 'media-request',
     url: wrapperUrl,
     tabId: 3,
     method: 'GET',
@@ -525,6 +526,7 @@ test('cross-origin manifest unwrapping does not forward resolver credentials', a
     ],
   });
   await manager.handleMediaResponse({
+    requestId: 'media-request',
     url: wrapperUrl,
     tabId: 3,
     frameId: 0,
@@ -538,6 +540,31 @@ test('cross-origin manifest unwrapping does not forward resolver credentials', a
     referer: 'https://example.com/watch',
     'user-agent': 'Browser UA',
   });
+});
+
+test('media responses use their own request headers when tabs share a resource URL', async () => {
+  const background = loadBackgroundRuntime();
+  const manager = background.__backgroundTestHooks.mediaManager;
+  const url = 'https://cdn.example.net/shared.mp4';
+  for (const tabId of [3, 4]) {
+    await invokeSendHeaders(background, {
+      requestId: String(tabId),
+      tabId,
+      url,
+      method: 'GET',
+      requestHeaders: [{ name: 'Referer', value: `https://example.com/watch/${tabId}` }],
+    });
+  }
+  for (const tabId of [3, 4]) {
+    await manager.handleMediaResponse({
+      requestId: String(tabId),
+      tabId,
+      url,
+      statusCode: 200,
+      responseHeaders: [{ name: 'content-type', value: 'video/mp4' }],
+    });
+    assert.equal(manager.getState().media[tabId][0].referrer, `https://example.com/watch/${tabId}`);
+  }
 });
 
 test('media list adds a stable suffix when distinct resources resolve to the same filename', () => {
@@ -801,6 +828,7 @@ test('metadata header rule is cleaned up by the background when popup closes ear
   const url = 'https://cdn.example.com/video.mp4';
 
   await invokeSendHeaders(background, {
+    requestId: 'media-request',
     url,
     tabId: 3,
     method: 'GET',
@@ -810,6 +838,7 @@ test('metadata header rule is cleaned up by the background when popup closes ear
     ],
   });
   await invokeResponseHeaders(background, {
+    requestId: 'media-request',
     url,
     tabId: 3,
     frameId: 0,
@@ -885,6 +914,7 @@ test('hover preview header rule stays active until explicitly cleared', async ()
   const url = 'https://cdn.example.com/video.mp4';
 
   await invokeSendHeaders(background, {
+    requestId: 'media-request',
     url,
     tabId: 3,
     method: 'GET',
@@ -894,6 +924,7 @@ test('hover preview header rule stays active until explicitly cleared', async ()
     ],
   });
   await invokeResponseHeaders(background, {
+    requestId: 'media-request',
     url,
     tabId: 3,
     frameId: 0,
@@ -6715,6 +6746,7 @@ test('download interception blacklist does not block media sniffing', async () =
   });
 
   await invokeSendHeaders(background, {
+    requestId: 'media-request',
     tabId: 12,
     frameId: 0,
     url: 'https://cdn.example.net/video.mp4',
@@ -6725,6 +6757,7 @@ test('download interception blacklist does not block media sniffing', async () =
     ],
   });
   await invokeResponseHeaders(background, {
+    requestId: 'media-request',
     tabId: 12,
     frameId: 0,
     url: 'https://cdn.example.net/video.mp4',
