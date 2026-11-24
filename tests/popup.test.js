@@ -1588,35 +1588,40 @@ test('unknown media duration does not mark a stream as non-live', async () => {
   assert.equal(Object.hasOwn(update, 'isLive'), false);
 });
 
-test('Safari MP4 metadata probe parses duration together with track dimensions', async () => {
-  const popup = loadPopupRuntime();
-  const buffer = new ArrayBuffer(256);
-  const bytes = new Uint8Array(buffer);
-  const view = new DataView(buffer);
-  bytes.set(Buffer.from('mvhd'), 8);
-  view.setUint32(24, 1000);
-  view.setUint32(28, 65000);
-  bytes.set(Buffer.from('tkhd'), 64);
-  view.setUint32(144, 1920 * 65536);
-  view.setUint32(148, 1080 * 65536);
-  popup.XMLHttpRequest = class FakeXMLHttpRequest {
-    open() {}
-    setRequestHeader() {}
-    abort() {}
-    send() {
-      this.status = 206;
-      this.response = buffer;
-      setTimeout(() => this.onload?.(), 0);
+for (const videoTrackOffset of [64, 192, null]) {
+  test(`Safari MP4 probe preserves video dimensions across audio tracks (${videoTrackOffset})`, async () => {
+    const popup = loadPopupRuntime();
+    const buffer = new ArrayBuffer(384);
+    const bytes = new Uint8Array(buffer);
+    const view = new DataView(buffer);
+    bytes.set(Buffer.from('mvhd'), 8);
+    view.setUint32(24, 1000);
+    view.setUint32(28, 65000);
+    for (const offset of [64, 192]) bytes.set(Buffer.from('tkhd'), offset);
+    if (videoTrackOffset !== null) {
+      view.setUint32(videoTrackOffset + 80, 1920 * 65536);
+      view.setUint32(videoTrackOffset + 84, 1080 * 65536);
     }
-  };
+    popup.XMLHttpRequest = class FakeXMLHttpRequest {
+      open() {}
+      setRequestHeader() {}
+      abort() {}
+      send() {
+        this.status = 206;
+        this.response = buffer;
+        setTimeout(() => this.onload?.(), 0);
+      }
+    };
 
-  const result = await popup.probeMediaMetadataInMainWorld('https://cdn.example.com/video.m4s');
-  assert.equal(result.ok, true);
-  assert.equal(result.width, 1920);
-  assert.equal(result.height, 1080);
-  assert.equal(result.duration, 65);
-  assert.equal(result.kind, 'video');
-});
+    const result = await popup.probeMediaMetadataInMainWorld('https://cdn.example.com/video.m4s');
+    assert.equal(result.ok, true);
+    assert.equal(result.width, videoTrackOffset === null ? 0 : 1920);
+    assert.equal(result.height, videoTrackOffset === null ? 0 : 1080);
+    assert.equal(result.duration, 65);
+    assert.equal(result.kind, videoTrackOffset === null ? 'audio' : 'video');
+  });
+
+}
 
 test('Safari metadata probe rejects a successful response without metadata', async () => {
   const popup = loadPopupRuntime();

@@ -470,8 +470,13 @@
             bytes[index + 2] === 0x68 && bytes[index + 3] === 0x64) {
           const dimensionOffset = bytes[index + 4] === 1 ? 92 : 80;
           if (index + dimensionOffset + 8 <= bytes.length) {
-            width = Math.round(view.getUint32(index + dimensionOffset) / 65536);
-            height = Math.round(view.getUint32(index + dimensionOffset + 4) / 65536);
+            const trackWidth = Math.round(view.getUint32(index + dimensionOffset) / 65536);
+            const trackHeight = Math.round(view.getUint32(index + dimensionOffset + 4) / 65536);
+            // Audio tracks have zero dimensions; preserve the video track's size.
+            if (trackWidth > 0 && trackHeight > 0 && trackWidth * trackHeight > width * height) {
+              width = trackWidth;
+              height = trackHeight;
+            }
           }
         }
       }
