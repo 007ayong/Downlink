@@ -172,6 +172,12 @@
           try { window.close(); } catch {}
         } else if (response.recoveryMode === 'stay') {
           const showStatus = () => {
+            // Keep the document styled even if Safari misses declarative CSS
+            // injection during a DNR redirect. The native bridge CSP allows
+            // this packaged stylesheet, but continues to reject inline styles.
+            const stylesheet = document.createElement('link');
+            stylesheet.rel = 'stylesheet';
+            stylesheet.href = chrome.runtime.getURL('bridge-status.css');
             const message = (key, fallback) => chrome.i18n?.getMessage?.(key) || fallback;
             const page = document.createElement('main');
             page.className = 'downlink-bridge-status';
@@ -209,7 +215,18 @@
               details.append(back);
             }
             document.title = `${title.textContent} · Downlink`;
-            document.body.append(page);
+            // A dynamically added stylesheet does not block rendering. Wait
+            // for it before mounting to avoid an unstyled top-left flash.
+            // If loading fails, retain the declaratively injected CSS path.
+            let mounted = false;
+            const mount = () => {
+              if (mounted) return;
+              mounted = true;
+              document.body.append(page);
+            };
+            stylesheet.addEventListener('load', mount, { once: true });
+            stylesheet.addEventListener('error', mount, { once: true });
+            document.head.append(stylesheet);
           };
           if (document.body) showStatus();
           else document.addEventListener('DOMContentLoaded', showStatus, { once: true });

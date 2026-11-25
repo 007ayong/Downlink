@@ -88,6 +88,23 @@ function readSafariBackground() {
   return fs.readFileSync(safariBackgroundPath, 'utf8');
 }
 
+test('Safari bridge styles cover every frame where the bridge script can render', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(safariBackgroundPath), 'manifest.json'), 'utf8'));
+  const bridgeStyles = manifest.content_scripts.find((entry) => entry.css?.includes('bridge-status.css'));
+  const bridgeScript = manifest.content_scripts.find((entry) => entry.js?.includes('content-script.js'));
+
+  assert.ok(bridgeStyles);
+  assert.ok(bridgeScript);
+  assert.equal(bridgeScript.all_frames, true);
+  assert.equal(bridgeStyles.all_frames, bridgeScript.all_frames);
+  assert.equal(bridgeStyles.run_at, 'document_start');
+  assert.deepEqual(bridgeStyles.matches, ['http://127.0.0.1/downlink-dnr/*']);
+  const stylesheetAccess = manifest.web_accessible_resources.find((entry) => entry.resources.includes('bridge-status.css'));
+  assert.deepEqual(stylesheetAccess.matches, ['http://127.0.0.1/*']);
+  const host = fs.readFileSync(safariAppDelegatePath, 'utf8');
+  assert.match(host, /default-src 'none'; style-src safari-web-extension:; img-src safari-web-extension:/);
+});
+
 test('Safari sends local downloader HTTP requests through the native loopback bridge', () => {
   const background = readSafariBackground();
   const handler = fs.readFileSync(safariHandlerPath, 'utf8');

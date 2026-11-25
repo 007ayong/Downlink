@@ -69,6 +69,7 @@ function loadContentScript({
   querySelector = () => null,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
+  documentOverrides = {},
 } = {}) {
   const listeners = {};
   let messageListener;
@@ -120,12 +121,13 @@ function loadContentScript({
         listeners[type] ||= [];
         listeners[type].push({ listener, options });
       },
+      ...documentOverrides,
     },
     chrome: {
       runtime: {
         onMessage: { addListener(listener) { messageListener = listener; } },
-        getURL() {
-          return runtimeUrl;
+        getURL(resource = '') {
+          return runtimeUrl + resource;
         },
         sendMessage: sendMessage || (async () => ({ ok: true })),
       },
@@ -305,6 +307,40 @@ test('Safari local DNR bridge does not replay redirect history when background r
   assert.equal(runtime.historyBackCount, 0);
   assert.equal(runtime.windowCloseCount, 0);
 });
+
+for (const stylesheetEvent of ['load', 'error']) {
+  test(`Safari retained bridge waits for stylesheet ${stylesheetEvent} before rendering`, async () => {
+    const element = (tagName) => ({
+      tagName,
+      children: [],
+      listeners: {},
+      append(...children) { this.children.push(...children); },
+      setAttribute() {},
+      addEventListener(type, listener) { this.listeners[type] = listener; },
+    });
+    const head = element('head');
+    const body = element('body');
+    const runtime = loadContentScript({
+      runtimeUrl: 'safari-web-extension://test/',
+      initialLocation: 'http://127.0.0.1:49152/downlink-dnr/123e4567-e89b-12d3-a456-426614174000/#https://files.example/release.zip',
+      documentOverrides: { head, body, createElement: element },
+      sendMessage: async () => ({ ok: true, bridgeHandled: true, recoveryMode: 'stay' }),
+    });
+
+    await flushAsyncHandlers();
+
+    assert.equal(head.children.length, 1);
+    assert.equal(head.children[0].tagName, 'link');
+    assert.equal(head.children[0].rel, 'stylesheet');
+    assert.equal(head.children[0].href, 'safari-web-extension://test/bridge-status.css');
+    assert.equal(body.children.length, 0);
+    head.children[0].listeners[stylesheetEvent]();
+    assert.equal(body.children[0].className, 'downlink-bridge-status');
+    head.children[0].listeners[stylesheetEvent === 'load' ? 'error' : 'load']();
+    assert.equal(body.children.length, 1);
+    assert.equal(runtime.historyBackCount, 0);
+  });
+}
 
 test('direct file clicks are left to browser download creation', async () => {
   const messages = [];

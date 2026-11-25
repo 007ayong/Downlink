@@ -144,7 +144,7 @@ private final class PersistentLocalDNRBridge {
         let body = isHealth ? "{\"service\":\"downlink\",\"protocol\":1}" : "<!doctype html><meta charset=utf-8><title>Downlink</title>"
         let contentType = isHealth ? "application/json" : "text/html; charset=utf-8"
         let response = healthy
-            ? "HTTP/1.1 200 OK\r\nContent-Type: \(contentType)\r\nContent-Security-Policy: default-src 'none'; img-src safari-web-extension:\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: \(body.utf8.count)\r\n\r\n\(body)"
+            ? "HTTP/1.1 200 OK\r\nContent-Type: \(contentType)\r\nContent-Security-Policy: default-src 'none'; style-src safari-web-extension:; img-src safari-web-extension:\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: \(body.utf8.count)\r\n\r\n\(body)"
             : "HTTP/1.1 404 Not Found\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
         sendAll(Data(response.utf8), to: clientSocket)
         Darwin.shutdown(clientSocket, SHUT_RDWR)

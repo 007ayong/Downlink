@@ -22,7 +22,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "icons/icon300.png"
+        "icons/icon300.png",
+        "bridge-status.css"
       ],
       "matches": [
         "http://127.0.0.1/*"
@@ -75,7 +76,8 @@
       "css": [
         "bridge-status.css"
       ],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "all_frames": true
     },
     {
       "matches": [
