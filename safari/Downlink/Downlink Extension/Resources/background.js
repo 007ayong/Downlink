@@ -535,7 +535,6 @@ async function loadStoredConfig() {
   // Migrate older sync-backed profiles, preserving the device's saved values
   // even when Safari returns an older, nonempty sync snapshot after restart.
   const restored = { ...DEFAULT_CONFIG, ...syncStored, ...localConfig };
-  restored.safariDownloadRuleOverrides ??= globalThis.ConfigDefaults.getSafariDownloadRuleOverrides(restored.safariDownloadAllowlist);
   // An unreadable store is not an empty store. Never commit fallback values
   // or a migration marker until every required read has succeeded.
   if (canMigrate) {

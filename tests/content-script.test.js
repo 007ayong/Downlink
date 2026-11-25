@@ -864,3 +864,24 @@ test('Bilibili bangumi names the initial player CID from the server-rendered epi
   const response = page.readMediaPageTitle(['815297421', '123']);
   assert.deepEqual(JSON.parse(JSON.stringify(response.titlesByCid)), [['815297421', '哆啦A梦 第一季第1集']]);
 });
+
+test('Safari captures extensionless GitHub release assets but leaves release pages alone', async () => {
+  for (const path of [
+    'download/v1.2.18/software-info-api-v1.2.18-linux-amd64',
+    'latest/download/software-info-api-linux-amd64',
+    'tag/v1.2.18',
+    'download/v1.2.18',
+  ]) {
+    const messages = [];
+    const runtime = loadContentScript({
+      runtimeUrl: 'safari-web-extension://test/',
+      sendMessage: async (message) => { messages.push(message); return { ok: true }; },
+    });
+    await flushAsyncHandlers();
+    const url = `https://github.com/WinApps-share/software-info-api/releases/${path}`;
+    const event = await runtime.dispatchClick(createElement({ href: url }));
+    const isAsset = path.includes('/software-info-api');
+    assert.equal(event.defaultPrevented, isAsset, path);
+    assert.equal(actionableMessages(messages).some((message) => message.type === 'CAPTURE_LINK_DOWNLOAD'), isAsset, path);
+  }
+});

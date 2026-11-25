@@ -923,3 +923,32 @@ test('blacklist edits survive additions to both built-in lists', () => {
   assert.equal(updated.resolveDownloadInterceptionBlacklist('', download), 'new-download.example');
   assert.equal(updated.resolveDownloadInterceptionBlacklist('', null), 'new-download.example');
 });
+
+test('Safari DNR captures complete extensionless GitHub release asset URLs', () => {
+  const rules = loadSafariRedirectPatternBuilder()({ captureExtensions: 'zip' });
+  const capture = (url) => rules.map(({ regexFilter }) => new RegExp(regexFilter).exec(url)?.[1]).find(Boolean);
+  for (const path of ['download/v1.2.18/software-info-api-v1.2.18-linux-amd64', 'latest/download/software-info-api-linux-amd64']) {
+    const url = `https://github.com/WinApps-share/software-info-api/releases/${path}?token=a%2Fb`;
+    assert.equal(capture(url), url);
+  }
+  for (const url of [
+    'https://github.com/WinApps-share/software-info-api/releases/tag/v1.2.18',
+    'https://github.com/WinApps-share/software-info-api/releases/download/v1.2.18',
+    'https://github.com.evil.example/WinApps-share/software-info-api/releases/download/v1/file',
+  ]) assert.equal(capture(url), undefined);
+});
+
+test('existing Safari allowlists inherit GitHub defaults and can remove them', () => {
+  const { DEFAULT_SAFARI_DOWNLOAD_ALLOWLIST, getSafariDownloadRuleOverrides, resolveSafariDownloadRules } = require('../lib/config-defaults.js');
+  const previous = 'download.winapps.cc/download/';
+  const custom = 'cdn.example.com/file';
+  assert.equal(resolveSafariDownloadRules(previous), DEFAULT_SAFARI_DOWNLOAD_ALLOWLIST);
+  assert.equal(resolveSafariDownloadRules(custom), `github.com/*/*/releases/download/*/*, github.com/*/*/releases/latest/download/*, ${custom}`);
+
+  const overrides = getSafariDownloadRuleOverrides(previous);
+  const allowlist = resolveSafariDownloadRules(previous, overrides);
+  assert.equal(allowlist, previous);
+  const url = 'https://github.com/owner/repo/releases/download/v1/binary';
+  const rules = loadSafariRedirectPatternBuilder()({ captureExtensions: 'zip', safariDownloadAllowlist: allowlist });
+  assert.equal(rules.some(({ regexFilter }) => new RegExp(regexFilter).test(url)), false);
+});
